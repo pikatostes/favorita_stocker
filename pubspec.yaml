@@ -1,5 +1,5 @@
 name: favorita_stocker
-description: "A new Flutter project."
+description: "Control de stock y previsión de reposición para el bar."
 publish_to: 'none'
 version: 0.1.0
 
@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  sqflite: ^2.3.0
 
 dev_dependencies:
   flutter_test:
