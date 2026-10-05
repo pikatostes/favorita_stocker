@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../db.dart';
 import '../models.dart';
+import '../widgets/category_tabs.dart';
 
 class ProductosScreen extends StatefulWidget {
   const ProductosScreen({super.key});
@@ -10,6 +11,7 @@ class ProductosScreen extends StatefulWidget {
 
 class _ProductosScreenState extends State<ProductosScreen> {
   late Future<List<Product>> _future = Db.i.products();
+  String? _cat; // pestaña visible
 
   void _reload() {
     if (mounted) setState(() => _future = Db.i.products());
@@ -35,14 +37,15 @@ class _ProductosScreenState extends State<ProductosScreen> {
   /// Alta (p == null) o edición de un producto.
   Future<void> _edit([Product? p]) async {
     final name = TextEditingController(text: p?.name ?? '');
-    final cat = TextEditingController(text: p?.category ?? 'Cervezas y similares');
+    final cat = TextEditingController(
+        text: p?.category ?? _cat ?? 'Cervezas y similares');
     final units = TextEditingController(text: '${p?.unitsPerBox ?? 24}');
     final size = TextEditingController(text: _n(p?.size ?? 1));
     final height = TextEditingController(text: _n(p?.height ?? 1));
     final format = TextEditingController(text: '${p?.format ?? 1}');
     final crate = TextEditingController(text: p?.crateName ?? '');
     final trip = TextEditingController(text: '${p?.tripCapacity ?? 5}');
-    const num = TextInputType.numberWithOptions(decimal: true);
+    const decimal = TextInputType.numberWithOptions(decimal: true);
 
     final ok = await showDialog<bool>(
       context: context,
@@ -64,13 +67,13 @@ class _ProductosScreenState extends State<ProductosScreen> {
               Expanded(
                   child: TextField(
                       controller: size,
-                      keyboardType: num,
+                      keyboardType: decimal,
                       decoration: const InputDecoration(labelText: 'Tamaño'))),
               const SizedBox(width: 8),
               Expanded(
                   child: TextField(
                       controller: height,
-                      keyboardType: num,
+                      keyboardType: decimal,
                       decoration: const InputDecoration(labelText: 'Altura'))),
               const SizedBox(width: 8),
               Expanded(
@@ -146,27 +149,23 @@ class _ProductosScreenState extends State<ProductosScreen> {
             if (s.data!.isEmpty) {
               return const Center(child: Text('Añade tu primer producto con +'));
             }
-            final children = <Widget>[];
-            String? last;
-            for (final p in s.data!) {
-              if (p.category != last) {
-                last = p.category;
-                children.add(Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                  child: Text(p.category,
-                      style: Theme.of(context).textTheme.titleSmall),
-                ));
-              }
-              children.add(ListTile(
-                title: Text(p.name),
-                subtitle: Text(p.boxInfo),
-                onTap: () => _edit(p),
-                trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _delete(p)),
-              ));
-            }
-            return ListView(children: children);
+            return CategoryTabs(
+              products: s.data!,
+              onCategory: (c) => _cat = c,
+              builder: (_, list) => ListView(
+                padding: const EdgeInsets.only(bottom: 90),
+                children: list
+                    .map((p) => ListTile(
+                          title: Text(p.name),
+                          subtitle: Text(p.boxInfo),
+                          onTap: () => _edit(p),
+                          trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _delete(p)),
+                        ))
+                    .toList(),
+              ),
+            );
           },
         ),
       );

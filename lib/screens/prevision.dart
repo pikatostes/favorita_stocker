@@ -4,6 +4,7 @@ import '../db.dart';
 import '../models.dart';
 import '../prediction.dart';
 import '../schedule.dart';
+import 'plan.dart';
 
 class _View {
   final DateTime target;

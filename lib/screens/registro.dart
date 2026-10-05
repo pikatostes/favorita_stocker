@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../db.dart';
 import '../models.dart';
 import '../schedule.dart';
+import '../widgets/category_tabs.dart';
 import 'plan.dart';
 
 /// Introducir la lista de lo gastado esa noche (la de las ~3:00).
@@ -15,7 +16,8 @@ class RegistroScreen extends StatefulWidget {
 class _RegistroScreenState extends State<RegistroScreen> {
   // La noche empieza a las 16:00: a las 3:00 sigue siendo la de "ayer".
   DateTime _date = Schedule.serviceDay(DateTime.now());
-  final Map<int, int> _qty = {};
+  final Map<int, int> _qty = {}; // botellines gastados
+  final Map<int, int> _boxes = {}; // cajas completas pedidas
   late Future<List<Product>> _future = Db.i.products();
 
   void _reload() {
@@ -44,17 +46,70 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   Future<void> _save() async {
-    if (_qty.values.every((q) => q == 0)) {
+    final hasLoose = _qty.values.any((q) => q > 0);
+    final hasBoxes = _boxes.values.any((q) => q > 0);
+    if (!hasLoose && !hasBoxes) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Añade algún botellín a la lista')));
+          const SnackBar(content: Text('Añade algún botellín o caja a la lista')));
       return;
     }
     final qty = Map<int, int>.from(_qty);
-    await Db.i.saveNight(Schedule.fmt(_date), qty);
+    final boxes = Map<int, int>.from(_boxes);
+    // Solo lo gastado cuenta como consumo. Las cajas completas pedidas son
+    // reposición y no se guardan en el histórico (falsearían la previsión).
+    if (hasLoose) await Db.i.saveNight(Schedule.fmt(_date), qty);
     if (!mounted) return;
-    setState(_qty.clear);
-    Navigator.push(context,
-        MaterialPageRoute(builder: (_) => PlanScreen(qty: qty)));
+    setState(() {
+      _qty.clear();
+      _boxes.clear();
+    });
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => PlanScreen(qty: qty, fullBoxes: boxes)));
+  }
+
+  Widget _tile(Product p) {
+    final q = _qty[p.id] ?? 0;
+    final fb = _boxes[p.id] ?? 0;
+    return ListTile(
+      title: Text(p.name),
+      subtitle: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Icon(Icons.inventory_2_outlined,
+              size: 16, color: fb > 0 ? Theme.of(context).colorScheme.primary : null),
+          const SizedBox(width: 4),
+          Text(fb == 0
+              ? 'Cajas completas'
+              : '$fb ${fb == 1 ? "caja completa" : "cajas completas"} (${fb * p.unitsPerBox} uds)'),
+          IconButton(
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              icon: const Icon(Icons.remove),
+              onPressed:
+                  fb > 0 ? () => setState(() => _boxes[p.id!] = fb - 1) : null),
+          IconButton(
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              icon: const Icon(Icons.add),
+              onPressed: () => setState(() => _boxes[p.id!] = fb + 1)),
+        ],
+      ),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(
+            icon: const Icon(Icons.remove_circle_outline),
+            onPressed: q > 0 ? () => setState(() => _qty[p.id!] = q - 1) : null),
+        SizedBox(
+            width: 32,
+            child: Text('$q',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium)),
+        IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: () => setState(() => _qty[p.id!] = q + 1)),
+      ]),
+    );
   }
 
   @override
@@ -77,43 +132,26 @@ class _RegistroScreenState extends State<RegistroScreen> {
           future: _future,
           builder: (_, s) {
             if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            if (s.data!.isEmpty) {
+            final products = s.data!;
+            if (products.isEmpty) {
               return const Center(
                   child: Text('Primero añade productos en la pestaña Productos'));
             }
-            final children = <Widget>[];
-            String? last;
-            for (final p in s.data!) {
-              if (p.category != last) {
-                last = p.category;
-                children.add(Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                  child: Text(p.category,
-                      style: Theme.of(context).textTheme.titleSmall),
-                ));
-              }
-              final q = _qty[p.id] ?? 0;
-              children.add(ListTile(
-                title: Text(p.name),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  IconButton(
-                      icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: q > 0
-                          ? () => setState(() => _qty[p.id!] = q - 1)
-                          : null),
-                  SizedBox(
-                      width: 32,
-                      child: Text('$q',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleMedium)),
-                  IconButton(
-                      icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () => setState(() => _qty[p.id!] = q + 1)),
-                ]),
-              ));
-            }
-            return ListView(
-                padding: const EdgeInsets.only(bottom: 90), children: children);
+            return CategoryTabs(
+              products: products,
+              badge: (cat) {
+                final n = products
+                    .where((p) =>
+                        p.category == cat &&
+                        ((_qty[p.id] ?? 0) > 0 || (_boxes[p.id] ?? 0) > 0))
+                    .length;
+                return n == 0 ? '' : ' ($n)';
+              },
+              builder: (_, list) => ListView(
+                padding: const EdgeInsets.only(bottom: 90),
+                children: list.map(_tile).toList(),
+              ),
+            );
           },
         ),
       );

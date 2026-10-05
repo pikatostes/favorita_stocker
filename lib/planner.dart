@@ -11,8 +11,9 @@ class Crate {
   final String name;
   final int capacity; // botellines que caben
   final int cost; // espacio que ocupa en el carro (en unidades enteras)
+  final bool dedicated; // caja completa de un solo producto
   final List<CrateLine> lines = [];
-  Crate(this.name, this.capacity, this.cost);
+  Crate(this.name, this.capacity, this.cost, {this.dedicated = false});
   int get filled => lines.fold(0, (s, l) => s + l.qty);
 }
 
@@ -33,24 +34,40 @@ class Plan {
 
 /// Monta las cajas y las reparte en viajes.
 ///
-/// 1. Solo se mezclan en una misma caja productos con el mismo tamaño,
-///    altura, formato y unidades por caja. Por cada grupo se necesitan
-///    ceil(botellines / unidades por caja) cajas, el mínimo posible.
-///    Las cajas se llenan de una en una para que cada producto quede junto.
-/// 2. Cada tipo de caja ocupa 1/N del carro (N = cajas de ese tipo por viaje:
-///    5 de cerveza, 6 de cola, 5 de agua...). Se mezclan tipos en un viaje
-///    sumando esas fracciones hasta completar 1 (first-fit decreasing).
+/// 0. Cajas completas de un solo producto: las que se piden expresamente
+///    ([fullBoxes]) y, si [preferFull], las que salen de dividir cada
+///    producto entre las unidades por caja. Van aparte, sin mezclar.
+/// 1. El resto de botellines se mezcla: solo entre productos con el mismo
+///    tamaño, altura, formato y unidades por caja, llenando las cajas de una
+///    en una (mínimo de cajas posible para el sobrante).
+/// 2. Cada tipo de caja ocupa 1/N del carro (N = cajas de ese tipo por viaje)
+///    y se reparten en viajes sumando fracciones hasta 1 (first-fit decreasing).
 class Planner {
   static int _gcd(int a, int b) => b == 0 ? a : _gcd(b, a % b);
   static int _lcm(int a, int b) => a ~/ _gcd(a, b) * b;
 
-  static Plan build(List<Product> products, Map<int, int> qty) {
+  static Plan build(
+    List<Product> products,
+    Map<int, int> qty, {
+    Map<int, int> fullBoxes = const {},
+    bool preferFull = false,
+  }) {
     final groups = <String, List<Product>>{};
+    final loose = <int, int>{}; // botellines a mezclar
+    final boxes = <int, int>{}; // cajas completas
     var bottles = 0;
+
     for (final p in products) {
-      final q = qty[p.id] ?? 0;
-      if (q <= 0) continue;
-      bottles += q;
+      var l = qty[p.id] ?? 0;
+      var b = fullBoxes[p.id] ?? 0;
+      if (preferFull && p.unitsPerBox > 0) {
+        b += l ~/ p.unitsPerBox;
+        l = l % p.unitsPerBox;
+      }
+      if (l <= 0 && b <= 0) continue;
+      loose[p.id!] = l;
+      boxes[p.id!] = b;
+      bottles += l + b * p.unitsPerBox;
       groups
           .putIfAbsent(
               '${p.size}|${p.height}|${p.format}|${p.unitsPerBox}', () => [])
@@ -58,28 +75,40 @@ class Planner {
     }
     if (groups.isEmpty) return Plan([], 0);
 
-    final perTrip = {
+    final perTrip = <String, int>{
       for (final e in groups.entries)
         e.key: e.value.map((p) => max(1, p.tripCapacity)).reduce(min),
     };
-    var l = 1; // capacidad del carro en unidades enteras
+    var carro = 1; // capacidad del carro en unidades enteras
     for (final c in perTrip.values) {
-      l = _lcm(l, c);
+      carro = _lcm(carro, c);
     }
 
-    // 1) Montar cajas
     final crates = <Crate>[];
     for (final e in groups.entries) {
-      final g = [...e.value]..sort((a, b) => qty[b.id]!.compareTo(qty[a.id]!));
+      final g = e.value;
       final units = g.first.unitsPerBox;
       final name = g.first.crateName.isEmpty ? 'Caja' : g.first.crateName;
-      final cost = l ~/ perTrip[e.key]!;
-      Crate? cur;
+      final cost = carro ~/ perTrip[e.key]!;
+
+      // 0) Cajas completas de un solo producto
       for (final p in g) {
-        var left = qty[p.id]!;
+        for (var i = 0; i < boxes[p.id]!; i++) {
+          final c = Crate(name, units, cost, dedicated: true);
+          c.lines.add(CrateLine(p, units));
+          crates.add(c);
+        }
+      }
+
+      // 1) Cajas mezcladas con el resto
+      final mixed = g.where((p) => loose[p.id]! > 0).toList()
+        ..sort((a, b) => loose[b.id]!.compareTo(loose[a.id]!));
+      Crate? cur;
+      for (final p in mixed) {
+        var left = loose[p.id]!;
         while (left > 0) {
           final c = cur ?? (cur = Crate(name, units, cost));
-          final take = min(left, units - c.filled);
+          final take = min<int>(left, units - c.filled);
           c.lines.add(CrateLine(p, take));
           left -= take;
           if (c.filled >= units) {
@@ -100,13 +129,13 @@ class Planner {
     for (final c in crates) {
       Trip? t;
       for (final x in trips) {
-        if (x.load + c.cost <= l) {
+        if (x.load + c.cost <= carro) {
           t = x;
           break;
         }
       }
       if (t == null) {
-        t = Trip(l);
+        t = Trip(carro);
         trips.add(t);
       }
       t.crates.add(c);
