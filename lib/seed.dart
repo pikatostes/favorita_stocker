@@ -5,10 +5,12 @@ class _Box {
   final String name;
   final int units, format, trip;
   final double size, height;
-  const _Box(this.name, this.units, this.size, this.height, this.format, this.trip);
+  const _Box(
+      this.name, this.units, this.size, this.height, this.format, this.trip);
 }
 
-const _cola = _Box('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
+const _cola = ['Original', 'Zero', 'Zero Zero', 'Light'];
+const _cajaCola = _Box('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
 const _nestea = _Box('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
 const _cerveza = _Box('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
 const _aquabona = _Box('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
@@ -43,26 +45,31 @@ final List<Product> initialProducts = [
   _p('Ladrón de manzanas', _cervezas, _cerveza),
   _p('Cruzcampo Gran Reserva', _cervezas, _cerveza),
   _p('Paulaner', _cervezas, _cerveza, size: 2, crate: 'Cerveza grande'),
-  _p('Águila sin filtrar', _cervezas, _cerveza, size: 2, crate: 'Cerveza grande'),
+  _p('Águila sin filtrar', _cervezas, _cerveza,
+      size: 2, crate: 'Cerveza grande'),
   _p('Guinness', _cervezas, _cerveza),
   _p('Cruzcampo Radler', _cervezas, _cerveza),
   _p('Alcázar', _cervezas, _cerveza),
 
   // Refrescos y zumos
-  _p('Coca-Cola', _refrescos, _cola),
-  _p('Coca-Cola Zero', _refrescos, _cola), // SUPUESTO: como la normal
-  _p('Coca-Cola Zero Zero', _refrescos, _cola), // SUPUESTO
-  _p('Fanta Naranja', _refrescos, _cola), // SUPUESTO
-  _p('Tónica Bliss', _refrescos, _cola), // SUPUESTO
-  _p('Bliss Limón', _refrescos, _cola), // SUPUESTO
-  _p('Bliss Berry', _refrescos, _cola), // SUPUESTO
+  ..._cola.map((subcategoria) => _p(
+        subcategoria == 'Original' ? 'Coca-Cola' : 'Coca-Cola $subcategoria',
+        _refrescos,
+        _cajaCola,
+      )),
+  _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
+  _p('Tónica Bliss', _refrescos, _cajaCola), // SUPUESTO
+  _p('Bliss Limón', _refrescos, _cajaCola), // SUPUESTO
+  _p('Bliss Berry', _refrescos, _cajaCola), // SUPUESTO
   _p('Nestea Maracuyá', _refrescos, _nestea, height: 2, crate: 'Nestea alto'),
   _p('Nestea Limón', _refrescos, _nestea, height: 2, crate: 'Nestea alto'),
-  _p('Aquarius Naranja', _refrescos, _nestea, height: 2, crate: 'Nestea alto'), // SUPUESTO
-  _p('Aquarius Limón', _refrescos, _nestea, height: 2, crate: 'Nestea alto'), // SUPUESTO
-  _p('Zumo Piña', _refrescos, _cola), // SUPUESTO
-  _p('Zumo Melocotón', _refrescos, _cola), // SUPUESTO
-  _p('Zumo Naranja', _refrescos, _cola), // SUPUESTO
-  _p('Ginger Ale', _refrescos, _cola), // SUPUESTO
+  _p('Aquarius Naranja', _refrescos, _nestea,
+      height: 2, crate: 'Nestea alto'), // SUPUESTO
+  _p('Aquarius Limón', _refrescos, _nestea,
+      height: 2, crate: 'Nestea alto'), // SUPUESTO
+  _p('Zumo Piña', _refrescos, _cajaCola), // SUPUESTO
+  _p('Zumo Melocotón', _refrescos, _cajaCola), // SUPUESTO
+  _p('Zumo Naranja', _refrescos, _cajaCola), // SUPUESTO
+  _p('Ginger Ale', _refrescos, _cajaCola), // SUPUESTO
   _p('Agua Aquabona', _refrescos, _aquabona),
 ];
