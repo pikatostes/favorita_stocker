@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'db.dart';
-import 'seed.dart';
+import 'seed_runner.dart';
 import 'screens/home.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es');
-  await Db.i.seedIfEmpty(initialProducts);
+  await initializeSeedData();
   await Db.i.purgeOld(); // borra lo que supere los 2 años de histórico
   runApp(const StockBarApp());
 }

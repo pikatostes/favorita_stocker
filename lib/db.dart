@@ -20,18 +20,23 @@ class Db {
     final path = join(await getDatabasesPath(), 'stock_bar.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 6,
       onCreate: (d, _) async {
         await d.execute('''CREATE TABLE products(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           category TEXT NOT NULL DEFAULT 'Otros',
+          group_name TEXT,
+          subcategory TEXT,
           units_per_box INTEGER NOT NULL DEFAULT 24,
           size REAL NOT NULL DEFAULT 1,
           height REAL NOT NULL DEFAULT 1,
           format INTEGER NOT NULL DEFAULT 1,
           crate_name TEXT NOT NULL DEFAULT '',
           trip_capacity INTEGER NOT NULL DEFAULT 5)''');
+        await d.execute('''CREATE TABLE app_metadata(
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL)''');
         await d.execute('''CREATE TABLE consumption(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           product_id INTEGER NOT NULL,
@@ -51,17 +56,15 @@ class Db {
         if (oldV < 4) {
           await d.execute("ALTER TABLE products ADD COLUMN crate_name TEXT NOT NULL DEFAULT ''");
           await d.execute('ALTER TABLE products ADD COLUMN trip_capacity INTEGER NOT NULL DEFAULT 5');
-          // Rellena los productos iniciales ya existentes según su tipo de caja.
-          Future<void> tag(double s, double h, int f, String n, int trip) =>
-              d.execute(
-                  'UPDATE products SET crate_name=?, trip_capacity=? WHERE size=? AND height=? AND format=?',
-                  [n, trip, s, h, f]);
-          await tag(1, 0.5, 1, 'Cola', 6);
-          await tag(1, 1, 1, 'Nestea', 5);
-          await tag(1, 2, 1, 'Nestea alto', 5);
-          await tag(1, 1, 2, 'Cerveza', 5);
-          await tag(2, 1, 2, 'Cerveza grande', 5);
-          await tag(2, 1, 3, 'Agua', 5);
+        }
+        if (oldV < 5) {
+          await d.execute('ALTER TABLE products ADD COLUMN group_name TEXT');
+          await d.execute('ALTER TABLE products ADD COLUMN subcategory TEXT');
+        }
+        if (oldV < 6) {
+          await d.execute('''CREATE TABLE app_metadata(
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL)''');
         }
       },
     );
@@ -91,34 +94,37 @@ class Db {
   }
 
   Future<void> addProduct(Product p) async {
+    final validationError = p.validationError;
+    if (validationError != null) {
+      throw ArgumentError.value(p, 'product', validationError);
+    }
     await (await db).insert('products', p.toMap());
     _changed();
   }
 
   Future<void> updateProduct(Product p) async {
+    if (p.id == null) {
+      throw ArgumentError.value(p.id, 'id', 'El producto debe tener un id.');
+    }
+    final validationError = p.validationError;
+    if (validationError != null) {
+      throw ArgumentError.value(p, 'product', validationError);
+    }
     await (await db)
         .update('products', p.toMap(), where: 'id=?', whereArgs: [p.id]);
     _changed();
   }
 
-  /// Carga los productos iniciales solo si la tabla está vacía.
-  Future<void> seedIfEmpty(List<Product> initial) async {
-    final d = await db;
-    final n = Sqflite.firstIntValue(
-        await d.rawQuery('SELECT COUNT(*) FROM products'));
-    if ((n ?? 0) > 0) return;
-    final b = d.batch();
-    for (final p in initial) {
-      b.insert('products', p.toMap());
-    }
-    await b.commit(noResult: true);
-    _changed();
-  }
-
   Future<void> deleteProduct(int id) async {
     final d = await db;
-    await d.delete('products', where: 'id=?', whereArgs: [id]);
-    await d.delete('consumption', where: 'product_id=?', whereArgs: [id]);
+    await d.transaction((transaction) async {
+      await transaction.delete(
+        'consumption',
+        where: 'product_id = ?',
+        whereArgs: [id],
+      );
+      await transaction.delete('products', where: 'id = ?', whereArgs: [id]);
+    });
     _changed();
   }
 

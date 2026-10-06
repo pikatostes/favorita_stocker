@@ -10,16 +10,27 @@ class _Box {
 }
 
 const _cola = ['Original', 'Zero', 'Zero Zero', 'Light'];
+const _bliss = ['Tónica', 'Limón', 'Berry', 'Ginger Ale'];
+const _nestea = ['Té', 'Limón', 'Maracuyá', 'Melocotón'];
+const _aquarius = ['Naranja', 'Limón', 'Piña', 'Melocotón'];
+const _zumo = ['Piña', 'Melocotón', 'Naranja'];
+
 const _cajaCola = _Box('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
-const _nestea = _Box('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
+const _cajaNestea = _Box('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
 const _cerveza = _Box('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
 const _aquabona = _Box('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
 
 Product _p(String name, String cat, _Box b,
-        {double? size, double? height, String? crate}) =>
+        {double? size,
+        double? height,
+        String? crate,
+        String? group,
+        String? subcategory}) =>
     Product(
       name: name,
       category: cat,
+      groupName: group,
+      subcategory: subcategory,
       unitsPerBox: b.units,
       size: size ?? b.size,
       height: height ?? b.height,
@@ -56,20 +67,42 @@ final List<Product> initialProducts = [
         subcategoria == 'Original' ? 'Coca-Cola' : 'Coca-Cola $subcategoria',
         _refrescos,
         _cajaCola,
+        group: 'Coca-Cola',
+        subcategory: subcategoria,
       )),
+
+  ..._bliss.map((subcategoria) => _p(
+        subcategoria == 'Tónica' ? 'Bliss' : 'Bliss $subcategoria',
+        _refrescos,
+        _cajaCola,
+        group: 'Bliss',
+        subcategory: subcategoria,
+      )),
+
+  ..._nestea.map((subcategoria) => _p(
+        subcategoria == 'Té' ? 'Nestea' : 'Nestea $subcategoria',
+        _refrescos,
+        _cajaNestea,
+        group: 'Nestea',
+        subcategory: subcategoria,
+      )),
+
+  ..._aquarius.map((subcategoria) => _p(
+        subcategoria == 'Naranja' ? 'Aquarius' : 'Aquarius $subcategoria',
+        _refrescos,
+        _cajaNestea,
+        group: 'Aquarius',
+        subcategory: subcategoria,
+      )),
+
+  ..._zumo.map((subcategoria) => _p(
+        subcategoria == 'Piña' ? 'Zumo' : 'Zumo $subcategoria',
+        _refrescos,
+        _cajaCola,
+        group: 'Zumo',
+        subcategory: subcategoria,
+      )),
+
   _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
-  _p('Tónica Bliss', _refrescos, _cajaCola), // SUPUESTO
-  _p('Bliss Limón', _refrescos, _cajaCola), // SUPUESTO
-  _p('Bliss Berry', _refrescos, _cajaCola), // SUPUESTO
-  _p('Nestea Maracuyá', _refrescos, _nestea, height: 2, crate: 'Nestea alto'),
-  _p('Nestea Limón', _refrescos, _nestea, height: 2, crate: 'Nestea alto'),
-  _p('Aquarius Naranja', _refrescos, _nestea,
-      height: 2, crate: 'Nestea alto'), // SUPUESTO
-  _p('Aquarius Limón', _refrescos, _nestea,
-      height: 2, crate: 'Nestea alto'), // SUPUESTO
-  _p('Zumo Piña', _refrescos, _cajaCola), // SUPUESTO
-  _p('Zumo Melocotón', _refrescos, _cajaCola), // SUPUESTO
-  _p('Zumo Naranja', _refrescos, _cajaCola), // SUPUESTO
-  _p('Ginger Ale', _refrescos, _cajaCola), // SUPUESTO
   _p('Agua Aquabona', _refrescos, _aquabona),
 ];
