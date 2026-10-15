@@ -2,6 +2,7 @@ import 'db.dart';
 import 'seed.dart';
 
 const _legacyProductMetadataMigration = 'legacy_product_metadata_v1';
+const _starterProductImagesMigration = 'starter_product_images_v1';
 
 const _legacyGroups = <String, ({String group, String subcategory})>{
   'Coca-Cola': (group: 'Coca-Cola', subcategory: 'Original'),
@@ -30,15 +31,6 @@ const _legacyGroups = <String, ({String group, String subcategory})>{
 Future<void> initializeSeedData() async {
   final database = await Db.i.db;
   await database.transaction((transaction) async {
-    final migration = await transaction.query(
-      'app_metadata',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: [_legacyProductMetadataMigration],
-      limit: 1,
-    );
-    if (migration.isNotEmpty) return;
-
     final count = (await transaction.rawQuery(
       'SELECT COUNT(*) AS count FROM products',
     ))
@@ -49,6 +41,43 @@ Future<void> initializeSeedData() async {
         await transaction.insert('products', product.toMap());
       }
     }
+
+    final imageMigration = await transaction.query(
+      'app_metadata',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_starterProductImagesMigration],
+      limit: 1,
+    );
+    if (imageMigration.isEmpty) {
+      for (final product
+          in initialProducts.where((item) => item.image != null)) {
+        await transaction.update(
+          'products',
+          {'image': product.image},
+          where: 'category = ? AND name = ? AND image IS NULL',
+          whereArgs: [product.category, product.name],
+        );
+      }
+      await transaction.insert('app_metadata', {
+        'key': _starterProductImagesMigration,
+        'value': 'complete',
+      });
+    }
+
+    final migration = await transaction.query(
+      'app_metadata',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_legacyProductMetadataMigration],
+      limit: 1,
+    );
+    await transaction.execute('''INSERT OR IGNORE INTO product_groups
+        (category, name)
+      SELECT DISTINCT category, TRIM(group_name)
+      FROM products
+      WHERE group_name IS NOT NULL AND TRIM(group_name) != '' ''');
+    if (migration.isNotEmpty) return;
 
     for (final entry in _legacyGroups.entries) {
       await transaction.update(
@@ -128,6 +157,12 @@ Future<void> initializeSeedData() async {
         ],
       );
     }
+
+    await transaction.execute('''INSERT OR IGNORE INTO product_groups
+        (category, name)
+      SELECT DISTINCT category, TRIM(group_name)
+      FROM products
+      WHERE group_name IS NOT NULL AND TRIM(group_name) != '' ''');
 
     await transaction.insert('app_metadata', {
       'key': _legacyProductMetadataMigration,

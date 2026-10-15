@@ -244,17 +244,33 @@ class _RegistroScreenState extends State<RegistroScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    product.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
+              SizedBox(
+                width: double.infinity,
+                height: 96,
+                child: product.image == null || product.image!.isEmpty
+                    ? Icon(
+                        Icons.local_drink_outlined,
+                        size: 42,
+                        color: Theme.of(context).colorScheme.outline,
+                      )
+                    : Image.asset(
+                        product.image!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.broken_image_outlined,
+                          size: 42,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
               ),
+              const SizedBox(height: 4),
+              Text(
+                product.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const Spacer(),
               Align(
                 alignment: Alignment.center,
                 child: _quantityControls(product),
@@ -286,7 +302,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
-        childAspectRatio: 1.35,
+        childAspectRatio: 0.95,
       ),
       itemCount: entries.length,
       itemBuilder: (context, index) {

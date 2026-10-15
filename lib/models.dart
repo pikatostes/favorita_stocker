@@ -4,6 +4,7 @@ class Product {
   final String category;
   final String? groupName;
   final String? subcategory;
+  final String? image;
   final int unitsPerBox; // botellines por caja
   final double size; // tamaño
   final double height; // altura
@@ -17,6 +18,7 @@ class Product {
     this.category = 'Otros',
     this.groupName,
     this.subcategory,
+    this.image,
     this.unitsPerBox = 24,
     this.size = 1,
     this.height = 1,
@@ -53,6 +55,7 @@ class Product {
         category: (m['category'] as String?) ?? 'Otros',
         groupName: m['group_name'] as String?,
         subcategory: m['subcategory'] as String?,
+        image: m['image'] as String?,
         unitsPerBox: m['units_per_box'] as int,
         size: ((m['size'] as num?) ?? 1).toDouble(),
         height: ((m['height'] as num?) ?? 1).toDouble(),
@@ -66,6 +69,7 @@ class Product {
         'category': category,
         'group_name': groupName,
         'subcategory': subcategory,
+        'image': image,
         'units_per_box': unitsPerBox,
         'size': size,
         'height': height,

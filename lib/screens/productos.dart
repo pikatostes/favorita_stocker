@@ -35,11 +35,21 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
   /// Alta (p == null) o edición de un producto.
   Future<void> _edit([Product? p]) async {
+    final existingGroupImage = p?.groupName?.trim().isNotEmpty ?? false
+        ? await Db.i.productGroupImage(
+            category: p!.category,
+            name: p.groupName!,
+          )
+        : null;
+    if (!mounted) return;
+
     final name = TextEditingController(text: p?.name ?? '');
     final cat = TextEditingController(
         text: p?.category ?? _cat ?? 'Cervezas y similares');
     final group = TextEditingController(text: p?.groupName ?? '');
     final subcategory = TextEditingController(text: p?.subcategory ?? '');
+    final image = TextEditingController(text: p?.image ?? '');
+    final groupImage = TextEditingController(text: existingGroupImage ?? '');
     final units = TextEditingController(text: '${p?.unitsPerBox ?? 24}');
     final size = TextEditingController(text: _n(p?.size ?? 1));
     final height = TextEditingController(text: _n(p?.height ?? 1));
@@ -53,6 +63,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
       cat,
       group,
       subcategory,
+      image,
+      groupImage,
       units,
       size,
       height,
@@ -80,6 +92,14 @@ class _ProductosScreenState extends State<ProductosScreen> {
               TextField(
                   controller: subcategory,
                   decoration: const InputDecoration(labelText: 'Subcategoría')),
+              TextField(
+                  controller: image,
+                  decoration:
+                      const InputDecoration(labelText: 'Imagen del producto (ruta o URI)')),
+              TextField(
+                  controller: groupImage,
+                  decoration: const InputDecoration(
+                      labelText: 'Imagen general del grupo (ruta o URI)')),
               TextField(
                   controller: units,
                   keyboardType: TextInputType.number,
@@ -153,6 +173,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
         groupName: group.text.trim().isEmpty ? null : group.text.trim(),
         subcategory:
             subcategory.text.trim().isEmpty ? null : subcategory.text.trim(),
+        image: image.text.trim().isEmpty ? null : image.text.trim(),
         unitsPerBox: unitsPerBox,
         size: productSize,
         height: productHeight,
@@ -167,7 +188,14 @@ class _ProductosScreenState extends State<ProductosScreen> {
         );
         return;
       }
-      p == null ? await Db.i.addProduct(np) : await Db.i.updateProduct(np);
+      final groupName = np.groupName?.trim();
+      final groupImagePath =
+          groupName == null || groupName.isEmpty || groupImage.text.trim().isEmpty
+              ? null
+              : groupImage.text.trim();
+      p == null
+          ? await Db.i.addProduct(np, groupImage: groupImagePath)
+          : await Db.i.updateProduct(np, groupImage: groupImagePath);
     } finally {
       for (final controller in controllers) {
         controller.dispose();

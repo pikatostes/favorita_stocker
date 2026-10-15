@@ -25,12 +25,14 @@ Product _p(String name, String cat, _Box b,
         double? height,
         String? crate,
         String? group,
-        String? subcategory}) =>
+        String? subcategory,
+        String? image}) =>
     Product(
       name: name,
       category: cat,
       groupName: group,
       subcategory: subcategory,
+      image: image,
       unitsPerBox: b.units,
       size: size ?? b.size,
       height: height ?? b.height,
@@ -46,7 +48,12 @@ const _refrescos = 'Refrescos y zumos';
 /// indicado: edítalos en la pestaña Productos si no es el correcto.
 final List<Product> initialProducts = [
   // Cervezas y similares (SUPUESTO: caja tipo Cruzcampo/Heineken)
-  _p('Cruzcampo', _cervezas, _cerveza),
+  _p(
+    'Cruzcampo',
+    _cervezas,
+    _cerveza,
+    image: 'lib/img/cruzcampo.jfif',
+  ),
   _p('Heineken', _cervezas, _cerveza),
   _p('1904', _cervezas, _cerveza),
   _p('Heineken 0,0', _cervezas, _cerveza),

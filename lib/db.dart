@@ -20,7 +20,7 @@ class Db {
     final path = join(await getDatabasesPath(), 'stock_bar.db');
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (d, _) async {
         await d.execute('''CREATE TABLE products(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,12 +28,14 @@ class Db {
           category TEXT NOT NULL DEFAULT 'Otros',
           group_name TEXT,
           subcategory TEXT,
+          image TEXT,
           units_per_box INTEGER NOT NULL DEFAULT 24,
           size REAL NOT NULL DEFAULT 1,
           height REAL NOT NULL DEFAULT 1,
           format INTEGER NOT NULL DEFAULT 1,
           crate_name TEXT NOT NULL DEFAULT '',
           trip_capacity INTEGER NOT NULL DEFAULT 5)''');
+        await _createProductGroups(d);
         await d.execute('''CREATE TABLE app_metadata(
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL)''');
@@ -66,9 +68,21 @@ class Db {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL)''');
         }
+        if (oldV < 7) {
+          await d.execute('ALTER TABLE products ADD COLUMN image TEXT');
+          await _createProductGroups(d);
+        }
       },
     );
   }
+
+  Future<void> _createProductGroups(DatabaseExecutor executor) =>
+      executor.execute('''CREATE TABLE product_groups(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        image TEXT,
+        UNIQUE(category, name))''');
 
   Future<void> _createSpecialDays(Database d) => d.execute(
       '''CREATE TABLE special_days(
@@ -93,16 +107,34 @@ class Db {
     return rows.map(Product.fromMap).toList();
   }
 
-  Future<void> addProduct(Product p) async {
+  Future<void> addProduct(
+    Product p, {
+    required String? groupImage,
+  }) async {
     final validationError = p.validationError;
     if (validationError != null) {
       throw ArgumentError.value(p, 'product', validationError);
     }
-    await (await db).insert('products', p.toMap());
+    final database = await db;
+    await database.transaction((transaction) async {
+      await transaction.insert('products', p.toMap());
+      await _ensureProductGroup(transaction, p);
+      if (groupImage != null) {
+        await _saveProductGroupImage(
+          transaction,
+          category: p.category,
+          name: p.groupName,
+          image: groupImage,
+        );
+      }
+    });
     _changed();
   }
 
-  Future<void> updateProduct(Product p) async {
+  Future<void> updateProduct(
+    Product p, {
+    required String? groupImage,
+  }) async {
     if (p.id == null) {
       throw ArgumentError.value(p.id, 'id', 'El producto debe tener un id.');
     }
@@ -110,9 +142,96 @@ class Db {
     if (validationError != null) {
       throw ArgumentError.value(p, 'product', validationError);
     }
-    await (await db)
-        .update('products', p.toMap(), where: 'id=?', whereArgs: [p.id]);
+    final database = await db;
+    await database.transaction((transaction) async {
+      await transaction
+          .update('products', p.toMap(), where: 'id = ?', whereArgs: [p.id]);
+      await _ensureProductGroup(transaction, p);
+      await _saveProductGroupImage(
+        transaction,
+        category: p.category,
+        name: p.groupName,
+        image: groupImage,
+      );
+    });
     _changed();
+  }
+
+  Future<void> _ensureProductGroup(
+      DatabaseExecutor executor, Product product) async {
+    final group = product.groupName?.trim();
+    if (group == null || group.isEmpty) return;
+    await executor.insert(
+      'product_groups',
+      {'category': product.category.trim(), 'name': group},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<String?> productGroupImage({
+    required String category,
+    required String name,
+  }) async {
+    final rows = await (await db).query(
+      'product_groups',
+      columns: ['image'],
+      where: 'category = ? AND name = ?',
+      whereArgs: [category.trim(), name.trim()],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['image'] as String?;
+  }
+
+  Future<void> setProductGroupImage({
+    required String category,
+    required String name,
+    required String? image,
+  }) async {
+    if (category.trim().isEmpty || name.trim().isEmpty) {
+      throw ArgumentError('La categoría y el nombre del grupo son obligatorios.');
+    }
+    final database = await db;
+    await database.transaction((transaction) async {
+      await _saveProductGroupImage(
+        transaction,
+        category: category,
+        name: name,
+        image: image,
+      );
+    });
+    _changed();
+  }
+
+  Future<void> _saveProductGroupImage(
+    DatabaseExecutor executor, {
+    required String category,
+    required String? name,
+    required String? image,
+  }) async {
+    final normalizedCategory = category.trim();
+    final normalizedName = name?.trim() ?? '';
+    if (normalizedCategory.isEmpty || normalizedName.isEmpty) {
+      return;
+    }
+    await executor.insert(
+      'product_groups',
+      {
+        'category': normalizedCategory,
+        'name': normalizedName,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    final normalizedImage = image?.trim();
+    await executor.update(
+      'product_groups',
+      {
+        'image': normalizedImage == null || normalizedImage.isEmpty
+            ? null
+            : normalizedImage,
+      },
+      where: 'category = ? AND name = ?',
+      whereArgs: [normalizedCategory, normalizedName],
+    );
   }
 
   Future<void> deleteProduct(int id) async {
