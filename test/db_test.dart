@@ -300,5 +300,17 @@ void main() {
       ORDER BY g.name''');
     expect(groups.map((r) => r['name']).toList(),
         ['Cruzcampo', 'Heineken', 'Otros']);
+
+    // v11: se asocia la imagen del grupo Cruzcampo (Heineken/Otros no tienen).
+    final images = {
+      for (final r in await d.rawQuery('''
+        SELECT g.name AS name, g.image AS image
+        FROM product_group g
+        JOIN category c ON c.id = g.category_id
+        WHERE c.name = 'Cervezas y similares' '''))
+        r['name'] as String: r['image'],
+    };
+    expect(images['Cruzcampo'], 'lib/img/cruzcampo.jfif');
+    expect(images['Heineken'], isNull);
   });
 }

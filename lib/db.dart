@@ -16,7 +16,7 @@ class Db {
   Database? _db;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -86,6 +86,8 @@ class Db {
     if (oldV < 9) await _repairLegacyVariantGroups(d);
     // ...y la agrupación de cervezas por marca a v10.
     if (oldV < 10) await _regroupBeers(d);
+    // ...y la imagen de los grupos de variantes a v11.
+    if (oldV < 11) await _setGroupImages(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -479,6 +481,22 @@ class Db {
     );
   }
 
+  /// Asigna la imagen de los grupos de variantes conocidos (v11).
+  ///
+  /// Solo rellena los grupos que aún no tienen imagen, para no pisar la que el
+  /// usuario haya puesto desde la pestaña Productos.
+  static Future<void> _setGroupImages(Database d) async {
+    final now = _nowMs;
+    for (final entry in kGroupImages.entries) {
+      await d.update(
+        'product_group',
+        {'image': entry.value, 'updated_at': now},
+        where: "name = ? AND (image IS NULL OR image = '')",
+        whereArgs: [entry.key],
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers de catálogo (resuelven/crean entidades por nombre)
   // ---------------------------------------------------------------------------
@@ -584,6 +602,7 @@ class Db {
 
   static const String _productSelect = '''
     SELECT p.id, p.name, p.image, p.deleted_at,
+           g.image AS group_image,
            c.name AS category,
            g.name AS group_name,
            s.name AS subcategory,
@@ -853,6 +872,9 @@ class Db {
         final subcategoryId =
             await _ensureSubcategory(t, groupId: groupId, name: p.subcategory);
         final boxId = await _upsertBox(t, p.box);
+        if (p.groupImage != null) {
+          await _saveGroupImage(t, groupId, p.groupImage);
+        }
         await t.insert('product', {
           'name': p.name.trim(),
           'box_id': boxId,

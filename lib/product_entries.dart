@@ -14,6 +14,17 @@ class ProductEntry {
 
   bool get isGroup => groupName != null;
 
+  /// Imagen para la cuadrícula: la del grupo si es un grupo de variantes, o la
+  /// del propio producto si va suelto. `null` si no hay (la UI pone placeholder).
+  String? get image {
+    if (!isGroup) return products.single.image;
+    for (final product in products) {
+      final path = product.groupImage?.trim();
+      if (path != null && path.isNotEmpty) return path;
+    }
+    return null;
+  }
+
   /// Etiqueta de un producto dentro de su grupo: la subcategoría si la tiene,
   /// y si no el nombre, para no perder ninguna variante.
   static String label(Product product) {

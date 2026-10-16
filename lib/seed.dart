@@ -25,23 +25,27 @@ Product _p(
   String? group,
   String? subcategory,
   String? image,
-}) =>
-    Product(
-      name: name,
-      category: cat,
-      groupName: group ?? name,
-      subcategory: subcategory,
-      image: image,
-      box: CrateType(
-        crate ?? b.name,
-        b.units,
-        size ?? b.size,
-        height ?? b.height,
-        b.format,
-        b.trip,
-        width: b.width,
-      ),
-    );
+  String? groupImage,
+}) {
+  final groupName = group ?? name;
+  return Product(
+    name: name,
+    category: cat,
+    groupName: groupName,
+    subcategory: subcategory,
+    image: image,
+    groupImage: groupImage ?? kGroupImages[groupName],
+    box: CrateType(
+      crate ?? b.name,
+      b.units,
+      size ?? b.size,
+      height ?? b.height,
+      b.format,
+      b.trip,
+      width: b.width,
+    ),
+  );
+}
 
 /// Cerveza del grupo de variantes "Otros": su nombre es también su subcategoría.
 Product _otros(

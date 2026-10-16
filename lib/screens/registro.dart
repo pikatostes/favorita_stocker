@@ -229,6 +229,23 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
+  /// Imagen de una tarjeta de cuadrícula, con placeholder si no hay archivo.
+  Widget _gridThumb(String? path, IconData placeholder) {
+    if (path == null || path.trim().isEmpty) {
+      return Icon(placeholder,
+          size: 42, color: Theme.of(context).colorScheme.outline);
+    }
+    return Image.asset(
+      path,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => Icon(
+        Icons.broken_image_outlined,
+        size: 42,
+        color: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
   Widget _groupGridCard(ProductEntry entry) {
     final count = entry.products.fold<int>(
       0,
@@ -239,23 +256,35 @@ class _RegistroScreenState extends State<RegistroScreen> {
       child: InkWell(
         onTap: () => _chooseVariants(entry),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Expanded(
+                child: Center(
+                  child: _gridThumb(entry.image, Icons.inventory_2_outlined),
+                ),
+              ),
+              const SizedBox(height: 4),
               Text(
                 entry.groupName!,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.titleSmall,
               ),
-              const Spacer(),
-              Text('${entry.products.length} variantes'),
+              const SizedBox(height: 2),
               Row(
                 children: [
-                  const Icon(Icons.expand_more, size: 20),
-                  const Spacer(),
-                  if (count > 0) Text('$count añadidos'),
+                  Expanded(
+                    child: Text(
+                      '${entry.products.length} variantes',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  if (count > 0)
+                    Text('$count',
+                        style: Theme.of(context).textTheme.labelLarge),
+                  const Icon(Icons.expand_more, size: 18),
                 ],
               ),
             ],
@@ -279,24 +308,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: double.infinity,
-                height: 96,
-                child: product.image == null || product.image!.isEmpty
-                    ? Icon(
-                        Icons.local_drink_outlined,
-                        size: 42,
-                        color: Theme.of(context).colorScheme.outline,
-                      )
-                    : Image.asset(
-                        product.image!,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(
-                          Icons.broken_image_outlined,
-                          size: 42,
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
+              Expanded(
+                child: Center(
+                  child: _gridThumb(product.image, Icons.local_drink_outlined),
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -305,7 +320,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              const Spacer(),
+              const SizedBox(height: 2),
               Text(
                 total > 0 ? '$total botellines' : 'Sin añadir',
                 style: Theme.of(context).textTheme.labelLarge,

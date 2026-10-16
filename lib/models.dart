@@ -2,6 +2,12 @@
 String formatMeasure(double v) =>
     v == v.roundToDouble() ? v.toInt().toString() : v.toString();
 
+/// Imagen de cada grupo de variantes, por nombre. Si un grupo no aparece aquí
+/// (o el archivo no existe), la UI muestra un placeholder.
+const Map<String, String> kGroupImages = {
+  'Cruzcampo': 'lib/img/cruzcampo.jfif',
+};
+
 /// Tipo de caja: nombre, unidades por caja, medidas (tamaño, altura, ancho),
 /// formato y cuántas cajas caben en un viaje.
 ///
@@ -65,6 +71,7 @@ class Product {
   final String? groupName; // grupo de variantes (obligatorio en la BD)
   final String? subcategory; // variante dentro del grupo (opcional)
   final String? image;
+  final String? groupImage; // imagen del grupo de variantes (compartida)
   final CrateType box;
   final bool deleted; // borrado lógico
 
@@ -75,6 +82,7 @@ class Product {
     this.groupName,
     this.subcategory,
     this.image,
+    this.groupImage,
     CrateType? box,
     this.deleted = false,
   }) : box = box ?? const CrateType('Caja', 24, 1, 1, 1, 5);
@@ -118,6 +126,7 @@ class Product {
         groupName: m['group_name'] as String?,
         subcategory: m['subcategory'] as String?,
         image: m['image'] as String?,
+        groupImage: m['group_image'] as String?,
         deleted: m['deleted_at'] != null,
         box: CrateType(
           (m['box_name'] as String?) ?? 'Caja',

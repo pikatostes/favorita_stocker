@@ -8,6 +8,8 @@ Product _p(
   String category = 'Cat',
   String? group,
   String? sub,
+  String? image,
+  String? groupImage,
 }) =>
     Product(
       id: id,
@@ -15,6 +17,8 @@ Product _p(
       category: category,
       groupName: group,
       subcategory: sub,
+      image: image,
+      groupImage: groupImage,
     );
 
 void main() {
@@ -112,6 +116,31 @@ void main() {
       expect(entries[1].products.length, 2);
       expect(entries[0].products.first.category, 'Refrescos');
       expect(entries[1].products.first.category, 'Otra');
+    });
+
+    test('imagen: la del grupo para grupos y la propia para sueltos', () {
+      final entries = buildProductEntries([
+        _p(1, 'Cruzcampo', group: 'Cruzcampo', sub: 'Pilsen',
+            groupImage: 'lib/img/cruzcampo.jfif'),
+        _p(2, '1904', group: 'Cruzcampo', sub: '1904',
+            groupImage: 'lib/img/cruzcampo.jfif'),
+        _p(3, 'Fanta', image: 'lib/img/fanta.png'),
+      ]);
+
+      expect(entries[0].isGroup, isTrue);
+      expect(entries[0].image, 'lib/img/cruzcampo.jfif');
+      expect(entries[1].isGroup, isFalse);
+      expect(entries[1].image, 'lib/img/fanta.png');
+    });
+
+    test('un grupo sin imagen devuelve null (placeholder)', () {
+      final entries = buildProductEntries([
+        _p(1, 'Aquarius', group: 'Aquarius', sub: 'Naranja'),
+        _p(2, 'Aquarius Limón', group: 'Aquarius', sub: 'Limón'),
+      ]);
+
+      expect(entries.single.isGroup, isTrue);
+      expect(entries.single.image, isNull);
     });
   });
 }
