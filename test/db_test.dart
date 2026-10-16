@@ -154,4 +154,80 @@ void main() {
     expect((await d.query('special_day')).length, 1);
     expect((await d.query('app_metadata')).single['value'], 'v1');
   });
+
+  test('repara los grupos históricos de variantes (v8 -> v9)', () async {
+    final path = p.join(dir.path, 'orphans.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 7,
+        onCreate: (d, _) async {
+          await _createLegacyV7(d);
+          // Nombres históricos que en su día quedaron sin grupo.
+          for (final name in ['Aquarius Naranja', 'Ginger Ale', 'Tónica Bliss']) {
+            await d.insert('products', {
+              'name': name,
+              'category': 'Refrescos y zumos',
+              'size': 1.0,
+              'height': 0.5,
+              'format': 1,
+              'crate_name': 'Nestea',
+              'trip_capacity': 6,
+              'units_per_box': 24,
+            });
+          }
+          await d.insert('products', {
+            'name': 'Aquarius Limón',
+            'category': 'Refrescos y zumos',
+            'size': 1.0,
+            'height': 0.5,
+            'format': 1,
+            'crate_name': 'Nestea',
+            'trip_capacity': 6,
+            'units_per_box': 24,
+            'group_name': 'Aquarius',
+            'subcategory': 'Limón',
+          });
+        },
+      ),
+    );
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    Future<Map<String, Object?>> product(String name) async => (await d.rawQuery(
+          '''
+          SELECT g.name AS grp, s.name AS sub
+          FROM product p
+          JOIN product_group g ON g.id = p.group_id
+          LEFT JOIN subcategory s ON s.id = p.subcategory_id
+          WHERE p.name = ?''',
+          [name],
+        ))
+            .single;
+
+    final naranja = await product('Aquarius Naranja');
+    expect(naranja['grp'], 'Aquarius');
+    expect(naranja['sub'], 'Naranja');
+
+    final limon = await product('Aquarius Limón');
+    expect(limon['grp'], 'Aquarius');
+    expect(limon['sub'], 'Limón');
+
+    final ginger = await product('Ginger Ale');
+    expect(ginger['grp'], 'Bliss');
+    expect(ginger['sub'], 'Ginger Ale');
+
+    final tonica = await product('Tónica Bliss');
+    expect(tonica['grp'], 'Bliss');
+    expect(tonica['sub'], 'Tónica');
+
+    // Los grupos huérfanos (nombre propio) se han eliminado.
+    final orphans = await d.query('product_group',
+        columns: ['name'],
+        where: 'name IN (?, ?, ?)',
+        whereArgs: ['Aquarius Naranja', 'Ginger Ale', 'Tónica Bliss']);
+    expect(orphans, isEmpty);
+  });
 }

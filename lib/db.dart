@@ -16,13 +16,14 @@ class Db {
   Database? _db;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
   void _changed() => version.value++;
 
-  int get _now => DateTime.now().millisecondsSinceEpoch;
+  static int get _nowMs => DateTime.now().millisecondsSinceEpoch;
+  int get _now => _nowMs;
 
   Future<Database> get db async => _db ??= await _open();
 
@@ -31,7 +32,7 @@ class Db {
     return openAt(path);
   }
 
-  /// Abre (creando o migrando) una base de datos en [path] con el esquema v8.
+  /// Abre (creando o migrando) una base de datos en [path] con el esquema actual.
   /// Expuesto para poder probar la creación y la migración con una BD temporal.
   @visibleForTesting
   static Future<Database> openAt(String path) => openDatabase(
@@ -81,6 +82,8 @@ class Db {
     }
     // ...y por último la normalización a v8.
     if (oldV < 8) await _migrateToV8(d);
+    // ...y la reparación de grupos históricos de variantes a v9.
+    if (oldV < 9) await _repairLegacyVariantGroups(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -359,11 +362,66 @@ class Db {
     }
   }
 
+  /// Nombres históricos de variantes que quedaron con un grupo propio.
+  ///
+  /// En versiones antiguas algunos productos se llamaban distinto que en el
+  /// catálogo actual (p. ej. "Aquarius Naranja", "Tónica Bliss", "Ginger Ale").
+  /// Como no tenían grupo, la normalización a v8 les creó uno con su propio
+  /// nombre y nunca se juntaron con sus variantes.
+  static const Map<String, ({String group, String subcategory})>
+      _legacyVariantGroups = {
+    'Aquarius Naranja': (group: 'Aquarius', subcategory: 'Naranja'),
+    'Tónica Bliss': (group: 'Bliss', subcategory: 'Tónica'),
+    'Ginger Ale': (group: 'Bliss', subcategory: 'Ginger Ale'),
+  };
+
+  /// Reasigna esos productos a su grupo de variantes y borra los grupos huérfanos.
+  /// Es idempotente: si ya están bien, no hace nada.
+  static Future<void> _repairLegacyVariantGroups(Database d) async {
+    final now = _nowMs;
+    for (final entry in _legacyVariantGroups.entries) {
+      final rows = await d.rawQuery('''
+        SELECT p.id AS id, p.group_id AS old_group_id,
+               g.category_id AS category_id
+        FROM product p
+        JOIN product_group g ON g.id = p.group_id
+        WHERE p.name = ? AND p.deleted_at IS NULL''', [entry.key]);
+      for (final row in rows) {
+        final groupId = await _ensureGroup(
+          d,
+          categoryId: row['category_id'] as int,
+          name: entry.value.group,
+        );
+        final subId = await _ensureSubcategory(
+          d,
+          groupId: groupId,
+          name: entry.value.subcategory,
+        );
+        await d.update(
+          'product',
+          {'group_id': groupId, 'subcategory_id': subId, 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        final oldGroupId = row['old_group_id'] as int;
+        if (oldGroupId != groupId) {
+          final remaining = Sqflite.firstIntValue(await d.rawQuery(
+              'SELECT COUNT(*) FROM product WHERE group_id = ?',
+              [oldGroupId]));
+          if (remaining == 0) {
+            await d.delete('product_group',
+                where: 'id = ?', whereArgs: [oldGroupId]);
+          }
+        }
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers de catálogo (resuelven/crean entidades por nombre)
   // ---------------------------------------------------------------------------
 
-  Future<int> _ensureCategory(DatabaseExecutor t, String name) async {
+  static Future<int> _ensureCategory(DatabaseExecutor t, String name) async {
     final n = name.trim().isEmpty ? 'Otros' : name.trim();
     final rows = await t.query('category',
         columns: ['id'], where: 'name = ?', whereArgs: [n], limit: 1);
@@ -371,7 +429,7 @@ class Db {
     return t.insert('category', {'name': n});
   }
 
-  Future<int> _ensureGroup(
+  static Future<int> _ensureGroup(
     DatabaseExecutor t, {
     required int categoryId,
     required String name,
@@ -383,7 +441,7 @@ class Db {
         whereArgs: [categoryId, n],
         limit: 1);
     if (rows.isNotEmpty) return rows.single['id'] as int;
-    final now = _now;
+    final now = _nowMs;
     return t.insert('product_group', {
       'category_id': categoryId,
       'name': n,
@@ -392,7 +450,7 @@ class Db {
     });
   }
 
-  Future<int?> _ensureSubcategory(
+  static Future<int?> _ensureSubcategory(
     DatabaseExecutor t, {
     required int groupId,
     String? name,
@@ -408,9 +466,9 @@ class Db {
     return t.insert('subcategory', {'group_id': groupId, 'name': n});
   }
 
-  Future<int> _upsertBox(DatabaseExecutor t, CrateType box) async {
+  static Future<int> _upsertBox(DatabaseExecutor t, CrateType box) async {
     final type = box.name.trim().isEmpty ? 'Caja' : box.name.trim();
-    final now = _now;
+    final now = _nowMs;
     final columns = {
       'units_per_box': box.units < 1 ? 1 : box.units,
       'size': box.size.isFinite && box.size > 0 ? box.size : 1.0,

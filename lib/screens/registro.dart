@@ -2,22 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../db.dart';
 import '../models.dart';
+import '../product_entries.dart';
 import '../schedule.dart';
 import '../widgets/category_tabs.dart';
 import 'plan.dart';
-
-class _ProductEntry {
-  final String? groupName;
-  final List<Product> products;
-
-  _ProductEntry.product(Product product)
-      : groupName = null,
-        products = [product];
-
-  const _ProductEntry.group(this.groupName, this.products);
-
-  bool get isGroup => groupName != null;
-}
 
 /// Introducir la lista de lo gastado esa noche (la de las ~3:00).
 class RegistroScreen extends StatefulWidget {
@@ -127,36 +115,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  List<_ProductEntry> _productEntries(List<Product> products) {
-    final entries = <_ProductEntry>[];
-    final renderedGroups = <String>{};
-    for (final product in products) {
-      final group = product.groupName?.trim();
-      final subcategory = product.subcategory?.trim();
-      if (group == null ||
-          group.isEmpty ||
-          subcategory == null ||
-          subcategory.isEmpty) {
-        entries.add(_ProductEntry.product(product));
-        continue;
-      }
-
-      final groupKey = '${product.category}\u0000$group';
-      if (!renderedGroups.add(groupKey)) continue;
-
-      final variants = products
-          .where((candidate) =>
-              candidate.category == product.category &&
-              candidate.groupName?.trim() == group &&
-              (candidate.subcategory?.trim().isNotEmpty ?? false))
-          .toList()
-        ..sort((a, b) => a.subcategory!.compareTo(b.subcategory!));
-      entries.add(_ProductEntry.group(group, variants));
-    }
-    return entries;
-  }
-
-  Future<void> _chooseVariants(_ProductEntry entry) async {
+  Future<void> _chooseVariants(ProductEntry entry) async {
     final variants = entry.products;
     await showModalBottomSheet<void>(
       context: context,
@@ -181,7 +140,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                       for (final variant in variants)
                         _productTile(
                           variant,
-                          title: variant.subcategory,
+                          title: ProductEntry.label(variant),
                           refreshOverlay: refreshOverlay,
                         ),
                     ],
@@ -202,7 +161,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  Widget _groupListTile(_ProductEntry entry) {
+  Widget _groupListTile(ProductEntry entry) {
     final count = entry.products.fold<int>(
       0,
       (total, product) => total + (_qty[product.id] ?? 0),
@@ -222,7 +181,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  Widget _groupGridCard(_ProductEntry entry) {
+  Widget _groupGridCard(ProductEntry entry) {
     final count = entry.products.fold<int>(
       0,
       (total, product) => total + (_qty[product.id] ?? 0),
@@ -304,7 +263,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       );
 
   Widget _categoryList(List<Product> products) {
-    final entries = _productEntries(products);
+    final entries = buildProductEntries(products);
     return ListView(
       padding: const EdgeInsets.only(bottom: 90),
       children: [
@@ -318,7 +277,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   Widget _categoryGrid(List<Product> products) {
-    final entries = _productEntries(products);
+    final entries = buildProductEntries(products);
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 90),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
