@@ -11,107 +11,108 @@ void main() {
       expect(p.unitsPerBox, 24);
       expect(p.size, 1);
       expect(p.height, 1);
+      expect(p.width, 1);
       expect(p.format, 1);
-      expect(p.crateName, '');
+      expect(p.crateName, 'Caja');
       expect(p.tripCapacity, 5);
     });
 
     test('un producto correcto no da error de validación', () {
       expect(
-        Product(name: 'Cruzcampo', category: 'Cervezas').validationError,
+        Product(name: 'Cruzcampo', category: 'Cervezas', groupName: 'Cruzcampo')
+            .validationError,
         isNull,
       );
     });
 
-    test('exige nombre y categoría', () {
-      expect(Product(name: '   ').validationError, isNotNull);
-      expect(Product(name: 'X', category: '  ').validationError, isNotNull);
+    test('exige nombre, categoría y grupo', () {
+      expect(Product(name: '   ', category: 'X', groupName: 'g').validationError,
+          isNotNull);
+      expect(Product(name: 'X', category: '  ', groupName: 'g').validationError,
+          isNotNull);
+      // El grupo es obligatorio (la categoría se deriva de él).
+      expect(Product(name: 'X', category: 'X').validationError, isNotNull);
     });
 
-    test('exige grupo y subcategoría juntos', () {
+    test('la subcategoría es opcional', () {
+      expect(Product(name: 'X', category: 'X', groupName: 'g').validationError,
+          isNull);
       expect(
-        Product(name: 'X', groupName: 'Coca-Cola').validationError,
-        isNotNull,
-      );
-      expect(
-        Product(name: 'X', subcategory: 'Zero').validationError,
-        isNotNull,
-      );
-      expect(
-        Product(
-          name: 'X',
-          groupName: 'Coca-Cola',
-          subcategory: 'Zero',
-        ).validationError,
+        Product(name: 'X', category: 'X', groupName: 'g', subcategory: 'Zero')
+            .validationError,
         isNull,
       );
     });
 
     test('rechaza medidas y cantidades no positivas', () {
-      expect(Product(name: 'X', unitsPerBox: 0).validationError, isNotNull);
-      expect(Product(name: 'X', size: 0).validationError, isNotNull);
-      expect(Product(name: 'X', height: 0).validationError, isNotNull);
-      expect(Product(name: 'X', format: 0).validationError, isNotNull);
-      expect(Product(name: 'X', tripCapacity: 0).validationError, isNotNull);
+      Product withBox(CrateType box) =>
+          Product(name: 'X', category: 'X', groupName: 'g', box: box);
+
+      expect(withBox(const CrateType('Caja', 0, 1, 1, 1, 5)).validationError,
+          isNotNull);
+      expect(withBox(const CrateType('Caja', 24, 0, 1, 1, 5)).validationError,
+          isNotNull);
+      expect(withBox(const CrateType('Caja', 24, 1, 0, 1, 5)).validationError,
+          isNotNull);
+      expect(withBox(const CrateType('Caja', 24, 1, 1, 1, 0)).validationError,
+          isNotNull);
+      const zeroWidth = CrateType('Caja', 24, 1, 1, 1, 5, width: 0);
+      expect(withBox(zeroWidth).validationError, isNotNull);
     });
 
-    test('toMap/fromMap conservan todos los datos', () {
-      final p = Product(
-        id: 7,
-        name: 'Coca-Cola',
-        category: 'Refrescos y zumos',
-        groupName: 'Coca-Cola',
-        subcategory: 'Original',
-        image: 'lib/img/cola.png',
-        unitsPerBox: 24,
-        size: 1,
-        height: 0.5,
-        format: 1,
-        crateName: 'Cola',
-        tripCapacity: 6,
-      );
+    test('fromRow conserva todos los datos', () {
+      final p = Product.fromRow({
+        'id': 7,
+        'name': 'Coca-Cola',
+        'category': 'Refrescos y zumos',
+        'group_name': 'Coca-Cola',
+        'subcategory': 'Original',
+        'image': 'lib/img/cola.png',
+        'box_name': 'Cola',
+        'units_per_box': 24,
+        'size': 1.0,
+        'height': 0.5,
+        'width': 1.5,
+        'format': 1,
+        'trip_capacity': 6,
+      });
 
-      final restored = Product.fromMap({'id': 7, ...p.toMap()});
-
-      expect(restored.id, 7);
-      expect(restored.name, 'Coca-Cola');
-      expect(restored.category, 'Refrescos y zumos');
-      expect(restored.groupName, 'Coca-Cola');
-      expect(restored.subcategory, 'Original');
-      expect(restored.image, 'lib/img/cola.png');
-      expect(restored.unitsPerBox, 24);
-      expect(restored.height, 0.5);
-      expect(restored.crateName, 'Cola');
-      expect(restored.tripCapacity, 6);
+      expect(p.id, 7);
+      expect(p.name, 'Coca-Cola');
+      expect(p.category, 'Refrescos y zumos');
+      expect(p.groupName, 'Coca-Cola');
+      expect(p.subcategory, 'Original');
+      expect(p.image, 'lib/img/cola.png');
+      expect(p.crateName, 'Cola');
+      expect(p.unitsPerBox, 24);
+      expect(p.height, 0.5);
+      expect(p.width, 1.5);
+      expect(p.tripCapacity, 6);
     });
 
     test('boxInfo describe la caja del producto', () {
       final p = Product(
         name: 'Coca-Cola',
-        unitsPerBox: 24,
-        size: 1,
-        height: 0.5,
-        format: 1,
-        crateName: 'Cola',
-        tripCapacity: 6,
+        box: const CrateType('Cola', 24, 1, 0.5, 1, 6),
       );
 
-      expect(p.boxInfo, 'Cola · 24 uds · T1 A0.5 F1 · 6/viaje');
+      expect(p.boxInfo, 'Cola · 24 uds · T1 A0.5 An1 F1 · 6/viaje');
       expect(
         Product(name: 'X').boxInfo,
-        'Caja · 24 uds · T1 A1 F1 · 5/viaje',
+        'Caja · 24 uds · T1 A1 An1 F1 · 5/viaje',
       );
     });
   });
 
   group('CrateType', () {
     test('guarda los atributos de la caja', () {
-      const crate = CrateType('Cola', 24, 1, 0.5, 1, 6);
+      const crate = CrateType('Cola', 24, 1, 0.5, 1, 6, width: 2);
 
       expect(crate.name, 'Cola');
       expect(crate.units, 24);
       expect(crate.size, 1);
       expect(crate.height, 0.5);
+      expect(crate.width, 2);
       expect(crate.format, 1);
       expect(crate.trip, 6);
     });
@@ -119,7 +120,7 @@ void main() {
 
   group('Forecast', () {
     test('redondea las cajas hacia arriba', () {
-      final p = Product(name: 'X', unitsPerBox: 24);
+      final p = Product(name: 'X', box: const CrateType('Caja', 24, 1, 1, 1, 5));
 
       expect(Forecast(p, 0).boxes, 0);
       expect(Forecast(p, 1).boxes, 1);
@@ -130,7 +131,8 @@ void main() {
 
   group('SpecialDay', () {
     test('interpreta el flag open como booleano', () {
-      final open = SpecialDay.fromMap({'date': '2026-01-02', 'open': 1, 'note': 'x'});
+      final open =
+          SpecialDay.fromMap({'date': '2026-01-02', 'open': 1, 'note': 'x'});
       final closed = SpecialDay.fromMap({'date': '2026-01-02', 'open': 0});
 
       expect(open.open, isTrue);

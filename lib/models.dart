@@ -1,29 +1,72 @@
-/// Tipo de caja: nombre, unidades, tamaño, altura, formato y cajas por viaje.
+/// Formatea una medida sin decimales innecesarios (1.0 -> "1", 0.5 -> "0.5").
+String formatMeasure(double v) =>
+    v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+/// Tipo de caja: nombre, unidades por caja, medidas (tamaño, altura, ancho),
+/// formato y cuántas cajas caben en un viaje.
 ///
 /// Agrupa los atributos físicos que comparten varios productos (p. ej. todas
-/// las Coca-Cola usan la caja "Cola"). Los campos coinciden con los de
-/// [Product] para poder construir el catálogo sin repetir valores.
+/// las Coca-Cola usan la caja "Cola"). En la BD es la tabla `box`, identificada
+/// por su `name` (campo `type`).
 class CrateType {
+  final int? id;
   final String name;
-  final int units, format, trip;
-  final double size, height;
+  final int units; // botellines por caja
+  final double size; // tamaño
+  final double height; // altura
+  final double width; // ancho
+  final int format; // formato
+  final int trip; // cajas de este tipo por viaje
+
   const CrateType(
-      this.name, this.units, this.size, this.height, this.format, this.trip);
+    this.name,
+    this.units,
+    this.size,
+    this.height,
+    this.format,
+    this.trip, {
+    this.width = 1,
+    this.id,
+  });
+
+  CrateType copyWith({
+    int? id,
+    String? name,
+    int? units,
+    double? size,
+    double? height,
+    double? width,
+    int? format,
+    int? trip,
+  }) =>
+      CrateType(
+        name ?? this.name,
+        units ?? this.units,
+        size ?? this.size,
+        height ?? this.height,
+        format ?? this.format,
+        trip ?? this.trip,
+        width: width ?? this.width,
+        id: id ?? this.id,
+      );
+
+  String get info => '${name.isEmpty ? "Caja" : name} · $units uds · '
+      'T${formatMeasure(size)} A${formatMeasure(height)} '
+      'An${formatMeasure(width)} F$format · $trip/viaje';
 }
 
+/// Producto del catálogo. `category`, `groupName` y `subcategory` son datos de
+/// lectura que se rellenan desde `product_group`/`category`/`subcategory`; la
+/// caja ([box]) agrupa los atributos físicos compartidos.
 class Product {
   final int? id;
   final String name;
-  final String category;
-  final String? groupName;
-  final String? subcategory;
+  final String category; // categoría del grupo al que pertenece
+  final String? groupName; // grupo de variantes (obligatorio en la BD)
+  final String? subcategory; // variante dentro del grupo (opcional)
   final String? image;
-  final int unitsPerBox; // botellines por caja
-  final double size; // tamaño
-  final double height; // altura
-  final int format; // formato
-  final String crateName; // tipo de caja (Cerveza, Cola, Nestea...)
-  final int tripCapacity; // cuántas cajas de este tipo caben en un viaje
+  final CrateType box;
+  final bool deleted; // borrado lógico
 
   Product({
     this.id,
@@ -32,28 +75,33 @@ class Product {
     this.groupName,
     this.subcategory,
     this.image,
-    this.unitsPerBox = 24,
-    this.size = 1,
-    this.height = 1,
-    this.format = 1,
-    this.crateName = '',
-    this.tripCapacity = 5,
-  });
+    CrateType? box,
+    this.deleted = false,
+  }) : box = box ?? const CrateType('Caja', 24, 1, 1, 1, 5);
+
+  // Atajos a los atributos de la caja, para no cambiar a quien ya los leía.
+  int get unitsPerBox => box.units;
+  double get size => box.size;
+  double get height => box.height;
+  double get width => box.width;
+  int get format => box.format;
+  String get crateName => box.name;
+  int get tripCapacity => box.trip;
 
   String? get validationError {
     if (name.trim().isEmpty) return 'El nombre es obligatorio.';
     if (category.trim().isEmpty) return 'La categoría es obligatoria.';
-    final hasGroup = groupName?.trim().isNotEmpty ?? false;
-    final hasSubcategory = subcategory?.trim().isNotEmpty ?? false;
-    if (hasGroup != hasSubcategory) {
-      return 'Indica el grupo y la subcategoría, o deja ambos vacíos.';
+    if (groupName == null || groupName!.trim().isEmpty) {
+      return 'El grupo de variantes es obligatorio.';
     }
     if (unitsPerBox <= 0) return 'Las unidades por caja deben ser mayores que 0.';
     if (!size.isFinite ||
         !height.isFinite ||
+        !width.isFinite ||
         size <= 0 ||
-        height <= 0) {
-      return 'Tamaño y altura deben ser valores finitos mayores que 0.';
+        height <= 0 ||
+        width <= 0) {
+      return 'Tamaño, altura y ancho deben ser valores finitos mayores que 0.';
     }
     if (format <= 0) return 'El formato debe ser mayor que 0.';
     if (tripCapacity <= 0) {
@@ -62,41 +110,27 @@ class Product {
     return null;
   }
 
-  factory Product.fromMap(Map<String, Object?> m) => Product(
+  /// Construye un producto a partir de la fila del JOIN de `Db.products()`.
+  factory Product.fromRow(Map<String, Object?> m) => Product(
         id: m['id'] as int,
         name: m['name'] as String,
         category: (m['category'] as String?) ?? 'Otros',
         groupName: m['group_name'] as String?,
         subcategory: m['subcategory'] as String?,
         image: m['image'] as String?,
-        unitsPerBox: m['units_per_box'] as int,
-        size: ((m['size'] as num?) ?? 1).toDouble(),
-        height: ((m['height'] as num?) ?? 1).toDouble(),
-        format: (m['format'] as int?) ?? 1,
-        crateName: (m['crate_name'] as String?) ?? '',
-        tripCapacity: (m['trip_capacity'] as int?) ?? 5,
+        deleted: m['deleted_at'] != null,
+        box: CrateType(
+          (m['box_name'] as String?) ?? 'Caja',
+          (m['units_per_box'] as int?) ?? 24,
+          ((m['size'] as num?) ?? 1).toDouble(),
+          ((m['height'] as num?) ?? 1).toDouble(),
+          (m['format'] as int?) ?? 1,
+          (m['trip_capacity'] as int?) ?? 5,
+          width: ((m['width'] as num?) ?? 1).toDouble(),
+        ),
       );
 
-  Map<String, Object?> toMap() => {
-        'name': name,
-        'category': category,
-        'group_name': groupName,
-        'subcategory': subcategory,
-        'image': image,
-        'units_per_box': unitsPerBox,
-        'size': size,
-        'height': height,
-        'format': format,
-        'crate_name': crateName,
-        'trip_capacity': tripCapacity,
-      };
-
-  static String _n(double v) =>
-      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
-
-  String get boxInfo =>
-      '${crateName.isEmpty ? "Caja" : crateName} · $unitsPerBox uds · '
-      'T${_n(size)} A${_n(height)} F$format · $tripCapacity/viaje';
+  String get boxInfo => box.info;
 }
 
 /// Excepción al calendario habitual: festivo en que SÍ se abre (open=true)

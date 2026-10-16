@@ -16,12 +16,8 @@ Product _product(
     Product(
       id: id,
       name: 'Producto $id',
-      unitsPerBox: unitsPerBox,
-      size: size,
-      height: height,
-      format: format,
-      crateName: crateName,
-      tripCapacity: tripCapacity,
+      groupName: 'Grupo $id',
+      box: CrateType(crateName, unitsPerBox, size, height, format, tripCapacity),
     );
 
 void main() {

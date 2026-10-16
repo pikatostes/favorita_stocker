@@ -6,30 +6,41 @@ const _nestea = ['Té', 'Limón', 'Maracuyá', 'Melocotón'];
 const _aquarius = ['Naranja', 'Limón', 'Piña', 'Melocotón'];
 const _zumo = ['Piña', 'Melocotón', 'Naranja'];
 
-const _cajaCola = CrateType('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
+const _cajaCola =
+    CrateType('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
 const _cajaNestea = CrateType('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
-const _cerveza = CrateType('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
+const _cerveza =
+    CrateType('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
 const _aquabona = CrateType('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
 
-Product _p(String name, String cat, CrateType b,
-        {double? size,
-        double? height,
-        String? crate,
-        String? group,
-        String? subcategory,
-        String? image}) =>
+/// Crea un producto de la semilla. Si no se indica grupo, se usa el propio
+/// nombre del producto: el grupo es obligatorio en la BD.
+Product _p(
+  String name,
+  String cat,
+  CrateType b, {
+  double? size,
+  double? height,
+  String? crate,
+  String? group,
+  String? subcategory,
+  String? image,
+}) =>
     Product(
       name: name,
       category: cat,
-      groupName: group,
+      groupName: group ?? name,
       subcategory: subcategory,
       image: image,
-      unitsPerBox: b.units,
-      size: size ?? b.size,
-      height: height ?? b.height,
-      format: b.format,
-      crateName: crate ?? b.name,
-      tripCapacity: b.trip,
+      box: CrateType(
+        crate ?? b.name,
+        b.units,
+        size ?? b.size,
+        height ?? b.height,
+        b.format,
+        b.trip,
+        width: b.width,
+      ),
     );
 
 const _cervezas = 'Cervezas y similares';
@@ -46,9 +57,9 @@ final List<Product> initialProducts = [
     image: 'lib/img/cruzcampo.jfif',
   ),
   _p('Heineken', _cervezas, _cerveza),
-  _p('1904', _cervezas, _cerveza),
+  _p('1904', _cervezas, _cerveza, image: 'lib/img/1904.png'),
   _p('Heineken 0,0', _cervezas, _cerveza),
-  _p('Amstel Tostada 0,0', _cervezas, _cerveza),
+  _p('Amstel Tostada 0,0', _cervezas, _cerveza, image: 'lib/img/amstel00tostada.jpg'),
   _p('Sol', _cervezas, _cerveza),
   _p('Desperados', _cervezas, _cerveza),
   _p('Ladrón de manzanas', _cervezas, _cerveza),
@@ -58,7 +69,7 @@ final List<Product> initialProducts = [
       size: 2, crate: 'Cerveza grande'),
   _p('Guinness', _cervezas, _cerveza),
   _p('Cruzcampo Radler', _cervezas, _cerveza),
-  _p('Alcázar', _cervezas, _cerveza),
+  _p('Alcázar', _cervezas, _cerveza, image: 'lib/img/alcazar.png'),
 
   // Refrescos y zumos
   ..._cola.map((subcategoria) => _p(

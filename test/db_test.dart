@@ -1,0 +1,157 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:stock_bar/db.dart';
+
+/// Crea el esquema desnormalizado v7 con datos de ejemplo.
+Future<void> _createLegacyV7(Database d) async {
+  await d.execute('''CREATE TABLE products(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'Otros',
+    size REAL NOT NULL DEFAULT 1,
+    height REAL NOT NULL DEFAULT 1,
+    format INTEGER NOT NULL DEFAULT 1,
+    crate_name TEXT NOT NULL DEFAULT '',
+    trip_capacity INTEGER NOT NULL DEFAULT 5,
+    group_name TEXT,
+    subcategory TEXT,
+    image TEXT,
+    units_per_box INTEGER NOT NULL DEFAULT 24)''');
+  await d.execute('''CREATE TABLE product_groups(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    name TEXT NOT NULL,
+    image TEXT,
+    UNIQUE(category, name))''');
+  await d.execute('''CREATE TABLE app_metadata(
+    key TEXT PRIMARY KEY, value TEXT NOT NULL)''');
+  await d.execute('''CREATE TABLE consumption(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    quantity INTEGER NOT NULL)''');
+  await d.execute('''CREATE TABLE special_days(
+    date TEXT PRIMARY KEY, open INTEGER NOT NULL, note TEXT)''');
+
+  await d.insert('products', {
+    'name': 'Coca-Cola',
+    'category': 'Refrescos y zumos',
+    'size': 1.0,
+    'height': 0.5,
+    'format': 1,
+    'crate_name': 'Cola',
+    'trip_capacity': 6,
+    'group_name': 'Coca-Cola',
+    'subcategory': 'Original',
+    'units_per_box': 24,
+  });
+  await d.insert('products', {
+    'name': 'Cruzcampo',
+    'category': 'Cervezas y similares',
+    'size': 1.0,
+    'height': 1.0,
+    'format': 2,
+    'crate_name': 'Cerveza',
+    'trip_capacity': 5,
+    'units_per_box': 24,
+  });
+  await d.insert(
+      'product_groups', {'category': 'Refrescos y zumos', 'name': 'Coca-Cola'});
+  await d.insert('consumption',
+      {'product_id': 1, 'date': '2026-01-03', 'quantity': 12});
+  await d.insert('consumption',
+      {'product_id': 0, 'date': '2026-01-03', 'quantity': 0}); // marcador antiguo
+  await d.insert(
+      'special_days', {'date': '2026-01-03', 'open': 1, 'note': 'prueba'});
+  await d.insert('app_metadata', {'key': 'legacy', 'value': 'v1'});
+}
+
+void main() {
+  late Directory dir;
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  setUp(() => dir = Directory.systemTemp.createTempSync('stock_bar_test'));
+
+  tearDown(() {
+    if (dir.existsSync()) dir.deleteSync(recursive: true);
+  });
+
+  test('crea el esquema v8 en una base de datos nueva', () async {
+    final d = await Db.openAt(p.join(dir.path, 'fresh.db'));
+    addTearDown(d.close);
+
+    final tables = (await d.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'])
+        .toSet();
+    expect(
+      tables,
+      containsAll([
+        'category',
+        'box',
+        'product_group',
+        'subcategory',
+        'product',
+        'night',
+        'consumption',
+        'special_day',
+        'app_metadata',
+      ]),
+    );
+    expect((await d.rawQuery('PRAGMA foreign_keys')).single.values.single, 1);
+  });
+
+  test('migra una base v7 al esquema normalizado v8', () async {
+    final path = p.join(dir.path, 'legacy.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 7,
+        onCreate: (d, _) => _createLegacyV7(d),
+      ),
+    );
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final products = await d.rawQuery('''
+      SELECT p.name AS name, c.name AS category, g.name AS grp,
+             s.name AS sub, b.type AS box
+      FROM product p
+      JOIN product_group g ON g.id = p.group_id
+      JOIN category c ON c.id = g.category_id
+      LEFT JOIN subcategory s ON s.id = p.subcategory_id
+      JOIN box b ON b.id = p.box_id
+      ORDER BY p.name''');
+    expect(products.length, 2);
+
+    final cola = products.firstWhere((r) => r['name'] == 'Coca-Cola');
+    expect(cola['category'], 'Refrescos y zumos');
+    expect(cola['grp'], 'Coca-Cola');
+    expect(cola['sub'], 'Original');
+    expect(cola['box'], 'Cola');
+
+    final cruz = products.firstWhere((r) => r['name'] == 'Cruzcampo');
+    // Sin grupo en el esquema antiguo: se crea un grupo con el nombre propio.
+    expect(cruz['grp'], 'Cruzcampo');
+    expect(cruz['sub'], isNull);
+    expect(cruz['box'], 'Cerveza');
+
+    // Una sola noche y una sola fila de consumo (el marcador no se migra).
+    expect((await d.query('night')).single['date'], '2026-01-03');
+    final consumption = await d.query('consumption');
+    expect(consumption.length, 1);
+    expect(consumption.single['quantity'], 12);
+
+    expect((await d.query('special_day')).length, 1);
+    expect((await d.query('app_metadata')).single['value'], 'v1');
+  });
+}

@@ -70,7 +70,8 @@ class Planner {
       bottles += l + b * p.unitsPerBox;
       groups
           .putIfAbsent(
-              '${p.size}|${p.height}|${p.format}|${p.unitsPerBox}', () => [])
+              '${p.size}|${p.height}|${p.width}|${p.format}|${p.unitsPerBox}',
+              () => [])
           .add(p);
     }
     if (groups.isEmpty) return Plan([], 0);

@@ -9,86 +9,72 @@ typedef _ProductForm = ({Product product, String? groupImage});
 /// Valores que existen en la BD para los desplegables del formulario.
 class _ProductOptions {
   final List<String> categories;
-  final List<String> crateNames;
   final Map<String, List<String>> _groups; // categoría -> grupos
   final Map<String, List<String>> _subcategories; // 'categoría\u0000grupo' -> subs
+  final List<CrateType> boxes;
+  final Map<String, CrateType> boxByName;
 
   const _ProductOptions({
     required this.categories,
-    required this.crateNames,
     required Map<String, List<String>> groups,
     required Map<String, List<String>> subcategories,
+    required this.boxes,
+    required this.boxByName,
   })  : _groups = groups,
         _subcategories = subcategories;
 
   List<String> groupsFor(String category) => _groups[category] ?? const [];
   List<String> subcategoriesFor(String category, String group) =>
       _subcategories['$category\u0000$group'] ?? const [];
+  CrateType? boxFor(String type) => boxByName[type];
 }
 
 /// Reúne de la BD los valores disponibles para los desplegables. Incluye
 /// siempre los valores del producto que se está editando, para no perderlos.
 Future<_ProductOptions> _loadOptions(Product? current) async {
-  final products = await Db.i.products();
-  final groups = await Db.i.productGroups();
-
-  final categories = <String>{
-    for (final p in products) p.category.trim(),
-    for (final g in groups) g.category.trim(),
-    if (current != null) current.category.trim(),
-  }..removeWhere((c) => c.isEmpty);
-
-  final groupsByCategory = <String, Set<String>>{};
-  void addGroup(String category, String? group) {
-    final c = category.trim();
-    final g = group?.trim() ?? '';
-    if (c.isEmpty || g.isEmpty) return;
-    groupsByCategory.putIfAbsent(c, () => <String>{}).add(g);
+  final categories = {...await Db.i.categories()};
+  final groups = <String, Set<String>>{};
+  for (final g in await Db.i.productGroups()) {
+    groups.putIfAbsent(g.category.trim(), () => <String>{}).add(g.name.trim());
   }
+  final subcategories = <String, Set<String>>{};
+  for (final s in await Db.i.subcategories()) {
+    subcategories
+        .putIfAbsent('${s.category.trim()}\u0000${s.group.trim()}', () => <String>{})
+        .add(s.name.trim());
+  }
+  final boxes = <String, CrateType>{
+    for (final b in await Db.i.boxTypes()) b.name: b,
+  };
 
-  for (final g in groups) {
-    addGroup(g.category, g.name);
-  }
-  for (final p in products) {
-    addGroup(p.category, p.groupName);
-  }
-  if (current != null) addGroup(current.category, current.groupName);
-
-  final subcategoriesByGroup = <String, Set<String>>{};
-  void addSubcategory(String category, String? group, String? subcategory) {
-    final c = category.trim();
-    final g = group?.trim() ?? '';
-    final s = subcategory?.trim() ?? '';
-    if (c.isEmpty || g.isEmpty || s.isEmpty) return;
-    subcategoriesByGroup.putIfAbsent('$c\u0000$g', () => <String>{}).add(s);
-  }
-
-  for (final p in products) {
-    addSubcategory(p.category, p.groupName, p.subcategory);
-  }
   if (current != null) {
-    addSubcategory(current.category, current.groupName, current.subcategory);
+    final category = current.category.trim();
+    categories.add(category);
+    final group = current.groupName?.trim() ?? '';
+    if (group.isNotEmpty) {
+      groups.putIfAbsent(category, () => <String>{}).add(group);
+    }
+    final subcategory = current.subcategory?.trim() ?? '';
+    if (group.isNotEmpty && subcategory.isNotEmpty) {
+      subcategories
+          .putIfAbsent('$category\u0000$group', () => <String>{})
+          .add(subcategory);
+    }
+    boxes.putIfAbsent(current.box.name, () => current.box);
   }
-
-  final crateNames = <String>{
-    for (final p in products)
-      if (p.crateName.trim().isNotEmpty) p.crateName.trim(),
-    if (current != null && current.crateName.trim().isNotEmpty)
-      current.crateName.trim(),
-  }.toList()
-    ..sort();
 
   return _ProductOptions(
-    categories: categories.toList()..sort(),
-    crateNames: crateNames,
+    categories: (categories.where((c) => c.isNotEmpty).toList()..sort()),
     groups: {
-      for (final e in groupsByCategory.entries)
-        e.key: e.value.toList()..sort(),
+      for (final e in groups.entries)
+        e.key: (e.value.where((g) => g.isNotEmpty).toList()..sort()),
     },
     subcategories: {
-      for (final e in subcategoriesByGroup.entries)
-        e.key: e.value.toList()..sort(),
+      for (final e in subcategories.entries)
+        e.key: (e.value.where((s) => s.isNotEmpty).toList()..sort()),
     },
+    boxes: boxes.values.toList()..sort((a, b) => a.name.compareTo(b.name)),
+    boxByName: boxes,
   );
 }
 
@@ -155,7 +141,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('¿Borrar ${p.name}?'),
-        content: const Text('También se borra su histórico de consumo.'),
+        content: const Text(
+            'Dejará de aparecer en las listas, pero se conserva su histórico.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -215,8 +202,9 @@ class _ProductosScreenState extends State<ProductosScreen> {
 /// Formulario de alta/edición. Es dueño de sus [TextEditingController], que
 /// se destruyen en [dispose] (cuando el diálogo ya se ha desmontado).
 ///
-/// Categoría, grupo, subcategoría y tipo de caja solo pueden elegirse entre
-/// los valores existentes en la BD (desplegables estrictos).
+/// Categoría, grupo, subcategoría y tipo de caja solo pueden elegirse entre los
+/// valores existentes en la BD (desplegables estrictos). Los números describen
+/// la caja seleccionada, que es compartida por todos los productos de ese tipo.
 class _ProductDialog extends StatefulWidget {
   final Product? product;
   final _ProductOptions options;
@@ -243,6 +231,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   late final TextEditingController units;
   late final TextEditingController size;
   late final TextEditingController height;
+  late final TextEditingController width;
   late final TextEditingController format;
   late final TextEditingController trip;
   late final List<TextEditingController> _controllers;
@@ -250,7 +239,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   late String _category;
   String? _group;
   String? _subcategory;
-  late String _crate;
+  late String _boxType;
 
   @override
   void initState() {
@@ -259,23 +248,34 @@ class _ProductDialogState extends State<_ProductDialog> {
     name = TextEditingController(text: p?.name ?? '');
     image = TextEditingController(text: p?.image ?? '');
     groupImage = TextEditingController(text: widget.existingGroupImage ?? '');
-    units = TextEditingController(text: '${p?.unitsPerBox ?? 24}');
-    size = TextEditingController(text: _n(p?.size ?? 1));
-    height = TextEditingController(text: _n(p?.height ?? 1));
-    format = TextEditingController(text: '${p?.format ?? 1}');
-    trip = TextEditingController(text: '${p?.tripCapacity ?? 5}');
-    _controllers = [name, image, groupImage, units, size, height, format, trip];
+    units = TextEditingController();
+    size = TextEditingController();
+    height = TextEditingController();
+    width = TextEditingController();
+    format = TextEditingController();
+    trip = TextEditingController();
+    _controllers = [
+      name,
+      image,
+      groupImage,
+      units,
+      size,
+      height,
+      width,
+      format,
+      trip,
+    ];
 
     // Categoría: el producto, la pestaña visible, o la primera disponible.
     final cat = p?.category.trim();
     final fallback = widget.defaultCategory?.trim();
-    if (cat != null && widget.options.categories.contains(cat)) {
+    final cats = widget.options.categories;
+    if (cat != null && cats.contains(cat)) {
       _category = cat;
-    } else if (fallback != null && widget.options.categories.contains(fallback)) {
+    } else if (fallback != null && cats.contains(fallback)) {
       _category = fallback;
     } else {
-      _category =
-          widget.options.categories.isNotEmpty ? widget.options.categories.first : '';
+      _category = cats.isNotEmpty ? cats.first : '';
     }
 
     final group = p?.groupName?.trim();
@@ -293,7 +293,12 @@ class _ProductDialogState extends State<_ProductDialog> {
         ? subcategory
         : null;
 
-    _crate = p?.crateName.trim() ?? '';
+    final boxName = p?.box.name.trim() ?? '';
+    final boxes = widget.options.boxes;
+    _boxType = (boxName.isNotEmpty && widget.options.boxByName.containsKey(boxName))
+        ? boxName
+        : (boxes.isNotEmpty ? boxes.first.name : '');
+    _fillBox(widget.options.boxFor(_boxType) ?? p?.box);
   }
 
   @override
@@ -304,9 +309,18 @@ class _ProductDialogState extends State<_ProductDialog> {
     super.dispose();
   }
 
-  String _n(double v) =>
-      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+  String _n(double v) => formatMeasure(v);
   double? _d(String s) => double.tryParse(s.replaceAll(',', '.'));
+
+  /// Copia en los campos numéricos los atributos del tipo de caja dado.
+  void _fillBox(CrateType? b) {
+    units.text = '${b?.units ?? 24}';
+    size.text = _n(b?.size ?? 1);
+    height.text = _n(b?.height ?? 1);
+    width.text = _n(b?.width ?? 1);
+    format.text = '${b?.format ?? 1}';
+    trip.text = '${b?.trip ?? 5}';
+  }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context)
@@ -317,17 +331,28 @@ class _ProductDialogState extends State<_ProductDialog> {
     final unitsPerBox = int.tryParse(units.text);
     final productSize = _d(size.text);
     final productHeight = _d(height.text);
+    final productWidth = _d(width.text);
     final productFormat = int.tryParse(format.text);
     final tripCapacity = int.tryParse(trip.text);
     if (unitsPerBox == null ||
         productSize == null ||
         productHeight == null ||
+        productWidth == null ||
         productFormat == null ||
         tripCapacity == null) {
       _showError('Revisa los valores numéricos.');
       return;
     }
 
+    final box = CrateType(
+      _boxType.trim().isEmpty ? 'Caja' : _boxType.trim(),
+      unitsPerBox,
+      productSize,
+      productHeight,
+      productFormat,
+      tripCapacity,
+      width: productWidth,
+    );
     final product = Product(
       id: widget.product?.id,
       name: name.text.trim(),
@@ -335,12 +360,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       groupName: _group,
       subcategory: _subcategory,
       image: image.text.trim().isEmpty ? null : image.text.trim(),
-      unitsPerBox: unitsPerBox,
-      size: productSize,
-      height: productHeight,
-      format: productFormat,
-      crateName: _crate,
-      tripCapacity: tripCapacity,
+      box: box,
     );
 
     final validationError = product.validationError;
@@ -365,8 +385,6 @@ class _ProductDialogState extends State<_ProductDialog> {
     final subcategories = _group == null
         ? const <String>[]
         : widget.options.subcategoriesFor(_category, _group!);
-    final crateItems = <String>{'', ...widget.options.crateNames}.toList()
-      ..sort();
 
     return AlertDialog(
       title: Text(widget.product == null ? 'Nuevo producto' : 'Editar producto'),
@@ -394,34 +412,33 @@ class _ProductDialogState extends State<_ProductDialog> {
               });
             },
           ),
-          DropdownButtonFormField<String?>(
+          DropdownButtonFormField<String>(
             initialValue: _group,
             isExpanded: true,
             decoration: const InputDecoration(labelText: 'Grupo de variantes'),
             items: [
-              const DropdownMenuItem<String?>(
-                  value: null, child: Text('— Sin grupo —')),
               for (final g in groups)
-                DropdownMenuItem<String?>(
+                DropdownMenuItem<String>(
                     value: g, child: Text(g, overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: (v) => setState(() {
-              _group = v;
-              _subcategory = null;
-            }),
+            onChanged: groups.isEmpty
+                ? null
+                : (v) => setState(() {
+                      _group = v;
+                      _subcategory = null;
+                    }),
           ),
-          DropdownButtonFormField<String?>(
+          DropdownButtonFormField<String>(
             initialValue: _subcategory,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Subcategoría'),
+            decoration: const InputDecoration(
+                labelText: 'Subcategoría (opcional)'),
             items: [
-              const DropdownMenuItem<String?>(
-                  value: null, child: Text('— Sin subcategoría —')),
               for (final s in subcategories)
-                DropdownMenuItem<String?>(
+                DropdownMenuItem<String>(
                     value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: _group == null
+            onChanged: _group == null || subcategories.isEmpty
                 ? null
                 : (v) => setState(() => _subcategory = v),
           ),
@@ -433,6 +450,25 @@ class _ProductDialogState extends State<_ProductDialog> {
               controller: groupImage,
               decoration: const InputDecoration(
                   labelText: 'Imagen general del grupo (ruta o URI)')),
+          DropdownButtonFormField<String>(
+            initialValue: _boxType.isEmpty ? null : _boxType,
+            isExpanded: true,
+            decoration: const InputDecoration(
+                labelText: 'Tipo de caja (Cerveza, Cola…)'),
+            items: [
+              for (final b in widget.options.boxes)
+                DropdownMenuItem<String>(
+                    value: b.name,
+                    child: Text(b.name, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() {
+                _boxType = v;
+                _fillBox(widget.options.boxFor(v));
+              });
+            },
+          ),
           TextField(
               controller: units,
               keyboardType: TextInputType.number,
@@ -452,29 +488,29 @@ class _ProductDialogState extends State<_ProductDialog> {
             const SizedBox(width: 8),
             Expanded(
                 child: TextField(
+                    controller: width,
+                    keyboardType: _decimal,
+                    decoration: const InputDecoration(labelText: 'Ancho'))),
+          ]),
+          Row(children: [
+            Expanded(
+                child: TextField(
                     controller: format,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(labelText: 'Formato'))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: TextField(
+                    controller: trip,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Cajas por viaje'))),
           ]),
-          DropdownButtonFormField<String>(
-            initialValue: _crate,
-            isExpanded: true,
-            decoration: const InputDecoration(
-                labelText: 'Tipo de caja (Cerveza, Cola…)'),
-            items: [
-              for (final c in crateItems)
-                DropdownMenuItem<String>(
-                    value: c,
-                    child: Text(c.isEmpty ? '— Sin tipo —' : c,
-                        overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: (v) => setState(() => _crate = v ?? ''),
+          const SizedBox(height: 4),
+          Text(
+            'Los datos de la caja se comparten entre todos los productos de ese tipo.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          TextField(
-              controller: trip,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                  labelText: 'Cajas de este tipo por viaje')),
         ]),
       ),
       actions: [
