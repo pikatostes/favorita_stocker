@@ -31,14 +31,17 @@ class ProductEntry {
 /// - El desplegable incluye **todos** los miembros del grupo, tengan o no
 ///   subcategoría, usando [ProductEntry.label] como etiqueta. Así una variante
 ///   sin subcategoría nunca desaparece del grupo.
+/// - **Orden**: primero los grupos de variantes (2 o más subcategorías) y
+///   después los productos sueltos, conservando el orden relativo en cada parte.
 List<ProductEntry> buildProductEntries(List<Product> products) {
-  final entries = <ProductEntry>[];
+  final groups = <ProductEntry>[];
+  final singles = <ProductEntry>[];
   final renderedGroups = <String>{};
 
   for (final product in products) {
     final group = product.groupName?.trim() ?? '';
     if (group.isEmpty) {
-      entries.add(ProductEntry.product(product));
+      singles.add(ProductEntry.product(product));
       continue;
     }
 
@@ -52,9 +55,12 @@ List<ProductEntry> buildProductEntries(List<Product> products) {
         .toList()
       ..sort((a, b) => ProductEntry.label(a).compareTo(ProductEntry.label(b)));
 
-    entries.add(variants.length > 1
-        ? ProductEntry.group(group, variants)
-        : ProductEntry.product(product));
+    if (variants.length > 1) {
+      groups.add(ProductEntry.group(group, variants));
+    } else {
+      singles.add(ProductEntry.product(product));
+    }
   }
-  return entries;
+
+  return [...groups, ...singles];
 }
