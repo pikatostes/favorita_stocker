@@ -1,3 +1,16 @@
+/// Tipo de caja: nombre, unidades, tamaño, altura, formato y cajas por viaje.
+///
+/// Agrupa los atributos físicos que comparten varios productos (p. ej. todas
+/// las Coca-Cola usan la caja "Cola"). Los campos coinciden con los de
+/// [Product] para poder construir el catálogo sin repetir valores.
+class CrateType {
+  final String name;
+  final int units, format, trip;
+  final double size, height;
+  const CrateType(
+      this.name, this.units, this.size, this.height, this.format, this.trip);
+}
+
 class Product {
   final int? id;
   final String name;

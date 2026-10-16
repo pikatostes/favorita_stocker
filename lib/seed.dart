@@ -1,26 +1,17 @@
 import 'models.dart';
 
-/// Tipos de caja: nombre, unidades, tamaño, altura, formato, cajas por viaje.
-class _Box {
-  final String name;
-  final int units, format, trip;
-  final double size, height;
-  const _Box(
-      this.name, this.units, this.size, this.height, this.format, this.trip);
-}
-
 const _cola = ['Original', 'Zero', 'Zero Zero', 'Light'];
 const _bliss = ['Tónica', 'Limón', 'Berry', 'Ginger Ale'];
 const _nestea = ['Té', 'Limón', 'Maracuyá', 'Melocotón'];
 const _aquarius = ['Naranja', 'Limón', 'Piña', 'Melocotón'];
 const _zumo = ['Piña', 'Melocotón', 'Naranja'];
 
-const _cajaCola = _Box('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
-const _cajaNestea = _Box('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
-const _cerveza = _Box('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
-const _aquabona = _Box('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
+const _cajaCola = CrateType('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
+const _cajaNestea = CrateType('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
+const _cerveza = CrateType('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
+const _aquabona = CrateType('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
 
-Product _p(String name, String cat, _Box b,
+Product _p(String name, String cat, CrateType b,
         {double? size,
         double? height,
         String? crate,
