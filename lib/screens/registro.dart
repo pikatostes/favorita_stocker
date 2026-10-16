@@ -59,36 +59,56 @@ class _RegistroScreenState extends State<RegistroScreen> {
     refreshOverlay?.call(() {});
   }
 
+  /// Botón compacto del contador. Se usa tanto para botellines sueltos
+  /// (iconos perfilados) como para cajas completas (iconos rellenos).
+  Widget _qtyButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+  }) =>
+      IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+        iconSize: 20,
+        icon: Icon(icon),
+        onPressed: onPressed,
+      );
+
   Widget _quantityControls(Product product, {StateSetter? refreshOverlay}) {
     final quantity = _qty[product.id] ?? 0;
+    final box = product.unitsPerBox < 1 ? 1 : product.unitsPerBox;
+    void add(int change) =>
+        _adjustQuantity(product, change, refreshOverlay: refreshOverlay);
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      IconButton(
-        visualDensity: VisualDensity.compact,
-        icon: const Icon(Icons.remove_circle_outline),
-        onPressed: quantity > 0
-            ? () => _adjustQuantity(
-                  product,
-                  -1,
-                  refreshOverlay: refreshOverlay,
-                )
-            : null,
+      _qtyButton(
+        icon: Icons.remove_circle,
+        tooltip: 'Quitar una caja (-$box)',
+        onPressed: quantity >= box ? () => add(-box) : null,
+      ),
+      _qtyButton(
+        icon: Icons.remove_circle_outline,
+        tooltip: 'Quitar un botellín',
+        onPressed: quantity > 0 ? () => add(-1) : null,
       ),
       SizedBox(
-        width: 32,
+        width: 34,
         child: Text(
           '$quantity',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ),
-      IconButton(
-        visualDensity: VisualDensity.compact,
-        icon: const Icon(Icons.add_circle_outline),
-        onPressed: () => _adjustQuantity(
-          product,
-          1,
-          refreshOverlay: refreshOverlay,
-        ),
+      _qtyButton(
+        icon: Icons.add_circle_outline,
+        tooltip: 'Añadir un botellín',
+        onPressed: () => add(1),
+      ),
+      _qtyButton(
+        icon: Icons.add_circle,
+        tooltip: 'Añadir una caja (+$box)',
+        onPressed: () => add(box),
       ),
     ]);
   }
@@ -273,7 +293,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
               const Spacer(),
               Align(
                 alignment: Alignment.center,
-                child: _quantityControls(product),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: _quantityControls(product),
+                ),
               ),
             ],
           ),
