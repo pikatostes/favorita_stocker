@@ -16,7 +16,7 @@ class Db {
   Database? _db;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -84,6 +84,8 @@ class Db {
     if (oldV < 8) await _migrateToV8(d);
     // ...y la reparación de grupos históricos de variantes a v9.
     if (oldV < 9) await _repairLegacyVariantGroups(d);
+    // ...y la agrupación de cervezas por marca a v10.
+    if (oldV < 10) await _regroupBeers(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -415,6 +417,66 @@ class Db {
         }
       }
     }
+  }
+
+  /// Marca y subcategoría de las cervezas que no van a "Otros".
+  static const Map<String, ({String group, String subcategory})> _beerGroups = {
+    'Cruzcampo': (group: 'Cruzcampo', subcategory: 'Pilsen'),
+    '1904': (group: 'Cruzcampo', subcategory: '1904'),
+    'Cruzcampo Gran Reserva': (group: 'Cruzcampo', subcategory: 'Gran Reserva'),
+    'Cruzcampo Radler': (group: 'Cruzcampo', subcategory: 'Radler'),
+    'Heineken': (group: 'Heineken', subcategory: 'Normal'),
+    'Heineken 0,0': (group: 'Heineken', subcategory: '0,0'),
+  };
+
+  /// Reagrupa las cervezas por marca (v10).
+  ///
+  /// Antes cada cerveza tenía su propio grupo (su nombre). Ahora se juntan bajo
+  /// Cruzcampo, Heineken u "Otros"; el resto de cervezas de la categoría caen en
+  /// "Otros" con su nombre como subcategoría. Borra los grupos que quedan vacíos.
+  static Future<void> _regroupBeers(Database d) async {
+    final now = _nowMs;
+    final rows = await d.rawQuery('''
+      SELECT p.id AS id, p.name AS name, g.category_id AS category_id
+      FROM product p
+      JOIN product_group g ON g.id = p.group_id
+      JOIN category c ON c.id = g.category_id
+      WHERE p.deleted_at IS NULL AND c.name = 'Cervezas y similares' ''');
+    if (rows.isEmpty) return;
+
+    final groupIds = <String, int>{};
+    for (final row in rows) {
+      final categoryId = row['category_id'] as int;
+      final name = row['name'] as String;
+      final spec = _beerGroups[name];
+      final groupName = spec?.group ?? 'Otros';
+      final subName = spec?.subcategory ?? name;
+      final key = '$categoryId\u0000$groupName';
+      final groupId = groupIds[key] ??= await _ensureGroup(
+        d,
+        categoryId: categoryId,
+        name: groupName,
+      );
+      final subId = await _ensureSubcategory(
+        d,
+        groupId: groupId,
+        name: subName,
+      );
+      await d.update(
+        'product',
+        {'group_id': groupId, 'subcategory_id': subId, 'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+
+    // Borra los grupos de cerveza que han quedado vacíos (p. ej. "Sol").
+    await d.delete(
+      'product_group',
+      where: 'category_id IN (SELECT id FROM category WHERE name = ?) '
+          'AND id NOT IN (SELECT group_id FROM product)',
+      whereArgs: ['Cervezas y similares'],
+    );
   }
 
   // ---------------------------------------------------------------------------

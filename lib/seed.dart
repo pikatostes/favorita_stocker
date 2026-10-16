@@ -43,33 +43,58 @@ Product _p(
       ),
     );
 
+/// Cerveza del grupo de variantes "Otros": su nombre es también su subcategoría.
+Product _otros(
+  String name, {
+  String? image,
+  double? size,
+  String? crate,
+}) =>
+    _p(
+      name,
+      _cervezas,
+      _cerveza,
+      group: 'Otros',
+      subcategory: name,
+      image: image,
+      size: size,
+      crate: crate,
+    );
+
 const _cervezas = 'Cervezas y similares';
 const _refrescos = 'Refrescos y zumos';
 
 /// Productos iniciales. Los marcados con "SUPUESTO" no tenían tipo de caja
 /// indicado: edítalos en la pestaña Productos si no es el correcto.
 final List<Product> initialProducts = [
-  // Cervezas y similares (SUPUESTO: caja tipo Cruzcampo/Heineken)
+  // Cervezas y similares. Grupo de variantes: Cruzcampo, Heineken y Otros
+  // (este último reúne al resto de cervezas).
   _p(
     'Cruzcampo',
     _cervezas,
     _cerveza,
+    group: 'Cruzcampo',
+    subcategory: 'Pilsen',
     image: 'lib/img/cruzcampo.jfif',
   ),
-  _p('Heineken', _cervezas, _cerveza),
-  _p('1904', _cervezas, _cerveza, image: 'lib/img/1904.png'),
-  _p('Heineken 0,0', _cervezas, _cerveza),
-  _p('Amstel Tostada 0,0', _cervezas, _cerveza, image: 'lib/img/amstel00tostada.jpg'),
-  _p('Sol', _cervezas, _cerveza),
-  _p('Desperados', _cervezas, _cerveza),
-  _p('Ladrón de manzanas', _cervezas, _cerveza),
-  _p('Cruzcampo Gran Reserva', _cervezas, _cerveza),
-  _p('Paulaner', _cervezas, _cerveza, size: 2, crate: 'Cerveza grande'),
-  _p('Águila sin filtrar', _cervezas, _cerveza,
-      size: 2, crate: 'Cerveza grande'),
-  _p('Guinness', _cervezas, _cerveza),
-  _p('Cruzcampo Radler', _cervezas, _cerveza),
-  _p('Alcázar', _cervezas, _cerveza, image: 'lib/img/alcazar.png'),
+  _p('1904', _cervezas, _cerveza,
+      group: 'Cruzcampo', subcategory: '1904', image: 'lib/img/1904.png'),
+  _p('Cruzcampo Gran Reserva', _cervezas, _cerveza,
+      group: 'Cruzcampo', subcategory: 'Gran Reserva'),
+  _p('Cruzcampo Radler', _cervezas, _cerveza,
+      group: 'Cruzcampo', subcategory: 'Radler'),
+  _p('Heineken', _cervezas, _cerveza,
+      group: 'Heineken', subcategory: 'Normal'),
+  _p('Heineken 0,0', _cervezas, _cerveza,
+      group: 'Heineken', subcategory: '0,0'),
+  _otros('Amstel Tostada 0,0', image: 'lib/img/amstel00tostada.jpg'),
+  _otros('Sol'),
+  _otros('Desperados'),
+  _otros('Ladrón de manzanas'),
+  _otros('Paulaner', size: 2, crate: 'Cerveza grande'),
+  _otros('Águila sin filtrar', size: 2, crate: 'Cerveza grande'),
+  _otros('Guinness'),
+  _otros('Alcázar', image: 'lib/img/alcazar.png'),
 
   // Refrescos y zumos
   ..._cola.map((subcategoria) => _p(

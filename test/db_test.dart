@@ -140,9 +140,10 @@ void main() {
     expect(cola['box'], 'Cola');
 
     final cruz = products.firstWhere((r) => r['name'] == 'Cruzcampo');
-    // Sin grupo en el esquema antiguo: se crea un grupo con el nombre propio.
+    // Sin grupo en el esquema antiguo se creó uno con su nombre; la migración
+    // v10 lo deja además en el grupo de marca "Cruzcampo" (subcategoría Pilsen).
     expect(cruz['grp'], 'Cruzcampo');
-    expect(cruz['sub'], isNull);
+    expect(cruz['sub'], 'Pilsen');
     expect(cruz['box'], 'Cerveza');
 
     // Una sola noche y una sola fila de consumo (el marcador no se migra).
@@ -229,5 +230,75 @@ void main() {
         where: 'name IN (?, ?, ?)',
         whereArgs: ['Aquarius Naranja', 'Ginger Ale', 'Tónica Bliss']);
     expect(orphans, isEmpty);
+  });
+
+  test('agrupa las cervezas por marca (Cruzcampo, Heineken, Otros) en v10',
+      () async {
+    final path = p.join(dir.path, 'beers.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 7,
+        onCreate: (d, _) async {
+          await _createLegacyV7(d);
+          for (final name in [
+            '1904',
+            'Cruzcampo Gran Reserva',
+            'Cruzcampo Radler',
+            'Heineken',
+            'Heineken 0,0',
+            'Sol',
+            'Guinness',
+          ]) {
+            await d.insert('products', {
+              'name': name,
+              'category': 'Cervezas y similares',
+              'size': 1.0,
+              'height': 1.0,
+              'format': 2,
+              'crate_name': 'Cerveza',
+              'trip_capacity': 5,
+              'units_per_box': 24,
+            });
+          }
+        },
+      ),
+    );
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    Future<Map<String, Object?>> beer(String name) async => (await d.rawQuery('''
+          SELECT g.name AS grp, s.name AS sub
+          FROM product p
+          JOIN product_group g ON g.id = p.group_id
+          LEFT JOIN subcategory s ON s.id = p.subcategory_id
+          WHERE p.name = ?''', [name]))
+        .single;
+
+    expect((await beer('Cruzcampo'))['grp'], 'Cruzcampo');
+    expect((await beer('Cruzcampo'))['sub'], 'Pilsen');
+    expect((await beer('1904'))['grp'], 'Cruzcampo');
+    expect((await beer('1904'))['sub'], '1904');
+    expect((await beer('Cruzcampo Gran Reserva'))['sub'], 'Gran Reserva');
+    expect((await beer('Cruzcampo Radler'))['sub'], 'Radler');
+    expect((await beer('Heineken'))['grp'], 'Heineken');
+    expect((await beer('Heineken'))['sub'], 'Normal');
+    expect((await beer('Heineken 0,0'))['sub'], '0,0');
+    expect((await beer('Sol'))['grp'], 'Otros');
+    expect((await beer('Sol'))['sub'], 'Sol');
+    expect((await beer('Guinness'))['grp'], 'Otros');
+    expect((await beer('Guinness'))['sub'], 'Guinness');
+
+    // Solo quedan los tres grupos de marca en cervezas.
+    final groups = await d.rawQuery('''
+      SELECT DISTINCT g.name AS name
+      FROM product_group g
+      JOIN category c ON c.id = g.category_id
+      WHERE c.name = 'Cervezas y similares'
+      ORDER BY g.name''');
+    expect(groups.map((r) => r['name']).toList(),
+        ['Cruzcampo', 'Heineken', 'Otros']);
   });
 }
