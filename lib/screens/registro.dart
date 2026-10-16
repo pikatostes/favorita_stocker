@@ -17,13 +17,23 @@ class RegistroScreen extends StatefulWidget {
 class _RegistroScreenState extends State<RegistroScreen> {
   // La noche empieza a las 16:00: a las 3:00 sigue siendo la de "ayer".
   DateTime _date = Schedule.serviceDay(DateTime.now());
-  final Map<int, int> _qty = {};
+
+  /// Cajas completas y botellines sueltos por producto. La cantidad se guarda
+  /// siempre en botellines (cajas × unidades por caja + sueltos).
+  final Map<int, int> _boxes = {};
+  final Map<int, int> _loose = {};
   bool _gridView = false;
   late Future<List<Product>> _future = Db.i.products();
 
   void _reload() {
     if (mounted) setState(() => _future = Db.i.products());
   }
+
+  int _boxSize(Product p) => p.unitsPerBox < 1 ? 1 : p.unitsPerBox;
+
+  /// Total de botellines de un producto (cajas completas + sueltos).
+  int _totalFor(Product p) =>
+      (_boxes[p.id] ?? 0) * _boxSize(p) + (_loose[p.id] ?? 0);
 
   @override
   void initState() {
@@ -37,18 +47,17 @@ class _RegistroScreenState extends State<RegistroScreen> {
     super.dispose();
   }
 
-  void _adjustQuantity(
-    Product product,
-    int change, {
-    StateSetter? refreshOverlay,
-  }) {
-    final quantity = _qty[product.id] ?? 0;
-    setState(() => _qty[product.id!] = (quantity + change).clamp(0, 1 << 31));
+  void _setBoxes(Product product, int value, {StateSetter? refreshOverlay}) {
+    setState(() => _boxes[product.id!] = value < 0 ? 0 : value);
     refreshOverlay?.call(() {});
   }
 
-  /// Botón compacto del contador. Se usa tanto para botellines sueltos
-  /// (iconos perfilados) como para cajas completas (iconos rellenos).
+  void _setLoose(Product product, int value, {StateSetter? refreshOverlay}) {
+    setState(() => _loose[product.id!] = value < 0 ? 0 : value);
+    refreshOverlay?.call(() {});
+  }
+
+  /// Botón compacto del contador (− / +).
   Widget _qtyButton({
     required IconData icon,
     required String tooltip,
@@ -64,56 +73,95 @@ class _RegistroScreenState extends State<RegistroScreen> {
         onPressed: onPressed,
       );
 
-  Widget _quantityControls(Product product, {StateSetter? refreshOverlay}) {
-    final quantity = _qty[product.id] ?? 0;
-    final box = product.unitsPerBox < 1 ? 1 : product.unitsPerBox;
-    void add(int change) =>
-        _adjustQuantity(product, change, refreshOverlay: refreshOverlay);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      _qtyButton(
-        icon: Icons.remove_circle,
-        tooltip: 'Quitar una caja (-$box)',
-        onPressed: quantity >= box ? () => add(-box) : null,
-      ),
-      _qtyButton(
-        icon: Icons.remove_circle_outline,
-        tooltip: 'Quitar un botellín',
-        onPressed: quantity > 0 ? () => add(-1) : null,
-      ),
-      SizedBox(
-        width: 34,
-        child: Text(
-          '$quantity',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium,
+  /// Una fila de contador: etiqueta, −, valor y +.
+  Widget _counter({
+    required String label,
+    required int value,
+    required VoidCallback? onMinus,
+    required VoidCallback onPlus,
+  }) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          width: 62,
+          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
         ),
+        _qtyButton(
+          icon: Icons.remove_circle_outline,
+          tooltip: 'Quitar $label',
+          onPressed: onMinus,
+        ),
+        SizedBox(
+          width: 34,
+          child: Text(
+            '$value',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        _qtyButton(
+          icon: Icons.add_circle_outline,
+          tooltip: 'Añadir $label',
+          onPressed: onPlus,
+        ),
+      ]);
+
+  /// Opción B: dos contadores separados (cajas completas y botellines sueltos)
+  /// con el total en botellines debajo.
+  Widget _quantityControls(Product product, {StateSetter? refreshOverlay}) {
+    final unit = _boxSize(product);
+    final boxes = _boxes[product.id] ?? 0;
+    final loose = _loose[product.id] ?? 0;
+    final total = boxes * unit + loose;
+    final rows = <Widget>[];
+    if (unit > 1) {
+      rows.add(_counter(
+        label: 'Cajas',
+        value: boxes,
+        onMinus: boxes > 0
+            ? () => _setBoxes(product, boxes - 1, refreshOverlay: refreshOverlay)
+            : null,
+        onPlus: () =>
+            _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
+      ));
+    }
+    rows.add(_counter(
+      label: unit > 1 ? 'Sueltos' : 'Botellines',
+      value: loose,
+      onMinus: loose > 0
+          ? () => _setLoose(product, loose - 1, refreshOverlay: refreshOverlay)
+          : null,
+      onPlus: () =>
+          _setLoose(product, loose + 1, refreshOverlay: refreshOverlay),
+    ));
+    rows.add(Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(
+        unit > 1 ? 'Caja = $unit uds · Total $total' : 'Total $total',
+        style: Theme.of(context).textTheme.bodySmall,
       ),
-      _qtyButton(
-        icon: Icons.add_circle_outline,
-        tooltip: 'Añadir un botellín',
-        onPressed: () => add(1),
-      ),
-      _qtyButton(
-        icon: Icons.add_circle,
-        tooltip: 'Añadir una caja (+$box)',
-        onPressed: () => add(box),
-      ),
-    ]);
+    ));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: rows,
+    );
   }
 
   Widget _productTile(
     Product product, {
     String? title,
     StateSetter? refreshOverlay,
-  }) {
-    return ListTile(
-      title: Text(title ?? product.name),
-      trailing: _quantityControls(
-        product,
-        refreshOverlay: refreshOverlay,
-      ),
-    );
-  }
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(child: Text(title ?? product.name)),
+            const SizedBox(width: 12),
+            _quantityControls(product, refreshOverlay: refreshOverlay),
+          ],
+        ),
+      );
 
   Future<void> _chooseVariants(ProductEntry entry) async {
     final variants = entry.products;
@@ -164,7 +212,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _groupListTile(ProductEntry entry) {
     final count = entry.products.fold<int>(
       0,
-      (total, product) => total + (_qty[product.id] ?? 0),
+      (total, product) => total + _totalFor(product),
     );
     return ListTile(
       title: Text(entry.groupName!),
@@ -184,7 +232,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _groupGridCard(ProductEntry entry) {
     final count = entry.products.fold<int>(
       0,
-      (total, product) => total + (_qty[product.id] ?? 0),
+      (total, product) => total + _totalFor(product),
     );
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -217,7 +265,15 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  Widget _productGridCard(Product product) => Card(
+  Widget _productGridCard(Product product) {
+    final unit = _boxSize(product);
+    final boxes = _boxes[product.id] ?? 0;
+    final loose = _loose[product.id] ?? 0;
+    final total = boxes * unit + loose;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _editQuantity(product),
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: Column(
@@ -250,17 +306,62 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const Spacer(),
-              Align(
-                alignment: Alignment.center,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: _quantityControls(product),
-                ),
+              Text(
+                total > 0 ? '$total botellines' : 'Sin añadir',
+                style: Theme.of(context).textTheme.labelLarge,
               ),
+              if (total > 0 && unit > 1)
+                Text(
+                  '$boxes cajas · $loose sueltos',
+                  style: Theme.of(context).textTheme.bodySmall,
+                )
+              else
+                Text(
+                  'Toca para ajustar',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
+
+  Future<void> _editQuantity(Product product) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, refreshOverlay) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(product.name,
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _quantityControls(product,
+                      refreshOverlay: refreshOverlay),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Listo'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _categoryList(List<Product> products) {
     final entries = buildProductEntries(products);
@@ -306,17 +407,36 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   Future<void> _save() async {
-    if (_qty.values.every((q) => q == 0)) {
+    final products = await _future;
+    if (!mounted) return;
+    final qty = <int, int>{}; // total de botellines (lo que se guarda)
+    final loose = <int, int>{}; // sueltos: se mezclan en el plan
+    final boxes = <int, int>{}; // cajas completas: van dedicadas en el plan
+    for (final p in products) {
+      final b = _boxes[p.id] ?? 0;
+      final l = _loose[p.id] ?? 0;
+      if (b == 0 && l == 0) continue;
+      qty[p.id!] = b * _boxSize(p) + l;
+      if (l > 0) loose[p.id!] = l;
+      if (b > 0) boxes[p.id!] = b;
+    }
+    if (qty.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Añade algún botellín a la lista')));
       return;
     }
-    final qty = Map<int, int>.from(_qty);
     await Db.i.saveNight(Schedule.fmt(_date), qty);
     if (!mounted) return;
-    setState(_qty.clear);
+    setState(() {
+      _boxes.clear();
+      _loose.clear();
+    });
     Navigator.push(
-        context, MaterialPageRoute(builder: (_) => PlanScreen(qty: qty)));
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlanScreen(qty: loose, fullBoxes: boxes),
+      ),
+    );
   }
 
   @override
@@ -372,7 +492,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 final count = products
                     .where((product) =>
                         product.category == category &&
-                        (_qty[product.id] ?? 0) > 0)
+                        _totalFor(product) > 0)
                     .length;
                 return count == 0 ? '' : ' ($count)';
               },
