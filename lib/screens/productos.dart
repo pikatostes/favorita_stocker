@@ -6,6 +6,92 @@ import '../widgets/category_tabs.dart';
 /// Datos que devuelve el formulario de alta/edición de un producto.
 typedef _ProductForm = ({Product product, String? groupImage});
 
+/// Valores que existen en la BD para los desplegables del formulario.
+class _ProductOptions {
+  final List<String> categories;
+  final List<String> crateNames;
+  final Map<String, List<String>> _groups; // categoría -> grupos
+  final Map<String, List<String>> _subcategories; // 'categoría\u0000grupo' -> subs
+
+  const _ProductOptions({
+    required this.categories,
+    required this.crateNames,
+    required Map<String, List<String>> groups,
+    required Map<String, List<String>> subcategories,
+  })  : _groups = groups,
+        _subcategories = subcategories;
+
+  List<String> groupsFor(String category) => _groups[category] ?? const [];
+  List<String> subcategoriesFor(String category, String group) =>
+      _subcategories['$category\u0000$group'] ?? const [];
+}
+
+/// Reúne de la BD los valores disponibles para los desplegables. Incluye
+/// siempre los valores del producto que se está editando, para no perderlos.
+Future<_ProductOptions> _loadOptions(Product? current) async {
+  final products = await Db.i.products();
+  final groups = await Db.i.productGroups();
+
+  final categories = <String>{
+    for (final p in products) p.category.trim(),
+    for (final g in groups) g.category.trim(),
+    if (current != null) current.category.trim(),
+  }..removeWhere((c) => c.isEmpty);
+
+  final groupsByCategory = <String, Set<String>>{};
+  void addGroup(String category, String? group) {
+    final c = category.trim();
+    final g = group?.trim() ?? '';
+    if (c.isEmpty || g.isEmpty) return;
+    groupsByCategory.putIfAbsent(c, () => <String>{}).add(g);
+  }
+
+  for (final g in groups) {
+    addGroup(g.category, g.name);
+  }
+  for (final p in products) {
+    addGroup(p.category, p.groupName);
+  }
+  if (current != null) addGroup(current.category, current.groupName);
+
+  final subcategoriesByGroup = <String, Set<String>>{};
+  void addSubcategory(String category, String? group, String? subcategory) {
+    final c = category.trim();
+    final g = group?.trim() ?? '';
+    final s = subcategory?.trim() ?? '';
+    if (c.isEmpty || g.isEmpty || s.isEmpty) return;
+    subcategoriesByGroup.putIfAbsent('$c\u0000$g', () => <String>{}).add(s);
+  }
+
+  for (final p in products) {
+    addSubcategory(p.category, p.groupName, p.subcategory);
+  }
+  if (current != null) {
+    addSubcategory(current.category, current.groupName, current.subcategory);
+  }
+
+  final crateNames = <String>{
+    for (final p in products)
+      if (p.crateName.trim().isNotEmpty) p.crateName.trim(),
+    if (current != null && current.crateName.trim().isNotEmpty)
+      current.crateName.trim(),
+  }.toList()
+    ..sort();
+
+  return _ProductOptions(
+    categories: categories.toList()..sort(),
+    crateNames: crateNames,
+    groups: {
+      for (final e in groupsByCategory.entries)
+        e.key: e.value.toList()..sort(),
+    },
+    subcategories: {
+      for (final e in subcategoriesByGroup.entries)
+        e.key: e.value.toList()..sort(),
+    },
+  );
+}
+
 class ProductosScreen extends StatefulWidget {
   const ProductosScreen({super.key});
   @override
@@ -40,6 +126,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
             name: p.groupName!,
           )
         : null;
+    final options = await _loadOptions(p);
     if (!mounted) return;
 
     // El formulario gestiona sus propios controllers: se crean y se destruyen
@@ -49,7 +136,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
       context: context,
       builder: (_) => _ProductDialog(
         product: p,
-        defaultCategory: _cat ?? 'Cervezas y similares',
+        options: options,
+        defaultCategory: _cat,
         existingGroupImage: existingGroupImage,
       ),
     );
@@ -126,13 +214,18 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
 /// Formulario de alta/edición. Es dueño de sus [TextEditingController], que
 /// se destruyen en [dispose] (cuando el diálogo ya se ha desmontado).
+///
+/// Categoría, grupo, subcategoría y tipo de caja solo pueden elegirse entre
+/// los valores existentes en la BD (desplegables estrictos).
 class _ProductDialog extends StatefulWidget {
   final Product? product;
-  final String defaultCategory;
+  final _ProductOptions options;
+  final String? defaultCategory;
   final String? existingGroupImage;
 
   const _ProductDialog({
     required this.product,
+    required this.options,
     required this.defaultCategory,
     required this.existingGroupImage,
   });
@@ -145,49 +238,62 @@ class _ProductDialogState extends State<_ProductDialog> {
   static const _decimal = TextInputType.numberWithOptions(decimal: true);
 
   late final TextEditingController name;
-  late final TextEditingController cat;
-  late final TextEditingController group;
-  late final TextEditingController subcategory;
   late final TextEditingController image;
   late final TextEditingController groupImage;
   late final TextEditingController units;
   late final TextEditingController size;
   late final TextEditingController height;
   late final TextEditingController format;
-  late final TextEditingController crate;
   late final TextEditingController trip;
   late final List<TextEditingController> _controllers;
+
+  late String _category;
+  String? _group;
+  String? _subcategory;
+  late String _crate;
 
   @override
   void initState() {
     super.initState();
     final p = widget.product;
     name = TextEditingController(text: p?.name ?? '');
-    cat = TextEditingController(text: p?.category ?? widget.defaultCategory);
-    group = TextEditingController(text: p?.groupName ?? '');
-    subcategory = TextEditingController(text: p?.subcategory ?? '');
     image = TextEditingController(text: p?.image ?? '');
     groupImage = TextEditingController(text: widget.existingGroupImage ?? '');
     units = TextEditingController(text: '${p?.unitsPerBox ?? 24}');
     size = TextEditingController(text: _n(p?.size ?? 1));
     height = TextEditingController(text: _n(p?.height ?? 1));
     format = TextEditingController(text: '${p?.format ?? 1}');
-    crate = TextEditingController(text: p?.crateName ?? '');
     trip = TextEditingController(text: '${p?.tripCapacity ?? 5}');
-    _controllers = [
-      name,
-      cat,
-      group,
-      subcategory,
-      image,
-      groupImage,
-      units,
-      size,
-      height,
-      format,
-      crate,
-      trip,
-    ];
+    _controllers = [name, image, groupImage, units, size, height, format, trip];
+
+    // Categoría: el producto, la pestaña visible, o la primera disponible.
+    final cat = p?.category.trim();
+    final fallback = widget.defaultCategory?.trim();
+    if (cat != null && widget.options.categories.contains(cat)) {
+      _category = cat;
+    } else if (fallback != null && widget.options.categories.contains(fallback)) {
+      _category = fallback;
+    } else {
+      _category =
+          widget.options.categories.isNotEmpty ? widget.options.categories.first : '';
+    }
+
+    final group = p?.groupName?.trim();
+    _group = (group != null &&
+            group.isNotEmpty &&
+            widget.options.groupsFor(_category).contains(group))
+        ? group
+        : null;
+
+    final subcategory = p?.subcategory?.trim();
+    _subcategory = (_group != null &&
+            subcategory != null &&
+            subcategory.isNotEmpty &&
+            widget.options.subcategoriesFor(_category, _group!).contains(subcategory))
+        ? subcategory
+        : null;
+
+    _crate = p?.crateName.trim() ?? '';
   }
 
   @override
@@ -225,16 +331,15 @@ class _ProductDialogState extends State<_ProductDialog> {
     final product = Product(
       id: widget.product?.id,
       name: name.text.trim(),
-      category: cat.text.trim().isEmpty ? 'Otros' : cat.text.trim(),
-      groupName: group.text.trim().isEmpty ? null : group.text.trim(),
-      subcategory:
-          subcategory.text.trim().isEmpty ? null : subcategory.text.trim(),
+      category: _category.trim().isEmpty ? 'Otros' : _category.trim(),
+      groupName: _group,
+      subcategory: _subcategory,
       image: image.text.trim().isEmpty ? null : image.text.trim(),
       unitsPerBox: unitsPerBox,
       size: productSize,
       height: productHeight,
       format: productFormat,
-      crateName: crate.text.trim(),
+      crateName: _crate,
       tripCapacity: tripCapacity,
     );
 
@@ -255,70 +360,129 @@ class _ProductDialogState extends State<_ProductDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.product == null ? 'Nuevo producto' : 'Editar producto'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'Nombre')),
-            TextField(
-                controller: cat,
-                decoration: const InputDecoration(labelText: 'Categoría')),
-            TextField(
-                controller: group,
-                decoration:
-                    const InputDecoration(labelText: 'Grupo de variantes')),
-            TextField(
-                controller: subcategory,
-                decoration: const InputDecoration(labelText: 'Subcategoría')),
-            TextField(
-                controller: image,
-                decoration: const InputDecoration(
-                    labelText: 'Imagen del producto (ruta o URI)')),
-            TextField(
-                controller: groupImage,
-                decoration: const InputDecoration(
-                    labelText: 'Imagen general del grupo (ruta o URI)')),
-            TextField(
-                controller: units,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Unidades por caja')),
-            Row(children: [
-              Expanded(
-                  child: TextField(
-                      controller: size,
-                      keyboardType: _decimal,
-                      decoration: const InputDecoration(labelText: 'Tamaño'))),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: TextField(
-                      controller: height,
-                      keyboardType: _decimal,
-                      decoration: const InputDecoration(labelText: 'Altura'))),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: TextField(
-                      controller: format,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Formato'))),
-            ]),
-            TextField(
-                controller: crate,
-                decoration: const InputDecoration(
-                    labelText: 'Tipo de caja (Cerveza, Cola…)')),
-            TextField(
-                controller: trip,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                    labelText: 'Cajas de este tipo por viaje')),
+  Widget build(BuildContext context) {
+    final groups = widget.options.groupsFor(_category);
+    final subcategories = _group == null
+        ? const <String>[]
+        : widget.options.subcategoriesFor(_category, _group!);
+    final crateItems = <String>{'', ...widget.options.crateNames}.toList()
+      ..sort();
+
+    return AlertDialog(
+      title: Text(widget.product == null ? 'Nuevo producto' : 'Editar producto'),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: name,
+              decoration: const InputDecoration(labelText: 'Nombre')),
+          DropdownButtonFormField<String>(
+            initialValue: _category.isEmpty ? null : _category,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Categoría'),
+            items: [
+              for (final c in widget.options.categories)
+                DropdownMenuItem<String>(
+                    value: c,
+                    child: Text(c, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() {
+                _category = v;
+                _group = null;
+                _subcategory = null;
+              });
+            },
+          ),
+          DropdownButtonFormField<String?>(
+            initialValue: _group,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Grupo de variantes'),
+            items: [
+              const DropdownMenuItem<String?>(
+                  value: null, child: Text('— Sin grupo —')),
+              for (final g in groups)
+                DropdownMenuItem<String?>(
+                    value: g, child: Text(g, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) => setState(() {
+              _group = v;
+              _subcategory = null;
+            }),
+          ),
+          DropdownButtonFormField<String?>(
+            initialValue: _subcategory,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Subcategoría'),
+            items: [
+              const DropdownMenuItem<String?>(
+                  value: null, child: Text('— Sin subcategoría —')),
+              for (final s in subcategories)
+                DropdownMenuItem<String?>(
+                    value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: _group == null
+                ? null
+                : (v) => setState(() => _subcategory = v),
+          ),
+          TextField(
+              controller: image,
+              decoration: const InputDecoration(
+                  labelText: 'Imagen del producto (ruta o URI)')),
+          TextField(
+              controller: groupImage,
+              decoration: const InputDecoration(
+                  labelText: 'Imagen general del grupo (ruta o URI)')),
+          TextField(
+              controller: units,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Unidades por caja')),
+          Row(children: [
+            Expanded(
+                child: TextField(
+                    controller: size,
+                    keyboardType: _decimal,
+                    decoration: const InputDecoration(labelText: 'Tamaño'))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: TextField(
+                    controller: height,
+                    keyboardType: _decimal,
+                    decoration: const InputDecoration(labelText: 'Altura'))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: TextField(
+                    controller: format,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Formato'))),
           ]),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
-          FilledButton(onPressed: _save, child: const Text('Guardar')),
-        ],
-      );
+          DropdownButtonFormField<String>(
+            initialValue: _crate,
+            isExpanded: true,
+            decoration: const InputDecoration(
+                labelText: 'Tipo de caja (Cerveza, Cola…)'),
+            items: [
+              for (final c in crateItems)
+                DropdownMenuItem<String>(
+                    value: c,
+                    child: Text(c.isEmpty ? '— Sin tipo —' : c,
+                        overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) => setState(() => _crate = v ?? ''),
+          ),
+          TextField(
+              controller: trip,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Cajas de este tipo por viaje')),
+        ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar')),
+        FilledButton(onPressed: _save, child: const Text('Guardar')),
+      ],
+    );
+  }
 }

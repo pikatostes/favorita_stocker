@@ -107,6 +107,16 @@ class Db {
     return rows.map(Product.fromMap).toList();
   }
 
+  /// Grupos de variantes (categoría y nombre) existentes en la BD.
+  Future<List<({String category, String name})>> productGroups() async {
+    final rows =
+        await (await db).query('product_groups', orderBy: 'category, name');
+    return [
+      for (final r in rows)
+        (category: r['category'] as String, name: r['name'] as String),
+    ];
+  }
+
   Future<void> addProduct(
     Product p, {
     required String? groupImage,
