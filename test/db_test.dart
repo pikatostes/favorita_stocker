@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:stock_bar/db.dart';
+import 'package:stock_bar/models.dart';
 import 'package:stock_bar/shifts.dart';
 
 /// Crea el esquema desnormalizado v7 con datos de ejemplo.
@@ -245,6 +246,34 @@ void main() {
       () => Db.i.deleteRole(roles.single.id!),
       throwsStateError,
     );
+  });
+
+  test('guarda y relee el consumo de una noche', () async {
+    final d = await Db.openAt(p.join(dir.path, 'consumo.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.addProduct(
+      Product(
+        name: 'Cerveza',
+        category: 'Cervezas',
+        groupName: 'Cerveza',
+        box: const CrateType('Caja', 24, 1, 1, 1, 5),
+      ),
+      groupImage: null,
+    );
+    final product = (await Db.i.products()).single;
+
+    await Db.i.saveNight('2026-10-10', {product.id!: 30});
+    expect(await Db.i.nightConsumption('2026-10-10'), {product.id!: 30});
+    expect(await Db.i.nightConsumption('2026-10-11'), isEmpty);
+
+    // Volver a guardar esa noche sustituye el consumo anterior.
+    await Db.i.saveNight('2026-10-10', {product.id!: 12});
+    expect(await Db.i.nightConsumption('2026-10-10'), {product.id!: 12});
   });
 
   test('repara los grupos históricos de variantes (v8 -> v9)', () async {

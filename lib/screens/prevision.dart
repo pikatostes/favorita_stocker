@@ -25,10 +25,16 @@ class _PrevisionScreenState extends State<PrevisionScreen> {
   late Future<_View> _future = _load();
 
   Future<_View> _load() async {
-    final special = await Db.i.specialDays();
-    final t = _target ?? Schedule.nextOpen(DateTime.now(), special);
-    return _View(t, Schedule.isOpen(t, special), special[Schedule.fmt(t)],
-        await Predictor.forecast(t));
+    // Con una fecha ya elegida, la previsión no depende de los festivos:
+    // se calculan a la vez.
+    final specialF = Db.i.specialDays();
+    final target = _target;
+    final forecastF = target == null ? null : Predictor.forecast(target);
+    final special = await specialF;
+    final t = target ?? Schedule.nextOpen(DateTime.now(), special);
+    final result = await (forecastF ?? Predictor.forecast(t));
+    return _View(
+        t, Schedule.isOpen(t, special), special[Schedule.fmt(t)], result);
   }
 
   void _reload() {

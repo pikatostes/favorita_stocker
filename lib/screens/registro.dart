@@ -39,6 +39,35 @@ class _RegistroScreenState extends State<RegistroScreen> {
   void initState() {
     super.initState();
     Db.i.version.addListener(_reload);
+    _loadNight(); // muestra la lista ya guardada de la fecha de servicio actual
+  }
+
+  /// Carga en el formulario la lista guardada de [_date]. Se reparte el total
+  /// en cajas completas y botellines sueltos según las unidades por caja, ya
+  /// que la BD solo guarda el total de botellines.
+  Future<void> _loadNight() async {
+    final date = _date;
+    final products = await _future;
+    final saved = await Db.i.nightConsumption(Schedule.fmt(date));
+    // Si mientras cargaba cambió la fecha, no se pisa la nueva selección.
+    if (!mounted || date != _date) return;
+    final boxes = <int, int>{};
+    final loose = <int, int>{};
+    for (final p in products) {
+      final total = saved[p.id] ?? 0;
+      if (total <= 0) continue;
+      final size = _boxSize(p);
+      boxes[p.id!] = total ~/ size;
+      loose[p.id!] = total % size;
+    }
+    setState(() {
+      _boxes
+        ..clear()
+        ..addAll(boxes);
+      _loose
+        ..clear()
+        ..addAll(loose);
+    });
   }
 
   @override
@@ -459,7 +488,14 @@ class _RegistroScreenState extends State<RegistroScreen> {
         initialDate: _date,
         firstDate: Schedule.retentionLimit(),
         lastDate: DateTime.now());
-    if (d != null) setState(() => _date = d);
+    if (d == null || d == _date) return;
+    setState(() {
+      _date = d;
+      // Se limpia lo escrito y se muestra lo guardado de la nueva fecha.
+      _boxes.clear();
+      _loose.clear();
+    });
+    await _loadNight();
   }
 
   Future<void> _save() async {
@@ -483,10 +519,9 @@ class _RegistroScreenState extends State<RegistroScreen> {
     }
     await Db.i.saveNight(Schedule.fmt(_date), qty);
     if (!mounted) return;
-    setState(() {
-      _boxes.clear();
-      _loose.clear();
-    });
+    // Refleja exactamente lo guardado (el total repartido en cajas y sueltos).
+    await _loadNight();
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(

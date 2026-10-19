@@ -115,10 +115,11 @@ class _ScheduleTabState extends State<_ScheduleTab> {
   late Future<_ScheduleData> _future = _load();
 
   Future<_ScheduleData> _load() async {
-    final shifts = await Db.i.shiftsForMonth(_month);
-    final employees = await Db.i.employees();
-    final special = await Db.i.specialDays();
-    return _ScheduleData(shifts, employees, special);
+    // Las tres consultas son independientes: se lanzan a la vez.
+    final shiftsF = Db.i.shiftsForMonth(_month);
+    final employeesF = Db.i.employees();
+    final specialF = Db.i.specialDays();
+    return _ScheduleData(await shiftsF, await employeesF, await specialF);
   }
 
   void _reload() {
@@ -182,11 +183,10 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       if (ok != true || !mounted) return;
     }
 
-    final special = await Db.i.specialDays();
     final generated = ShiftGenerator.generateMonth(
       month: _month,
       employees: data.employees,
-      specialDays: special,
+      specialDays: data.special,
     );
     if (generated.isNotEmpty && mounted) {
       setState(() => _selected = DateTime.parse(generated.first.date));

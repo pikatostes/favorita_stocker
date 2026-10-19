@@ -32,19 +32,25 @@ class _ProductOptions {
 /// Reúne de la BD los valores disponibles para los desplegables. Incluye
 /// siempre los valores del producto que se está editando, para no perderlos.
 Future<_ProductOptions> _loadOptions(Product? current) async {
-  final categories = {...await Db.i.categories()};
+  // Las cuatro consultas son independientes: se lanzan a la vez.
+  final categoriesF = Db.i.categories();
+  final groupsF = Db.i.productGroups();
+  final subcategoriesF = Db.i.subcategories();
+  final boxesF = Db.i.boxTypes();
+
+  final categories = {...await categoriesF};
   final groups = <String, Set<String>>{};
-  for (final g in await Db.i.productGroups()) {
+  for (final g in await groupsF) {
     groups.putIfAbsent(g.category.trim(), () => <String>{}).add(g.name.trim());
   }
   final subcategories = <String, Set<String>>{};
-  for (final s in await Db.i.subcategories()) {
+  for (final s in await subcategoriesF) {
     subcategories
         .putIfAbsent('${s.category.trim()}\u0000${s.group.trim()}', () => <String>{})
         .add(s.name.trim());
   }
   final boxes = <String, CrateType>{
-    for (final b in await Db.i.boxTypes()) b.name: b,
+    for (final b in await boxesF) b.name: b,
   };
 
   if (current != null) {
@@ -106,13 +112,15 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
   /// Alta (p == null) o edición de un producto.
   Future<void> _edit([Product? p]) async {
-    final existingGroupImage = p?.groupName?.trim().isNotEmpty ?? false
-        ? await Db.i.productGroupImage(
-            category: p!.category,
-            name: p.groupName!,
-          )
-        : null;
-    final options = await _loadOptions(p);
+    // La imagen del grupo y las opciones de los desplegables son consultas
+    // independientes: se lanzan a la vez.
+    final hasGroup = p?.groupName?.trim().isNotEmpty ?? false;
+    final groupImageF = hasGroup
+        ? Db.i.productGroupImage(category: p!.category, name: p.groupName!)
+        : Future<String?>.value(null);
+    final optionsF = _loadOptions(p);
+    final existingGroupImage = await groupImageF;
+    final options = await optionsF;
     if (!mounted) return;
 
     // El formulario gestiona sus propios controllers: se crean y se destruyen

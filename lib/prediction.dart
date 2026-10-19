@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'db.dart';
 import 'models.dart';
 import 'schedule.dart';
@@ -24,11 +26,27 @@ class Predictor {
   static const double minRatio = 0.5, maxRatio = 2.0;
 
   static Future<ForecastResult> forecast(DateTime targetIn) async {
-    final target = Schedule.day(targetIn);
-    final raw = await Db.i.nights();
-    final history = {for (final e in raw.entries) DateTime.parse(e.key): e.value};
-    final products = await Db.i.products();
+    // La BD solo es accesible desde el isolate principal: aquí se leen los
+    // datos (histórico y catálogo, en paralelo) y el cálculo pesado se delega
+    // a un isolate de fondo.
+    final rawF = Db.i.nights();
+    final productsF = Db.i.products();
+    final raw = await rawF;
+    final products = await productsF;
+    return compute(_forecastInBackground, (
+      target: Schedule.day(targetIn),
+      rawHistory: raw,
+      products: products,
+    ));
+  }
 
+  /// Parte pura del cálculo (sin acceso a la BD), apta para ejecutarse en un
+  /// isolate de fondo. La ruta de producción es [forecast].
+  static ForecastResult calculate({
+    required DateTime target,
+    required Map<DateTime, Map<int, int>> history,
+    required List<Product> products,
+  }) {
     // 1) Noches base
     final usualDay = Schedule.openWeekdays.contains(target.weekday);
     List<DateTime> recent(bool sameWeekday) => (history.keys
@@ -103,4 +121,24 @@ class Predictor {
     final mean = ratios.reduce((a, b) => a + b) / ratios.length;
     return mean.clamp(minRatio, maxRatio).toDouble();
   }
+}
+
+/// Adaptador para `compute`: convierte las fechas en texto que devuelve la BD en
+/// [DateTime] y llama a la parte pura de [Predictor]. Todo el mensaje y el
+/// resultado son datos planos, por lo que se pueden enviar entre isolates.
+ForecastResult _forecastInBackground(
+  ({
+    DateTime target,
+    Map<String, Map<int, int>> rawHistory,
+    List<Product> products,
+  }) input,
+) {
+  final history = {
+    for (final e in input.rawHistory.entries) DateTime.parse(e.key): e.value,
+  };
+  return Predictor.calculate(
+    target: input.target,
+    history: history,
+    products: input.products,
+  );
 }

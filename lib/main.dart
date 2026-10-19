@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -7,10 +9,17 @@ import 'screens/home.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('es');
-  await initializeSeedData();
-  await Db.i.purgeOld(); // borra lo que supere los 2 años de histórico
+  // Localización y catálogo inicial son independientes: se cargan a la vez.
+  await Future.wait([
+    initializeDateFormatting('es'),
+    initializeSeedData(),
+  ]);
   runApp(const StockBarApp());
+  // Limpieza del histórico de 2 años: es mantenimiento, no debe retrasar el
+  // primer frame ni bloquear la UI.
+  unawaited(Db.i.purgeOld().catchError((Object error, StackTrace stack) {
+    debugPrint('No se pudo purgar el histórico antiguo: $error');
+  }));
 }
 
 class StockBarApp extends StatelessWidget {

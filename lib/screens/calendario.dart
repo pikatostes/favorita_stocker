@@ -28,11 +28,16 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   late Future<_CalData> _future = _load();
 
   Future<_CalData> _load() async {
-    final nights = await Db.i.nights();
-    final special = await Db.i.specialDays();
+    // Las tres consultas son independientes: se lanzan a la vez.
+    final nightsF = Db.i.nights();
+    final specialF = Db.i.specialDays();
     // Incluye los productos borrados para poder mostrar su histórico.
-    final products = await Db.i.products(includeDeleted: true);
-    return _CalData(nights, special, {for (final p in products) p.id!: p});
+    final productsF = Db.i.products(includeDeleted: true);
+    return _CalData(
+      await nightsF,
+      await specialF,
+      {for (final p in await productsF) p.id!: p},
+    );
   }
 
   void _reload() {

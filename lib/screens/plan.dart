@@ -1,7 +1,39 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../db.dart';
 import '../models.dart';
 import '../planner.dart';
+
+/// Resultado ya calculado del plan: evita volver a montar cajas y viajes en
+/// cada reconstrucción de la pantalla.
+class _PlanData {
+  final Plan plan;
+  final Map<String, int> byType; // nombre de caja -> nº de cajas
+  _PlanData(this.plan, this.byType);
+}
+
+/// Adaptador para `compute`: monta cajas y viajes en un isolate de fondo para
+/// no bloquear la UI. El mensaje es un record de datos planos (serializables).
+_PlanData _buildPlanInBackground(
+  ({
+    List<Product> products,
+    Map<int, int> qty,
+    Map<int, int> fullBoxes,
+    bool preferFull,
+  }) input,
+) {
+  final plan = Planner.build(
+    input.products,
+    input.qty,
+    fullBoxes: input.fullBoxes,
+    preferFull: input.preferFull,
+  );
+  final byType = <String, int>{};
+  for (final c in plan.crates) {
+    byType[c.name] = (byType[c.name] ?? 0) + 1;
+  }
+  return _PlanData(plan, byType);
+}
 
 /// Muestra cómo montar las cajas y en cuántos viajes llevarlas.
 class PlanScreen extends StatefulWidget {
@@ -21,23 +53,59 @@ class PlanScreen extends StatefulWidget {
 
 class _PlanScreenState extends State<PlanScreen> {
   bool _preferFull = false;
-  late final Future<List<Product>> _products = Db.i.products();
+  late Future<_PlanData> _future = _load();
+
+  Future<_PlanData> _load() async {
+    final products = await Db.i.products();
+    return compute(_buildPlanInBackground, (
+      products: products,
+      qty: widget.qty,
+      fullBoxes: widget.fullBoxes,
+      preferFull: _preferFull,
+    ));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Db.i.version.addListener(_reload);
+  }
+
+  @override
+  void dispose() {
+    Db.i.version.removeListener(_reload);
+    super.dispose();
+  }
+
+  void _reload() {
+    if (mounted) setState(() => _future = _load());
+  }
+
+  void _setPreferFull(bool value) {
+    if (value == _preferFull) return;
+    setState(() {
+      _preferFull = value;
+      _future = _load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(widget.title)),
-        body: FutureBuilder<List<Product>>(
-          future: _products,
+        body: FutureBuilder<_PlanData>(
+          future: _future,
           builder: (_, s) {
-            if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final plan = Planner.build(s.data!, widget.qty,
-                fullBoxes: widget.fullBoxes, preferFull: _preferFull);
+            if (s.hasError) {
+              return Center(
+                  child: Text('No se pudo montar el plan: ${s.error}'));
+            }
+            if (!s.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final plan = s.data!.plan;
+            final byType = s.data!.byType;
             final theme = Theme.of(context);
             final crates = plan.crates;
-            final byType = <String, int>{};
-            for (final c in crates) {
-              byType[c.name] = (byType[c.name] ?? 0) + 1;
-            }
             return ListView(
               padding: const EdgeInsets.all(12),
               children: [
@@ -69,7 +137,7 @@ class _PlanScreenState extends State<PlanScreen> {
                     subtitle: const Text(
                         'Si de un producto hay una caja entera o más, se prepara aparte sin mezclar.'),
                     value: _preferFull,
-                    onChanged: (v) => setState(() => _preferFull = v),
+                    onChanged: _setPreferFull,
                   ),
                 ),
                 for (var i = 0; i < plan.trips.length; i++) ...[

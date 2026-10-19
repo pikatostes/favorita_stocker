@@ -16,6 +16,10 @@ class Db {
   static final Db i = Db._();
   Database? _db;
 
+  /// Apertura en curso. Evita que dos pantallas que piden [db] a la vez abran
+  /// la base de datos dos veces ("single-flight").
+  Future<Database>? _opening;
+
   /// Versión del esquema. Cualquier cambio estructural sube este número.
   static const int schemaVersion = 12;
 
@@ -26,7 +30,18 @@ class Db {
   static int get _nowMs => DateTime.now().millisecondsSinceEpoch;
   int get _now => _nowMs;
 
-  Future<Database> get db async => _db ??= await _open();
+  Future<Database> get db async {
+    final open = _db;
+    if (open != null) return open;
+    final opening = _opening ??= _open();
+    try {
+      return _db = await opening;
+    } catch (_) {
+      // Deja reintentar la apertura si falló (p. ej. disco ocupado).
+      if (identical(_opening, opening)) _opening = null;
+      rethrow;
+    }
+  }
 
   Future<Database> _open() async {
     final path = join(await getDatabasesPath(), 'stock_bar.db');
@@ -653,6 +668,7 @@ class Db {
       await t.delete('special_day', where: 'date < ?', whereArgs: [cutoff]);
       await t.delete('shift', where: 'date < ?', whereArgs: [cutoff]);
     });
+    _changed();
   }
 
   // ---------------------------------------------------------------------------
@@ -885,6 +901,20 @@ class Db {
           r['quantity'] as int;
     }
     return out;
+  }
+
+  /// Botellines guardados de una noche concreta (productId -> cantidad).
+  /// Devuelve un mapa vacío si esa fecha no tiene lista.
+  Future<Map<int, int>> nightConsumption(String date) async {
+    final rows = await (await db).rawQuery(
+      'SELECT c.product_id AS product_id, c.quantity AS quantity '
+      'FROM consumption c JOIN night n ON n.id = c.night_id '
+      'WHERE n.date = ?',
+      [date],
+    );
+    return {
+      for (final r in rows) r['product_id'] as int: r['quantity'] as int,
+    };
   }
 
   // ---------------------------------------------------------------------------
