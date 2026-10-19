@@ -4,6 +4,7 @@ import '../db.dart';
 import '../models.dart';
 import '../product_entries.dart';
 import '../schedule.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/category_tabs.dart';
 import 'plan.dart';
 
@@ -533,7 +534,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('Lista de la noche'),
+          title: const AppLogo(),
           actions: [
             IconButton(
               tooltip: 'Vista de lista',

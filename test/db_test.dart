@@ -472,4 +472,53 @@ void main() {
     expect(images['Cruzcampo'], 'lib/img/cruzcampo.jfif');
     expect(images['Heineken'], isNull);
   });
+
+  test('rellena las imágenes pendientes de grupos ya migrados (v15)',
+      () async {
+    final path = p.join(dir.path, 'group_images.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 14,
+        onCreate: (d, _) async {
+          await d.execute('''CREATE TABLE product_group(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            image TEXT,
+            created_at INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0)''');
+          // Base ya en v14: Aquarius migrado, el resto aún sin imagen.
+          await d.insert('product_group', {
+            'category_id': 1,
+            'name': 'Aquarius',
+            'image': 'lib/img/aquarius.png',
+          });
+          for (final name in ['Coca-Cola', 'Nestea', 'Bliss']) {
+            await d.insert('product_group', {'category_id': 1, 'name': name});
+          }
+          await d.insert('product_group', {
+            'category_id': 1,
+            'name': 'Cruzcampo',
+            'image': 'lib/img/otra.png',
+          });
+        },
+      ),
+    );
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final images = {
+      for (final r in await d.query('product_group'))
+        r['name'] as String: r['image'],
+    };
+    expect(images['Aquarius'], 'lib/img/aquarius.png');
+    expect(images['Coca-Cola'], 'lib/img/coca-cola.png');
+    expect(images['Nestea'], 'lib/img/fuze-tea.png');
+    expect(images['Bliss'], 'lib/img/royal-bliss.jpg');
+    // La migración solo rellena grupos sin imagen.
+    expect(images['Cruzcampo'], 'lib/img/otra.png');
+  });
 }

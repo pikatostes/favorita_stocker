@@ -21,7 +21,7 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 15;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -115,6 +115,10 @@ class Db {
     if (oldV < 12) await _createShiftSchema(d);
     // ...y la marca de "puede abrir" y los días habituales del empleado a v13.
     if (oldV < 13) await _addEmployeeColumns(d);
+    // ...y la imagen de los grupos de variantes a v14.
+    if (oldV < 14) await _setGroupImages(d);
+    // ...y las imágenes de Coca-Cola, Nestea, Aquarius y Bliss a v15.
+    if (oldV < 15) await _setGroupImages(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -576,7 +580,7 @@ class Db {
     );
   }
 
-  /// Asigna la imagen de los grupos de variantes conocidos (v11).
+  /// Asigna la imagen de los grupos de variantes conocidos (v11, v14 y v15).
   ///
   /// Solo rellena los grupos que aún no tienen imagen, para no pisar la que el
   /// usuario haya puesto desde la pestaña Productos.

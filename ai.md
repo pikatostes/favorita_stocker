@@ -140,7 +140,9 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 v6 app_metadata, v7 product_groups+image, v8 normalización, v9 reparación de grupos
 de variantes históricos, v10 reagrupación de cervezas por marca, v11 imágenes de
 grupo, v12 role+employee+shift, v13 `opener` + `working_days` en `employee`
-(migración idempotente: comprueba `PRAGMA table_info`).
+(migración idempotente: comprueba `PRAGMA table_info`), v14–v15 imágenes de los
+grupos Cruzcampo, Coca-Cola, Nestea, Aquarius y Bliss (solo rellena grupos sin
+imagen).
 
 **Para cambiar el esquema:** sube `schemaVersion`, añade el bloque `if (oldV < N) ...`
 en `_onUpgrade`, y **añade un test de migración** en `test/db_test.dart`.

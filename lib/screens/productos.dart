@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../db.dart';
 import '../models.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/category_tabs.dart';
 
 /// Datos que devuelve el formulario de alta/edición de un producto.
@@ -167,7 +168,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Productos')),
+        appBar: AppBar(title: const AppLogo()),
         floatingActionButton: FloatingActionButton(
             onPressed: () => _edit(), child: const Icon(Icons.add)),
         body: FutureBuilder<List<Product>>(

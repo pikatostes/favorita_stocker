@@ -4,6 +4,7 @@ import '../db.dart';
 import '../models.dart';
 import '../schedule.dart';
 import '../shifts.dart';
+import '../widgets/app_logo.dart';
 
 String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
@@ -71,7 +72,7 @@ class _TurnosScreenState extends State<TurnosScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('Turnos'),
+          title: const AppLogo(),
           bottom: TabBar(
             controller: _tabs,
             tabs: const [

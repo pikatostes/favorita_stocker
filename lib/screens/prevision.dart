@@ -4,6 +4,7 @@ import '../db.dart';
 import '../models.dart';
 import '../prediction.dart';
 import '../schedule.dart';
+import '../widgets/app_logo.dart';
 import 'plan.dart';
 
 class _View {
@@ -67,7 +68,7 @@ class _PrevisionScreenState extends State<PrevisionScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Previsión')),
+        appBar: AppBar(title: const AppLogo()),
         body: FutureBuilder<_View>(
           future: _future,
           builder: (_, s) {

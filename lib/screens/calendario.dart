@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../db.dart';
 import '../models.dart';
 import '../schedule.dart';
+import '../widgets/app_logo.dart';
 import 'plan.dart';
 
 class _CalData {
@@ -321,7 +322,7 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('Calendario'),
+          title: const AppLogo(),
           actions: [
             TextButton(onPressed: _goToday, child: const Text('Hoy')),
           ],

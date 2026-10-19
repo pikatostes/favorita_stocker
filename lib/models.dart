@@ -6,6 +6,10 @@ String formatMeasure(double v) =>
 /// (o el archivo no existe), la UI muestra un placeholder.
 const Map<String, String> kGroupImages = {
   'Cruzcampo': 'lib/img/cruzcampo.jfif',
+  'Aquarius': 'lib/img/aquarius.png',
+  'Coca-Cola': 'lib/img/coca-cola.png',
+  'Nestea': 'lib/img/fuze-tea.png',
+  'Bliss': 'lib/img/royal-bliss.jpg',
 };
 
 /// Tipo de caja: nombre, unidades por caja, medidas (tamaño, altura, ancho),
