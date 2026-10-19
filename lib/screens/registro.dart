@@ -147,6 +147,36 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
+  /// Imagen a mostrar de un producto/variante: la suya o, si no tiene, la del
+  /// grupo al que pertenece (p. ej. todas las Cruzcampo comparten marca).
+  String? _productImage(Product product) {
+    final own = product.image?.trim();
+    if (own != null && own.isNotEmpty) return own;
+    final group = product.groupImage?.trim();
+    return group != null && group.isNotEmpty ? group : null;
+  }
+
+  /// Miniatura para las filas de la lista (productos y variantes de un grupo).
+  Widget _listThumb(String? path, IconData placeholder) {
+    final cleaned = path?.trim();
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: cleaned == null || cleaned.isEmpty
+          ? Icon(placeholder, size: 26, color: theme.colorScheme.outline)
+          : Image.asset(
+              cleaned,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Icon(
+                Icons.broken_image_outlined,
+                size: 26,
+                color: theme.colorScheme.error,
+              ),
+            ),
+    );
+  }
+
   Widget _productTile(
     Product product, {
     String? title,
@@ -156,6 +186,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
+            _listThumb(_productImage(product), Icons.local_drink_outlined),
+            const SizedBox(width: 12),
             Expanded(child: Text(title ?? product.name)),
             const SizedBox(width: 12),
             _quantityControls(product, refreshOverlay: refreshOverlay),
@@ -215,6 +247,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       (total, product) => total + _totalFor(product),
     );
     return ListTile(
+      leading: _listThumb(entry.image, Icons.inventory_2_outlined),
       title: Text(entry.groupName!),
       subtitle: Text('${entry.products.length} variantes'),
       trailing: Row(
@@ -310,7 +343,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
             children: [
               Expanded(
                 child: Center(
-                  child: _gridThumb(product.image, Icons.local_drink_outlined),
+                  child: _gridThumb(
+                      _productImage(product), Icons.local_drink_outlined),
                 ),
               ),
               const SizedBox(height: 4),
@@ -354,8 +388,15 @@ class _RegistroScreenState extends State<RegistroScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(product.name,
-                    style: Theme.of(context).textTheme.titleLarge),
+                Row(children: [
+                  _listThumb(
+                      _productImage(product), Icons.local_drink_outlined),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(product.name,
+                        style: Theme.of(context).textTheme.titleLarge),
+                  ),
+                ]),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,
