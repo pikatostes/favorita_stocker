@@ -21,7 +21,7 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 12;
+  static const int schemaVersion = 13;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -113,6 +113,8 @@ class Db {
     if (oldV < 11) await _setGroupImages(d);
     // ...y las tablas de puestos, empleados y turnos a v12.
     if (oldV < 12) await _createShiftSchema(d);
+    // ...y la marca de "puede abrir" y los días habituales del empleado a v13.
+    if (oldV < 13) await _addEmployeeColumns(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -211,6 +213,8 @@ class Db {
       name TEXT NOT NULL,
       role_id INTEGER NOT NULL REFERENCES role(id),
       active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+      opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1)),
+      working_days TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL)''');
     await d.execute('''CREATE TABLE IF NOT EXISTS shift(
@@ -235,6 +239,24 @@ class Db {
     await d.execute('CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
     await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_shift_employee ON shift(employee_id)');
+  }
+
+  /// v13: añade a `employee` la marca [opener] y los [working_days].
+  ///
+  /// Es idempotente: comprueba las columnas existentes, porque al migrar desde
+  /// una versión anterior a la 12 la tabla ya se crea con ellas.
+  static Future<void> _addEmployeeColumns(DatabaseExecutor d) async {
+    final columns = (await d.rawQuery('PRAGMA table_info(employee)'))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!columns.contains('opener')) {
+      await d.execute('ALTER TABLE employee ADD COLUMN '
+          'opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1))');
+    }
+    if (!columns.contains('working_days')) {
+      await d.execute(
+          'ALTER TABLE employee ADD COLUMN working_days TEXT');
+    }
   }
 
   static Future<void> _legacyCreateSpecialDays(DatabaseExecutor d) =>
@@ -1042,7 +1064,7 @@ class Db {
   }
 
   static const String _employeeSelect = '''
-    SELECT e.id, e.name, e.active,
+    SELECT e.id, e.name, e.active, e.opener, e.working_days,
            r.id AS role_id, r.name AS role_name, r.floor, r.note AS role_note
     FROM employee e
     JOIN role r ON r.id = e.role_id''';
@@ -1071,6 +1093,8 @@ class Db {
       'name': name,
       'role_id': roleId,
       'active': employee.active ? 1 : 0,
+      'opener': employee.opener ? 1 : 0,
+      'working_days': Employee.formatWorkingDays(employee.workingDays),
       'created_at': now,
       'updated_at': now,
     });
@@ -1096,6 +1120,8 @@ class Db {
         'name': name,
         'role_id': roleId,
         'active': employee.active ? 1 : 0,
+        'opener': employee.opener ? 1 : 0,
+        'working_days': Employee.formatWorkingDays(employee.workingDays),
         'updated_at': _now,
       },
       where: 'id = ?',

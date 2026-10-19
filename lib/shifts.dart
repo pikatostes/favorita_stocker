@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'models.dart';
 import 'schedule.dart';
 
@@ -81,17 +83,29 @@ class Employee {
   final JobRole role;
   final bool active;
 
+  /// Capacidad de abrir el bar o su planta.
+  final bool opener;
+
+  /// Días de la semana en que puede trabajar habitualmente (1 = lunes,
+  /// 7 = domingo). El conjunto vacío significa "cualquier día". Solo se usa
+  /// para generar el horario automático.
+  final Set<int> workingDays;
+
   const Employee({
     this.id,
     required this.name,
     required this.role,
     this.active = true,
+    this.opener = false,
+    this.workingDays = const {},
   });
 
   factory Employee.fromRow(Map<String, Object?> m) => Employee(
         id: m['id'] as int,
         name: m['name'] as String,
         active: (m['active'] as int) == 1,
+        opener: (m['opener'] as int?) == 1,
+        workingDays: parseWorkingDays(m['working_days']),
         role: JobRole(
           id: m['role_id'] as int,
           name: m['role_name'] as String,
@@ -99,6 +113,34 @@ class Employee {
           note: (m['role_note'] as String?) ?? '',
         ),
       );
+
+  /// Días de la semana (1 = lunes .. 7 = domingo) guardados como "5,6".
+  /// Un valor vacío o nulo significa "cualquier día".
+  static Set<int> parseWorkingDays(Object? raw) {
+    if (raw is! String || raw.trim().isEmpty) return const {};
+    final days = <int>{};
+    for (final part in raw.split(',')) {
+      final n = int.tryParse(part.trim());
+      if (n != null && n >= DateTime.monday && n <= DateTime.sunday) {
+        days.add(n);
+      }
+    }
+    return days;
+  }
+
+  /// Serializa los días a texto ("5,6"); vacío si no hay restricción.
+  static String formatWorkingDays(Set<int> days) {
+    final sorted = days
+        .where((d) => d >= DateTime.monday && d <= DateTime.sunday)
+        .toList()
+      ..sort();
+    return sorted.join(',');
+  }
+
+  /// Etiqueta legible: "Vie, Sáb" o "Cualquier día" si no hay restricción.
+  String get workingDaysLabel => workingDays.isEmpty
+      ? 'Cualquier día'
+      : (workingDays.toList()..sort()).map(weekdayShort).join(', ');
 
   String? get validationError =>
       name.trim().isEmpty ? 'El nombre del empleado es obligatorio.' : null;
@@ -108,12 +150,16 @@ class Employee {
     String? name,
     JobRole? role,
     bool? active,
+    bool? opener,
+    Set<int>? workingDays,
   }) =>
       Employee(
         id: id ?? this.id,
         name: name ?? this.name,
         role: role ?? this.role,
         active: active ?? this.active,
+        opener: opener ?? this.opener,
+        workingDays: workingDays ?? this.workingDays,
       );
 }
 
@@ -230,6 +276,19 @@ String formatHours(int minutes) {
   return m == 0 ? '$h h' : '$h h $m min';
 }
 
+/// Nombre corto del día de la semana (1 = lunes .. 7 = domingo).
+const List<String> weekdayShortNames = [
+  'Lun',
+  'Mar',
+  'Mié',
+  'Jue',
+  'Vie',
+  'Sáb',
+  'Dom',
+];
+
+String weekdayShort(int weekday) => weekdayShortNames[weekday - 1];
+
 /// Genera el horario de un mes a partir de los empleados activos.
 ///
 /// Solo se trabaja viernes y sábado. Cada empleado hace un turno por noche:
@@ -240,7 +299,10 @@ String formatHours(int minutes) {
 /// planta sin nadie.
 ///
 /// Las excepciones de cierre (`SpecialDay.open == false`) se respetan; las
-/// aperturas extra no se generan automáticamente.
+/// aperturas extra no se generan automáticamente. Un empleado solo entra en un
+/// día si no tiene restricción de [Employee.workingDays] o si ese día está
+/// entre sus días. La apertura solo la cubre quien tiene [Employee.opener]; si
+/// una planta no tiene ningún opener disponible esa noche, no se programa.
 class ShiftGenerator {
   static const int openingStart = Schedule.openHour * 60; // 16:00
   static const int openingEnd = Schedule.peakHour * 60; // 21:00
@@ -280,14 +342,23 @@ class ShiftGenerator {
         final group = byFloor[floor];
         if (group == null || group.isEmpty) continue;
 
-        // Menos horas primero: así los turnos largos rotan.
-        group.sort((a, b) {
-          final byHours = worked[a.id]!.compareTo(worked[b.id]!);
-          return byHours != 0 ? byHours : a.name.compareTo(b.name);
-        });
+        // Solo quien puede trabajar ese día de la semana. Los empleados sin
+        // restricción ([workingDays] vacío) valen cualquier día.
+        final available = [
+          for (final e in group)
+            if (e.workingDays.isEmpty || e.workingDays.contains(d.weekday)) e,
+        ];
+        if (available.isEmpty) continue;
 
-        if (group.length == 1) {
-          final e = group.single;
+        // La apertura solo la puede cubrir quien tiene `opener = true`. Si esa
+        // noche no hay ningún opener disponible, la planta no se abre y no se
+        // genera nada para ella (el hueco queda visible en el calendario).
+        final openers = [for (final e in available) if (e.opener) e];
+        if (openers.isEmpty) continue;
+
+        if (available.length == 1) {
+          // El único disponible es un opener: cubre 16:00–04:00.
+          final e = available.single;
           out.add(_build(d, e, openingStart, closingEnd));
           final minutes =
               workedMinutesFor(startMin: openingStart, endMin: closingEnd);
@@ -295,14 +366,26 @@ class ShiftGenerator {
           continue;
         }
 
-        // La mitad (redondeando hacia arriba) hace el turno largo de 7 h. Así
-        // siempre hay al menos una persona en apertura y otra en el segundo.
-        final lateCount = (group.length / 2).ceil();
-        for (var i = 0; i < group.length; i++) {
-          final e = group[i];
-          final late = i < lateCount;
-          final start = late ? openingEnd : openingStart;
-          final end = late ? closingEnd : openingEnd;
+        // Apertura: la mitad hacia abajo, pero como mucho tantos como openers
+        // haya. Los no-openers van siempre al segundo turno.
+        final earlyCount = min(available.length ~/ 2, openers.length);
+
+        // Entre los openers, los que llevan más horas del mes hacen la apertura
+        // (turno más corto); así los turnos largos rotan hacia quien lleva
+        // menos. Los no-openers quedan en el segundo turno por obligación.
+        final earlyIds = (openers.toList()
+              ..sort((a, b) {
+                final byHours = worked[b.id]!.compareTo(worked[a.id]!);
+                return byHours != 0 ? byHours : a.name.compareTo(b.name);
+              }))
+            .take(earlyCount)
+            .map((e) => e.id)
+            .toSet();
+
+        for (final e in available) {
+          final early = earlyIds.contains(e.id);
+          final start = early ? openingStart : openingEnd;
+          final end = early ? openingEnd : closingEnd;
           out.add(_build(d, e, start, end));
           worked[e.id!] =
               worked[e.id!]! + workedMinutesFor(startMin: start, endMin: end);

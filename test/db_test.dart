@@ -114,6 +114,11 @@ void main() {
       ]),
     );
     expect((await d.rawQuery('PRAGMA foreign_keys')).single.values.single, 1);
+
+    final employeeCols = (await d.rawQuery('PRAGMA table_info(employee)'))
+        .map((r) => r['name'])
+        .toSet();
+    expect(employeeCols, containsAll(['opener', 'working_days']));
   });
 
   test('migra una base v7 al esquema normalizado v8', () async {
@@ -194,7 +199,8 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    await Db.i.addEmployee(Employee(name: 'Ana', role: roles.single));
+    await Db.i.addEmployee(
+        Employee(name: 'Ana', role: roles.single, opener: true));
     final employees = await Db.i.employees();
     expect(employees.single.name, 'Ana');
     expect(employees.single.role.floor, Floor.karaoke);
@@ -246,6 +252,34 @@ void main() {
       () => Db.i.deleteRole(roles.single.id!),
       throwsStateError,
     );
+  });
+
+  test('guarda la marca de apertura y los días del empleado', () async {
+    final d = await Db.openAt(p.join(dir.path, 'empleados.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.addRole(const JobRole(name: 'Sala', floor: Floor.plantaBaja));
+    final role = (await Db.i.roles()).single;
+    await Db.i.addEmployee(Employee(
+      name: 'Ana',
+      role: role,
+      opener: true,
+      workingDays: const {DateTime.friday, DateTime.saturday},
+    ));
+
+    final saved = (await Db.i.employees()).single;
+    expect(saved.opener, isTrue);
+    expect(saved.workingDays, {DateTime.friday, DateTime.saturday});
+
+    await Db.i.updateEmployee(
+        saved.copyWith(opener: false, workingDays: const {}));
+    final updated = (await Db.i.employees()).single;
+    expect(updated.opener, isFalse);
+    expect(updated.workingDays, isEmpty);
   });
 
   test('guarda y relee el consumo de una noche', () async {

@@ -976,8 +976,11 @@ class _EmployeesTabState extends State<_EmployeesTab> {
                             decoration: TextDecoration.lineThrough),
                   ),
                   subtitle: Text(
-                    '${employee.role.name} · ${employee.role.floor.label}',
+                    '${employee.role.name} · ${employee.role.floor.label}\n'
+                    '${employee.workingDaysLabel}'
+                    '${employee.opener ? ' · Puede abrir' : ''}',
                   ),
+                  isThreeLine: true,
                   trailing: Switch(
                     value: employee.active,
                     onChanged: (_) => _toggle(employee),
@@ -1013,6 +1016,8 @@ class _EmployeeDialogState extends State<_EmployeeDialog> {
     orElse: () => widget.roles.first,
   );
   late bool _active = widget.employee?.active ?? true;
+  late bool _opener = widget.employee?.opener ?? false;
+  late final Set<int> _workingDays = {...?widget.employee?.workingDays};
 
   @override
   void dispose() {
@@ -1033,6 +1038,8 @@ class _EmployeeDialogState extends State<_EmployeeDialog> {
         name: name,
         role: _role,
         active: _active,
+        opener: _opener,
+        workingDays: _workingDays,
       ),
     );
   }
@@ -1073,6 +1080,46 @@ class _EmployeeDialogState extends State<_EmployeeDialog> {
                 title: const Text('Activo'),
                 value: _active,
                 onChanged: (value) => setState(() => _active = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Puede abrir'),
+                subtitle: const Text('Puede abrir el bar o su planta.'),
+                value: _opener,
+                onChanged: (value) => setState(() => _opener = value),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Días que puede trabajar',
+                    style: Theme.of(context).textTheme.labelLarge),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _workingDays.isEmpty
+                      ? 'Sin selección: cualquier día.'
+                      : 'Solo: ${(_workingDays.toList()..sort()).map(weekdayShort).join(', ')}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                children: [
+                  for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+                    FilterChip(
+                      label: Text(weekdayShort(day)),
+                      selected: _workingDays.contains(day),
+                      onSelected: (selected) => setState(() {
+                        if (selected) {
+                          _workingDays.add(day);
+                        } else {
+                          _workingDays.remove(day);
+                        }
+                      }),
+                    ),
+                ],
               ),
             ],
           ),

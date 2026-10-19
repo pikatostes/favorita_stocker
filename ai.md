@@ -95,7 +95,9 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 - **`Floor`** = planta del local: `planta_baja`, `karaoke`, `terraza`.
 - **`JobRole`** = puesto configurable: nombre, planta y nota fija (p. ej. evento
   privado en el karaoke).
-- **`Employee`** = nombre, un único `role` y `active` (baja lógica).
+- **`Employee`** = nombre, un único `role`, `active` (baja lógica), `opener`
+  (puede abrir el bar o su planta) y `workingDays` (días de la semana en que
+  puede trabajar; vacío = cualquiera, solo se usa al generar el horario).
 - **`Shift`** = turno de una noche: `date` (día de servicio `yyyy-MM-dd`),
   empleado, puesto (copia histórica de nombre y planta), `startMin`/`endMin`
   (minutos desde medianoche; si `endMin < startMin` termina al día siguiente),
@@ -111,7 +113,7 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 - **Singleton `Db.i`**. Nunca instancies `Db`.
 - `Db.i.version` es un `ValueNotifier<int>` que se incrementa en **cada escritura**
   (`_changed()`). Las pantallas se suscriben para recargar (§8).
-- `schemaVersion = 12`. Abrir con `Db.openAt(path)` (expuesto `@visibleForTesting`).
+- `schemaVersion = 13`. Abrir con `Db.openAt(path)` (expuesto `@visibleForTesting`).
   En tests se puede inyectar una BD temporal con `Db.i.useDatabase(db)`.
 
 ### 6.2 Esquema normalizado (v8+), tablas en inglés singular
@@ -124,7 +126,9 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
   UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
 - `PRAGMA foreign_keys = ON` en `onConfigure`.
 - `role` es UNIQUE por `name` y guarda `floor` + `note`; `employee` referencia
-  `role`; `shift` referencia `employee` y `role`, guarda copia de `role_name`,
+  `role` y guarda `opener` (marca de "puede abrir") y `working_days` (días 1–7
+  como texto `"5,6"`; `NULL`/vacío = cualquiera); `shift` referencia `employee` y
+  `role`, guarda copia de `role_name`,
   `floor` y `note` (histórico) y tiene UNIQUE(`employee_id`, `date`) (no hay
   turnos partidos). Estados: `borrador`, `publicado`, `confirmado`.
 - Helpers internos `_ensureCategory/_ensureGroup/_ensureSubcategory/_upsertBox`
@@ -135,7 +139,8 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 `onUpgrade` aplica por versiones: v2 special_days, v3–v5 columnas desnormalizadas,
 v6 app_metadata, v7 product_groups+image, v8 normalización, v9 reparación de grupos
 de variantes históricos, v10 reagrupación de cervezas por marca, v11 imágenes de
-grupo, v12 role+employee+shift.
+grupo, v12 role+employee+shift, v13 `opener` + `working_days` en `employee`
+(migración idempotente: comprueba `PRAGMA table_info`).
 
 **Para cambiar el esquema:** sube `schemaVersion`, añade el bloque `if (oldV < N) ...`
 en `_onUpgrade`, y **añade un test de migración** en `test/db_test.dart`.
@@ -191,6 +196,13 @@ eventos, meteorología, stock sobrante.
   Si una planta tiene una sola persona, esa persona cubre 16:00–04:00 (12 h,
   40 min de descanso) para no dejar la planta vacía. La equidad global no se
   fuerza entre plantas con distinto número de personas.
+- **Disponibilidad**: un empleado solo entra en un día si `workingDays` está
+  vacío o contiene el día de la semana de esa fecha.
+- **Apertura solo con `opener`**: el turno de apertura (el que empieza a las
+  16:00) solo se asigna a empleados con `opener = true`. Los no-openers van
+  siempre al segundo turno. Si una planta no tiene ningún opener disponible esa
+  noche, **no se programa** (el hueco queda visible en el calendario); con una
+  sola persona disponible y opener, cubre 16:00–04:00.
 - `ShiftGenerator` usa el **día de servicio** (`Schedule.fmt`) y recorre el mes
   por componentes, no con `Duration(days: 1)`, para no perder el último día en
   los cambios de hora oficial.
