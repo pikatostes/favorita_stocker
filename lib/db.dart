@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'models.dart';
 import 'schedule.dart';
+import 'shifts.dart';
 
 /// Acceso a SQLite (esquema v8, tablas en inglés singular).
 ///
@@ -16,7 +17,7 @@ class Db {
   Database? _db;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -39,9 +40,16 @@ class Db {
         path,
         version: schemaVersion,
         onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
-        onCreate: (d, _) => _createV8(d),
+        onCreate: (d, _) async {
+          await _createV8(d);
+          await _createShiftSchema(d);
+        },
         onUpgrade: _onUpgrade,
       );
+
+  /// Solo para tests: usa [database] en lugar de abrir `stock_bar.db`.
+  @visibleForTesting
+  void useDatabase(Database? database) => _db = database;
 
   static Future<void> _onUpgrade(Database d, int oldV, int newV) async {
     // Migraciones antiguas (esquema desnormalizado)...
@@ -88,6 +96,8 @@ class Db {
     if (oldV < 10) await _regroupBeers(d);
     // ...y la imagen de los grupos de variantes a v11.
     if (oldV < 11) await _setGroupImages(d);
+    // ...y las tablas de puestos, empleados y turnos a v12.
+    if (oldV < 12) await _createShiftSchema(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -158,15 +168,62 @@ class Db {
     await d.execute('CREATE INDEX idx_product_deleted ON product(deleted_at)');
     await d.execute(
         'CREATE INDEX idx_group_category ON product_group(category_id)');
-    await d.execute(
-        'CREATE INDEX idx_subcategory_group ON subcategory(group_id)');
     await d
-        .execute('CREATE INDEX idx_consumption_product ON consumption(product_id)');
-    await d.execute('CREATE INDEX idx_consumption_night ON consumption(night_id)');
+        .execute('CREATE INDEX idx_subcategory_group ON subcategory(group_id)');
+    await d.execute(
+        'CREATE INDEX idx_consumption_product ON consumption(product_id)');
+    await d
+        .execute('CREATE INDEX idx_consumption_night ON consumption(night_id)');
   }
 
-  static Future<void> _legacyCreateSpecialDays(DatabaseExecutor d) => d.execute(
-      '''CREATE TABLE special_days(
+  /// Tablas de turnos (v12): puestos, empleados y turnos.
+  ///
+  /// El puesto guarda la planta y una nota fija (por ejemplo, un evento en el
+  /// karaoke). El turno guarda una copia del puesto para conservar el histórico
+  /// aunque el empleado cambie de puesto. La fecha es el día de servicio, no la
+  /// fecha real de salida.
+  static Future<void> _createShiftSchema(DatabaseExecutor d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS role(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      floor TEXT NOT NULL DEFAULT 'planta_baja'
+        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL)''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS employee(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      role_id INTEGER NOT NULL REFERENCES role(id),
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL)''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS shift(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      employee_id INTEGER NOT NULL REFERENCES employee(id) ON DELETE CASCADE,
+      role_id INTEGER NOT NULL REFERENCES role(id),
+      role_name TEXT NOT NULL,
+      floor TEXT NOT NULL
+        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
+      start_min INTEGER NOT NULL CHECK(start_min >= 0 AND start_min < 1440),
+      end_min INTEGER NOT NULL CHECK(end_min >= 0 AND end_min < 1440),
+      break_min INTEGER NOT NULL DEFAULT 0 CHECK(break_min >= 0),
+      status TEXT NOT NULL DEFAULT 'borrador'
+        CHECK(status IN ('borrador', 'publicado', 'confirmado')),
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(employee_id, date))''');
+    await d.execute(
+        'CREATE INDEX IF NOT EXISTS idx_employee_role ON employee(role_id)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
+    await d.execute(
+        'CREATE INDEX IF NOT EXISTS idx_shift_employee ON shift(employee_id)');
+  }
+
+  static Future<void> _legacyCreateSpecialDays(DatabaseExecutor d) =>
+      d.execute('''CREATE TABLE special_days(
         date TEXT PRIMARY KEY,
         open INTEGER NOT NULL,
         note TEXT)''');
@@ -225,7 +282,8 @@ class Db {
       return id;
     }
 
-    Future<int> ensureGroup(int categoryId, String name, {String? image}) async {
+    Future<int> ensureGroup(int categoryId, String name,
+        {String? image}) async {
       final n = norm(name, 'General');
       final key = '$categoryId\u0000$n';
       final existing = groupIds[key];
@@ -254,7 +312,8 @@ class Db {
       final key = '$groupId\u0000$n';
       final existing = subIds[key];
       if (existing != null) return existing;
-      final id = await d.insert('subcategory', {'group_id': groupId, 'name': n});
+      final id =
+          await d.insert('subcategory', {'group_id': groupId, 'name': n});
       subIds[key] = id;
       return id;
     }
@@ -302,8 +361,8 @@ class Db {
     for (final p in oldProducts) {
       final oldId = p['id'] as int;
       final catId = await ensureCategory((p['category'] as String?) ?? 'Otros');
-      final groupName =
-          norm(p['group_name'] as String?, norm(p['name'] as String?, 'General'));
+      final groupName = norm(
+          p['group_name'] as String?, norm(p['name'] as String?, 'General'));
       final groupId = await ensureGroup(catId, groupName);
       final subId = await ensureSub(groupId, p['subcategory'] as String?);
       final boxId = await ensureBox(
@@ -333,7 +392,8 @@ class Db {
       nightIds[c['date'] as String] = 0;
     }
     for (final date in nightIds.keys.toList()) {
-      nightIds[date] = await d.insert('night', {'date': date, 'created_at': now});
+      nightIds[date] =
+          await d.insert('night', {'date': date, 'created_at': now});
     }
     for (final c in oldConsumption) {
       final oldPid = c['product_id'] as int;
@@ -359,8 +419,7 @@ class Db {
     }
 
     for (final m in oldMeta) {
-      await d.insert(
-          'app_metadata',
+      await d.insert('app_metadata',
           {'key': m['key'] as String, 'value': (m['value'] as String?) ?? ''},
           conflictAlgorithm: ConflictAlgorithm.ignore);
     }
@@ -410,8 +469,7 @@ class Db {
         final oldGroupId = row['old_group_id'] as int;
         if (oldGroupId != groupId) {
           final remaining = Sqflite.firstIntValue(await d.rawQuery(
-              'SELECT COUNT(*) FROM product WHERE group_id = ?',
-              [oldGroupId]));
+              'SELECT COUNT(*) FROM product WHERE group_id = ?', [oldGroupId]));
           if (remaining == 0) {
             await d.delete('product_group',
                 where: 'id = ?', whereArgs: [oldGroupId]);
@@ -593,6 +651,7 @@ class Db {
           whereArgs: [cutoff]);
       await t.delete('night', where: 'date < ?', whereArgs: [cutoff]);
       await t.delete('special_day', where: 'date < ?', whereArgs: [cutoff]);
+      await t.delete('shift', where: 'date < ?', whereArgs: [cutoff]);
     });
   }
 
@@ -761,7 +820,8 @@ class Db {
     required String? image,
   }) async {
     if (category.trim().isEmpty || name.trim().isEmpty) {
-      throw ArgumentError('La categoría y el nombre del grupo son obligatorios.');
+      throw ArgumentError(
+          'La categoría y el nombre del grupo son obligatorios.');
     }
     final database = await db;
     await database.transaction((t) async {
@@ -798,8 +858,8 @@ class Db {
       final nightId = existing.isNotEmpty
           ? existing.single['id'] as int
           : await t.insert('night', {'date': date, 'created_at': _now});
-      await t.delete('consumption',
-          where: 'night_id = ?', whereArgs: [nightId]);
+      await t
+          .delete('consumption', where: 'night_id = ?', whereArgs: [nightId]);
       for (final e in qty.entries.where((e) => e.value > 0)) {
         await t.insert('consumption', {
           'night_id': nightId,
@@ -848,7 +908,285 @@ class Db {
   }
 
   Future<void> deleteSpecialDay(String date) async {
-    await (await db).delete('special_day', where: 'date = ?', whereArgs: [date]);
+    await (await db)
+        .delete('special_day', where: 'date = ?', whereArgs: [date]);
+    _changed();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Turnos: puestos, empleados y turnos
+  // ---------------------------------------------------------------------------
+
+  /// Puestos configurados, ordenados por planta y nombre.
+  Future<List<JobRole>> roles() async {
+    final rows = await (await db).rawQuery('''
+      SELECT * FROM role
+      ORDER BY CASE floor
+        WHEN 'planta_baja' THEN 0
+        WHEN 'karaoke' THEN 1
+        ELSE 2 END, name''');
+    return rows.map(JobRole.fromRow).toList();
+  }
+
+  Future<void> addRole(JobRole role) async {
+    final name = role.name.trim();
+    if (name.isEmpty) {
+      throw ArgumentError('El nombre del puesto es obligatorio.');
+    }
+    final d = await db;
+    final duplicate = await d.query(
+      'role',
+      columns: ['id'],
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+    if (duplicate.isNotEmpty) {
+      throw StateError('Ya existe un puesto con ese nombre.');
+    }
+    final now = _now;
+    await d.insert('role', {
+      'name': name,
+      'floor': role.floor.db,
+      'note': role.note.trim(),
+      'created_at': now,
+      'updated_at': now,
+    });
+    _changed();
+  }
+
+  Future<void> updateRole(JobRole role) async {
+    if (role.id == null) {
+      throw ArgumentError('El puesto debe tener un id.');
+    }
+    final name = role.name.trim();
+    if (name.isEmpty) {
+      throw ArgumentError('El nombre del puesto es obligatorio.');
+    }
+    final d = await db;
+    final duplicate = await d.query(
+      'role',
+      columns: ['id'],
+      where: 'name = ? AND id <> ?',
+      whereArgs: [name, role.id],
+      limit: 1,
+    );
+    if (duplicate.isNotEmpty) {
+      throw StateError('Ya existe un puesto con ese nombre.');
+    }
+    await d.update(
+      'role',
+      {
+        'name': name,
+        'floor': role.floor.db,
+        'note': role.note.trim(),
+        'updated_at': _now,
+      },
+      where: 'id = ?',
+      whereArgs: [role.id],
+    );
+    _changed();
+  }
+
+  /// Borra un puesto solo si no tiene empleados asignados.
+  Future<void> deleteRole(int id) async {
+    final d = await db;
+    final count = Sqflite.firstIntValue(await d.rawQuery(
+          'SELECT COUNT(*) FROM employee WHERE role_id = ?',
+          [id],
+        )) ??
+        0;
+    if (count > 0) {
+      throw StateError('No se puede borrar un puesto con empleados asignados.');
+    }
+    final shiftCount = Sqflite.firstIntValue(await d.rawQuery(
+          'SELECT COUNT(*) FROM shift WHERE role_id = ?',
+          [id],
+        )) ??
+        0;
+    if (shiftCount > 0) {
+      throw StateError('No se puede borrar un puesto con turnos históricos.');
+    }
+    await d.delete('role', where: 'id = ?', whereArgs: [id]);
+    _changed();
+  }
+
+  static const String _employeeSelect = '''
+    SELECT e.id, e.name, e.active,
+           r.id AS role_id, r.name AS role_name, r.floor, r.note AS role_note
+    FROM employee e
+    JOIN role r ON r.id = e.role_id''';
+
+  /// Empleados (solo activos salvo [includeInactive]), con su puesto.
+  Future<List<Employee>> employees({bool includeInactive = false}) async {
+    final rows = await (await db).rawQuery(
+      '$_employeeSelect ${includeInactive ? '' : 'WHERE e.active = 1'} '
+      "ORDER BY CASE r.floor WHEN 'planta_baja' THEN 0 "
+      "WHEN 'karaoke' THEN 1 ELSE 2 END, r.name, e.name",
+    );
+    return rows.map(Employee.fromRow).toList();
+  }
+
+  Future<void> addEmployee(Employee employee) async {
+    final name = employee.name.trim();
+    final roleId = employee.role.id;
+    if (name.isEmpty) {
+      throw ArgumentError('El nombre del empleado es obligatorio.');
+    }
+    if (roleId == null) {
+      throw ArgumentError('El empleado debe tener un puesto.');
+    }
+    final now = _now;
+    await (await db).insert('employee', {
+      'name': name,
+      'role_id': roleId,
+      'active': employee.active ? 1 : 0,
+      'created_at': now,
+      'updated_at': now,
+    });
+    _changed();
+  }
+
+  Future<void> updateEmployee(Employee employee) async {
+    final id = employee.id;
+    final name = employee.name.trim();
+    final roleId = employee.role.id;
+    if (id == null) {
+      throw ArgumentError('El empleado debe tener un id.');
+    }
+    if (name.isEmpty) {
+      throw ArgumentError('El nombre del empleado es obligatorio.');
+    }
+    if (roleId == null) {
+      throw ArgumentError('El empleado debe tener un puesto.');
+    }
+    await (await db).update(
+      'employee',
+      {
+        'name': name,
+        'role_id': roleId,
+        'active': employee.active ? 1 : 0,
+        'updated_at': _now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _changed();
+  }
+
+  /// Baja lógica: conserva los turnos históricos.
+  Future<void> setEmployeeActive(int id, bool active) async {
+    await (await db).update(
+      'employee',
+      {'active': active ? 1 : 0, 'updated_at': _now},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _changed();
+  }
+
+  static const String _shiftSelect = '''
+    SELECT s.id, s.date, s.employee_id, e.name AS employee_name,
+           s.role_id, s.role_name, s.floor,
+           s.start_min, s.end_min, s.break_min, s.status, s.note
+    FROM shift s
+    JOIN employee e ON e.id = s.employee_id''';
+
+  /// Turnos de un mes completo, ordenados por fecha y planta.
+  Future<List<Shift>> shiftsForMonth(DateTime month) async {
+    final first = Schedule.fmt(DateTime(month.year, month.month, 1));
+    final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
+    final rows = await (await db).rawQuery(
+      '$_shiftSelect WHERE s.date >= ? AND s.date <= ? '
+      'ORDER BY s.date, s.floor, s.role_name, e.name',
+      [first, last],
+    );
+    return rows.map(Shift.fromRow).toList();
+  }
+
+  /// Sustituye todos los turnos del mes por [shifts].
+  ///
+  /// El generador siempre parte de cero, así que regenerar un mes descarta los
+  /// cambios manuales de ese mes. La UI avisa antes de hacerlo.
+  Future<void> replaceMonthShifts(DateTime month, List<Shift> shifts) async {
+    final first = Schedule.fmt(DateTime(month.year, month.month, 1));
+    final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
+    final d = await db;
+    await d.transaction((t) async {
+      await t.delete(
+        'shift',
+        where: 'date >= ? AND date <= ?',
+        whereArgs: [first, last],
+      );
+      final now = _now;
+      for (final s in shifts) {
+        final note = s.note.trim();
+        await t.insert('shift', {
+          'date': s.date,
+          'employee_id': s.employeeId,
+          'role_id': s.roleId,
+          'role_name': s.roleName,
+          'floor': s.floor.db,
+          'start_min': s.startMin,
+          'end_min': s.endMin,
+          'break_min': s.breakMin,
+          'status': s.status.db,
+          'note': note.isEmpty ? null : note,
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
+    });
+    _changed();
+  }
+
+  Future<void> updateShift(Shift shift) async {
+    final id = shift.id;
+    if (id == null) {
+      throw ArgumentError('El turno debe tener un id.');
+    }
+    final note = shift.note.trim();
+    await (await db).update(
+      'shift',
+      {
+        'start_min': shift.startMin,
+        'end_min': shift.endMin,
+        'break_min': shift.breakMin,
+        'status': shift.status.db,
+        'note': note.isEmpty ? null : note,
+        'updated_at': _now,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _changed();
+  }
+
+  Future<void> deleteShift(int id) async {
+    await (await db).delete('shift', where: 'id = ?', whereArgs: [id]);
+    _changed();
+  }
+
+  /// Pasa a publicado todos los borradores del mes.
+  Future<void> publishMonth(DateTime month) async {
+    final first = Schedule.fmt(DateTime(month.year, month.month, 1));
+    final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
+    await (await db).update(
+      'shift',
+      {'status': ShiftStatus.published.db, 'updated_at': _now},
+      where: 'date >= ? AND date <= ? AND status = ?',
+      whereArgs: [first, last, ShiftStatus.draft.db],
+    );
+    _changed();
+  }
+
+  Future<void> confirmShift(int id) async {
+    await (await db).update(
+      'shift',
+      {'status': ShiftStatus.confirmed.db, 'updated_at': _now},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     _changed();
   }
 
@@ -860,9 +1198,8 @@ class Db {
   Future<void> seedCatalog(List<Product> products) async {
     final database = await db;
     await database.transaction((t) async {
-      final count =
-          (await t.rawQuery('SELECT COUNT(*) AS c FROM product')).single['c']
-              as int;
+      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM product'))
+          .single['c'] as int;
       if (count > 0) return;
       final now = _now;
       for (final p in products) {

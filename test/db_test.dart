@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:stock_bar/db.dart';
+import 'package:stock_bar/shifts.dart';
 
 /// Crea el esquema desnormalizado v7 con datos de ejemplo.
 Future<void> _createLegacyV7(Database d) async {
@@ -60,10 +61,13 @@ Future<void> _createLegacyV7(Database d) async {
   });
   await d.insert(
       'product_groups', {'category': 'Refrescos y zumos', 'name': 'Coca-Cola'});
-  await d.insert('consumption',
-      {'product_id': 1, 'date': '2026-01-03', 'quantity': 12});
-  await d.insert('consumption',
-      {'product_id': 0, 'date': '2026-01-03', 'quantity': 0}); // marcador antiguo
+  await d.insert(
+      'consumption', {'product_id': 1, 'date': '2026-01-03', 'quantity': 12});
+  await d.insert('consumption', {
+    'product_id': 0,
+    'date': '2026-01-03',
+    'quantity': 0
+  }); // marcador antiguo
   await d.insert(
       'special_days', {'date': '2026-01-03', 'open': 1, 'note': 'prueba'});
   await d.insert('app_metadata', {'key': 'legacy', 'value': 'v1'});
@@ -83,12 +87,12 @@ void main() {
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
-  test('crea el esquema v8 en una base de datos nueva', () async {
+  test('crea el esquema actual en una base de datos nueva', () async {
     final d = await Db.openAt(p.join(dir.path, 'fresh.db'));
     addTearDown(d.close);
 
-    final tables = (await d.rawQuery(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
         .map((r) => r['name'])
         .toSet();
     expect(
@@ -103,6 +107,9 @@ void main() {
         'consumption',
         'special_day',
         'app_metadata',
+        'role',
+        'employee',
+        'shift',
       ]),
     );
     expect((await d.rawQuery('PRAGMA foreign_keys')).single.values.single, 1);
@@ -154,6 +161,90 @@ void main() {
 
     expect((await d.query('special_day')).length, 1);
     expect((await d.query('app_metadata')).single['value'], 'v1');
+
+    // v12: la migración también crea las tablas de turnos.
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'])
+        .toSet();
+    expect(tables, containsAll(['role', 'employee', 'shift']));
+  });
+
+  test('guarda puestos, empleados y turnos', () async {
+    final d = await Db.openAt(p.join(dir.path, 'turnos.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.addRole(
+      const JobRole(
+        name: 'Karaoke',
+        floor: Floor.karaoke,
+        note: 'Evento privado',
+      ),
+    );
+    final roles = await Db.i.roles();
+    expect(roles.single.name, 'Karaoke');
+    expect(roles.single.floor, Floor.karaoke);
+    await expectLater(
+      Db.i.addRole(const JobRole(name: 'Karaoke')),
+      throwsA(isA<StateError>()),
+    );
+
+    await Db.i.addEmployee(Employee(name: 'Ana', role: roles.single));
+    final employees = await Db.i.employees();
+    expect(employees.single.name, 'Ana');
+    expect(employees.single.role.floor, Floor.karaoke);
+
+    final generated = ShiftGenerator.generateMonth(
+      month: DateTime(2026, 10),
+      employees: employees,
+      specialDays: const {},
+    );
+    expect(generated, isNotEmpty);
+    await Db.i.replaceMonthShifts(DateTime(2026, 10), generated);
+
+    final shifts = await Db.i.shiftsForMonth(DateTime(2026, 10));
+    expect(shifts.length, generated.length);
+    expect(shifts.first.note, 'Evento privado');
+    expect(shifts.first.status, ShiftStatus.draft);
+
+    await Db.i.publishMonth(DateTime(2026, 10));
+    final published = await Db.i.shiftsForMonth(DateTime(2026, 10));
+    expect(
+      published.every((s) => s.status == ShiftStatus.published),
+      isTrue,
+    );
+
+    final first = published.first;
+    await Db.i.updateShift(first.copyWith(
+      startMin: 16 * 60,
+      endMin: 21 * 60,
+      breakMin: 0,
+      status: ShiftStatus.confirmed,
+    ));
+    final edited = (await Db.i.shiftsForMonth(DateTime(2026, 10)))
+        .firstWhere((s) => s.id == first.id);
+    expect(edited.status, ShiftStatus.confirmed);
+    expect(edited.startMin, 16 * 60);
+    expect(edited.breakMin, 0);
+
+    await Db.i.deleteShift(first.id!);
+    expect(
+      (await Db.i.shiftsForMonth(DateTime(2026, 10))).length,
+      published.length - 1,
+    );
+
+    await Db.i.setEmployeeActive(employees.single.id!, false);
+    expect(await Db.i.employees(), isEmpty);
+    expect((await Db.i.employees(includeInactive: true)).length, 1);
+
+    expect(
+      () => Db.i.deleteRole(roles.single.id!),
+      throwsStateError,
+    );
   });
 
   test('repara los grupos históricos de variantes (v8 -> v9)', () async {
@@ -165,7 +256,11 @@ void main() {
         onCreate: (d, _) async {
           await _createLegacyV7(d);
           // Nombres históricos que en su día quedaron sin grupo.
-          for (final name in ['Aquarius Naranja', 'Ginger Ale', 'Tónica Bliss']) {
+          for (final name in [
+            'Aquarius Naranja',
+            'Ginger Ale',
+            'Tónica Bliss'
+          ]) {
             await d.insert('products', {
               'name': name,
               'category': 'Refrescos y zumos',
@@ -197,7 +292,8 @@ void main() {
     final d = await Db.openAt(path);
     addTearDown(d.close);
 
-    Future<Map<String, Object?>> product(String name) async => (await d.rawQuery(
+    Future<Map<String, Object?>> product(String name) async =>
+        (await d.rawQuery(
           '''
           SELECT g.name AS grp, s.name AS sub
           FROM product p
@@ -269,13 +365,13 @@ void main() {
     final d = await Db.openAt(path);
     addTearDown(d.close);
 
-    Future<Map<String, Object?>> beer(String name) async => (await d.rawQuery('''
+    Future<Map<String, Object?>> beer(String name) async =>
+        (await d.rawQuery('''
           SELECT g.name AS grp, s.name AS sub
           FROM product p
           JOIN product_group g ON g.id = p.group_id
           LEFT JOIN subcategory s ON s.id = p.subcategory_id
-          WHERE p.name = ?''', [name]))
-        .single;
+          WHERE p.name = ?''', [name])).single;
 
     expect((await beer('Cruzcampo'))['grp'], 'Cruzcampo');
     expect((await beer('Cruzcampo'))['sub'], 'Pilsen');

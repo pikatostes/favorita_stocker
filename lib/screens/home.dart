@@ -3,6 +3,7 @@ import 'registro.dart';
 import 'productos.dart';
 import 'prevision.dart';
 import 'calendario.dart';
+import 'turnos.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,6 +16,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _pages = const [
     RegistroScreen(),
     PrevisionScreen(),
+    TurnosScreen(),
     CalendarioScreen(),
     ProductosScreen(),
   ];
@@ -27,7 +29,9 @@ class _HomeScreenState extends State<HomeScreen> {
           onDestinationSelected: (i) => setState(() => _tab = i),
           destinations: const [
             NavigationDestination(icon: Icon(Icons.edit_note), label: 'Lista'),
-            NavigationDestination(icon: Icon(Icons.insights), label: 'Previsión'),
+            NavigationDestination(
+                icon: Icon(Icons.insights), label: 'Previsión'),
+            NavigationDestination(icon: Icon(Icons.groups), label: 'Turnos'),
             NavigationDestination(
                 icon: Icon(Icons.event_available), label: 'Calendario'),
             NavigationDestination(icon: Icon(Icons.liquor), label: 'Productos'),
