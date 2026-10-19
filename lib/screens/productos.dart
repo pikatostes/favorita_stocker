@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../db.dart';
 import '../models.dart';
+import '../theme.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/category_tabs.dart';
 
@@ -166,9 +167,71 @@ class _ProductosScreenState extends State<ProductosScreen> {
     if (ok == true) await Db.i.deleteProduct(p.id!);
   }
 
+  /// Selector temporal para comparar las propuestas de color. Al elegir una,
+  /// `main.dart` reconstruye el `MaterialApp` con el tema correspondiente.
+  Future<void> _choosePalette() async {
+    final current = selectedPalette.value;
+    final chosen = await showModalBottomSheet<AppPalette>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(bottom: 12),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text('Paletas de color',
+                  style: Theme.of(context).textTheme.titleLarge),
+            ),
+            for (final palette in AppPalettes.all)
+              ListTile(
+                selected: palette.id == current.id,
+                leading: _paletteSwatch(palette),
+                title: Text(palette.name),
+                subtitle: Text(palette.description),
+                trailing: palette.id == current.id
+                    ? Icon(Icons.check,
+                        color: Theme.of(context).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.pop(context, palette),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) selectedPalette.value = chosen;
+  }
+
+  Widget _paletteSwatch(AppPalette palette) {
+    final scheme = palette.light.colorScheme;
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: scheme.outlineVariant),
+        gradient: LinearGradient(
+          colors: [scheme.primary, scheme.secondary, scheme.tertiary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const AppLogo()),
+        appBar: AppBar(
+          title: const AppLogo(),
+          actions: [
+            IconButton(
+              tooltip: 'Paletas de color',
+              icon: const Icon(Icons.palette_outlined),
+              onPressed: _choosePalette,
+            ),
+          ],
+        ),
         floatingActionButton: FloatingActionButton(
             onPressed: () => _edit(), child: const Icon(Icons.add)),
         body: FutureBuilder<List<Product>>(

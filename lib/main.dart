@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'db.dart';
 import 'seed_runner.dart';
 import 'screens/home.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,16 +27,16 @@ class StockBarApp extends StatelessWidget {
   const StockBarApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Stock Bar',
-        locale: const Locale('es'),
-        supportedLocales: const [Locale('es')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: ThemeData(colorSchemeSeed: Colors.amber, useMaterial3: true),
-        darkTheme: ThemeData(
-            colorSchemeSeed: Colors.amber,
-            brightness: Brightness.dark,
-            useMaterial3: true),
-        home: const HomeScreen(),
+  Widget build(BuildContext context) => ValueListenableBuilder<AppPalette>(
+        valueListenable: selectedPalette,
+        builder: (_, palette, __) => MaterialApp(
+          title: 'Stock Bar',
+          locale: const Locale('es'),
+          supportedLocales: const [Locale('es')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          theme: palette.light,
+          darkTheme: palette.dark,
+          home: const HomeScreen(),
+        ),
       );
 }

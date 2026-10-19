@@ -48,7 +48,8 @@ La BD en runtime es SQLite local (`stock_bar.db`) vía `sqflite`; en tests se us
 
 ```
 lib/
-  main.dart              Arranque: locale es, seed, purgeOld, MaterialApp (tema ámbar M3, claro/oscuro).
+  main.dart              Arranque: locale es, seed, purgeOld, MaterialApp (temas claro/oscuro).
+  theme.dart             Paleta de marca (AppColors), propuestas de tema (AppPalettes) y selector.
   models.dart            Dominio: formatMeasure, kGroupImages, CrateType, Product, SpecialDay, Forecast(Result).
   schedule.dart          Calendario/horario del bar (apertura, día de servicio, retención).
   shifts.dart            Turnos: Floor, ShiftStatus, JobRole, Employee, Shift y ShiftGenerator.
