@@ -217,9 +217,12 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **`CategoryTabs`**: genera las pestañas a partir de las categorías de los productos;
   recrea el `TabController` solo si cambian las categorías (evita la aserción de tabs).
 - **`TurnosScreen`** (`screens/turnos.dart`): `TabBar` con Horario, Empleados y
-  Puestos. Horario agrupa los turnos por día y planta, muestra el resumen de
-  horas del mes y permite generar/publicar el mes. Los formularios de empleado y
-  puesto son diálogos con sus propios controllers (mismo patrón que Productos).
+  Puestos. Horario es un calendario mensual: los días con turnos se rellenan,
+  los días que abren sin turnos se marcan con borde y las excepciones con color.
+  Al tocar un día se muestran sus turnos agrupados por planta; debajo queda el
+  resumen de horas del mes. Permite generar/publicar el mes. Los formularios de
+  empleado y puesto son diálogos con sus propios controllers (mismo patrón que
+  Productos).
 - **Formulario de producto** (`_ProductDialog`): categoría, grupo, subcategoría y tipo
   de caja son **desplegables estrictos** (solo valores existentes en BD). Los números
   describen la caja seleccionada, **compartida** por todos los productos de ese tipo.

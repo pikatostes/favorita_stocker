@@ -1,12 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../db.dart';
+import '../models.dart';
+import '../schedule.dart';
 import '../shifts.dart';
 
 String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
 String _dateLabel(String date) =>
     _cap(DateFormat('EEEE d MMMM', 'es').format(DateTime.parse(date)));
+
+DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// Primer viernes o sábado a partir de [from] (incluido).
+DateTime _nextOpenDay(DateTime from) {
+  var d = _day(from);
+  for (var i = 0; i < 14; i++) {
+    if (Schedule.openWeekdays.contains(d.weekday)) return d;
+    d = DateTime(d.year, d.month, d.day + 1);
+  }
+  return _day(from);
+}
+
+/// Primer viernes o sábado del mes.
+DateTime _firstOpenDay(DateTime month) {
+  final days = DateTime(month.year, month.month + 1, 0).day;
+  for (var day = 1; day <= days; day++) {
+    final d = DateTime(month.year, month.month, day);
+    if (Schedule.openWeekdays.contains(d.weekday)) return d;
+  }
+  return DateTime(month.year, month.month, 1);
+}
+
+/// Día seleccionado al abrir la pestaña: hoy si el bar abre; si no, el próximo
+/// viernes/sábado del mes o el primero del mes si el próximo cae en otro mes.
+DateTime _initialSelectedDay() {
+  final now = _day(DateTime.now());
+  if (Schedule.openWeekdays.contains(now.weekday)) return now;
+  final next = _nextOpenDay(now);
+  return next.month == now.month ? next : _firstOpenDay(now);
+}
 
 IconData _floorIcon(Floor floor) => switch (floor) {
       Floor.plantaBaja => Icons.storefront,
@@ -66,7 +99,8 @@ class _TurnosScreenState extends State<TurnosScreen>
 class _ScheduleData {
   final List<Shift> shifts;
   final List<Employee> employees;
-  _ScheduleData(this.shifts, this.employees);
+  final Map<String, SpecialDay> special;
+  _ScheduleData(this.shifts, this.employees, this.special);
 }
 
 class _ScheduleTab extends StatefulWidget {
@@ -77,12 +111,14 @@ class _ScheduleTab extends StatefulWidget {
 
 class _ScheduleTabState extends State<_ScheduleTab> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime _selected = _initialSelectedDay();
   late Future<_ScheduleData> _future = _load();
 
   Future<_ScheduleData> _load() async {
     final shifts = await Db.i.shiftsForMonth(_month);
     final employees = await Db.i.employees();
-    return _ScheduleData(shifts, employees);
+    final special = await Db.i.specialDays();
+    return _ScheduleData(shifts, employees, special);
   }
 
   void _reload() {
@@ -103,8 +139,18 @@ class _ScheduleTabState extends State<_ScheduleTab> {
 
   void _goMonth(int delta) => setState(() {
         _month = DateTime(_month.year, _month.month + delta);
+        _selected = _firstOpenDay(_month);
         _future = _load();
       });
+
+  void _goToday() {
+    final next = _nextOpenDay(DateTime.now());
+    setState(() {
+      _month = DateTime(next.year, next.month);
+      _selected = next;
+      _future = _load();
+    });
+  }
 
   Future<void> _generate() async {
     final data = await _load();
@@ -142,6 +188,9 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       employees: data.employees,
       specialDays: special,
     );
+    if (generated.isNotEmpty && mounted) {
+      setState(() => _selected = DateTime.parse(generated.first.date));
+    }
     await Db.i.replaceMonthShifts(_month, generated);
     if (!mounted) return;
     _snack(context, 'Generados ${generated.length} turnos.');
@@ -208,6 +257,214 @@ class _ScheduleTabState extends State<_ScheduleTab> {
         ],
       );
 
+  Widget _calendar(
+    _ScheduleData data,
+    Map<String, List<Shift>> byDate,
+  ) {
+    final first = DateTime(_month.year, _month.month, 1);
+    final leading = first.weekday - DateTime.monday;
+    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
+    final cells = <DateTime?>[
+      for (var i = 0; i < leading; i++) null,
+      for (var day = 1; day <= daysInMonth; day++)
+        DateTime(_month.year, _month.month, day),
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+
+    const weekdays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+    return Column(
+      children: [
+        Row(
+          children: [
+            for (final label in weekdays)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        for (var row = 0; row < cells.length; row += 7)
+          Row(
+            children: [
+              for (var col = 0; col < 7; col++)
+                Expanded(
+                  child: _calendarCell(cells[row + col], data, byDate),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _calendarCell(
+    DateTime? day,
+    _ScheduleData data,
+    Map<String, List<Shift>> byDate,
+  ) {
+    if (day == null) return const SizedBox(height: 50);
+    final cs = Theme.of(context).colorScheme;
+    final key = Schedule.fmt(day);
+    final shifts = byDate[key] ?? const <Shift>[];
+    final special = data.special[key];
+    final open = Schedule.isOpen(day, data.special);
+    final today = _day(DateTime.now()) == day;
+    final selected = _selected == day;
+    final hasShifts = shifts.isNotEmpty;
+
+    Color? fill;
+    var textColor = cs.onSurface;
+    Border? border;
+    if (hasShifts) {
+      fill = cs.primary;
+      textColor = cs.onPrimary;
+    } else if (special != null && !special.open) {
+      fill = cs.errorContainer;
+      textColor = cs.onErrorContainer;
+    } else if (open) {
+      border = Border.all(color: cs.primary, width: 1.5);
+    }
+    if (selected) {
+      border = Border.all(color: cs.onSurface, width: 2.5);
+    }
+
+    return InkWell(
+      onTap: () => setState(() => _selected = day),
+      child: SizedBox(
+        height: 50,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: fill,
+                border: border,
+              ),
+              child: Text(
+                '${day.day}',
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: today ? FontWeight.w900 : FontWeight.normal,
+                  decoration: today ? TextDecoration.underline : null,
+                ),
+              ),
+            ),
+            if (hasShifts)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: cs.primaryContainer,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${shifts.length}',
+                  style: TextStyle(
+                    fontSize: 8,
+                    height: 1.2,
+                    color: cs.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              )
+            else if (special != null)
+              Icon(Icons.circle, size: 6, color: cs.tertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _legend() {
+    final cs = Theme.of(context).colorScheme;
+    Widget dot({Color? color, Color? border}) => Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border:
+                border == null ? null : Border.all(color: border, width: 1.5),
+          ),
+        );
+    Widget item(Widget mark, String text) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            mark,
+            const SizedBox(width: 4),
+            Text(text, style: const TextStyle(fontSize: 11)),
+          ],
+        );
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 6,
+      children: [
+        item(dot(color: cs.primary), 'Con turnos'),
+        item(dot(border: cs.primary), 'Abre sin turnos'),
+        item(dot(color: cs.errorContainer), 'Cerrado (excepción)'),
+        item(
+          Icon(Icons.circle, size: 6, color: cs.tertiary),
+          'Excepción',
+        ),
+      ],
+    );
+  }
+
+  Widget _dayDetails(
+    _ScheduleData data,
+    Map<String, List<Shift>> byDate,
+  ) {
+    final key = Schedule.fmt(_selected);
+    final shifts = byDate[key] ?? const <Shift>[];
+    if (shifts.isNotEmpty) {
+      return _DayCard(
+        date: key,
+        shifts: shifts,
+        onEdit: _editShift,
+        onDelete: _deleteShift,
+      );
+    }
+
+    final special = data.special[key];
+    final open = Schedule.isOpen(_selected, data.special);
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _dateLabel(key),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              open ? 'Sin turnos para este día.' : 'El bar no abre este día.',
+            ),
+            if (special != null && special.note.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                special.note.trim(),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _hoursSummary(_ScheduleData data) {
     final byEmployee = <int, ({String name, int minutes})>{};
     for (final e in data.employees) {
@@ -259,12 +516,10 @@ class _ScheduleTabState extends State<_ScheduleTab> {
             return const Center(child: CircularProgressIndicator());
           }
           final data = snapshot.data!;
-          final days = <String, List<Shift>>{};
+          final byDate = <String, List<Shift>>{};
           for (final shift in data.shifts) {
-            days.putIfAbsent(shift.date, () => []).add(shift);
+            byDate.putIfAbsent(shift.date, () => []).add(shift);
           }
-          final sortedDays = days.entries.toList()
-            ..sort((a, b) => a.key.compareTo(b.key));
 
           return ListView(
             padding: const EdgeInsets.all(12),
@@ -285,6 +540,11 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                     icon: const Icon(Icons.publish),
                     label: const Text('Publicar'),
                   ),
+                  TextButton.icon(
+                    onPressed: _goToday,
+                    icon: const Icon(Icons.today),
+                    label: const Text('Hoy'),
+                  ),
                 ],
               ),
               if (data.employees.isEmpty)
@@ -299,26 +559,13 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                     ),
                   ),
                 ),
-              if (data.shifts.isNotEmpty) _hoursSummary(data),
               const SizedBox(height: 12),
-              if (data.shifts.isEmpty)
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'No hay turnos este mes. Pulsa «Generar mes» para '
-                      'crearlos a partir de los empleados.',
-                    ),
-                  ),
-                )
-              else
-                for (final day in sortedDays)
-                  _DayCard(
-                    date: day.key,
-                    shifts: day.value,
-                    onEdit: _editShift,
-                    onDelete: _deleteShift,
-                  ),
+              _calendar(data, byDate),
+              const SizedBox(height: 4),
+              _legend(),
+              const SizedBox(height: 8),
+              _dayDetails(data, byDate),
+              if (data.shifts.isNotEmpty) _hoursSummary(data),
               const SizedBox(height: 80),
             ],
           );
