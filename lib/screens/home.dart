@@ -423,16 +423,11 @@ class _HomeDashboardState extends State<_HomeDashboard> {
                 _header(data, user),
                 if (isAdmin) ...[
                   _adminTonightCard(data),
-                  _adminMonthCard(data),
-                  _adminForecastCard(data),
-                  _adminWarningsCard(data),
+                  _adminPlanningCard(data),
                 ] else ...[
-                  _myShiftCard(data, user),
-                  _myHoursCard(data, user),
+                  _myDayCard(data, user),
                   _employeeTonightCard(data),
-                  _employeeNoticeCard(data),
                 ],
-                _quickActionsCard(isAdmin),
                 const SizedBox(height: 80),
               ],
             ),
@@ -448,13 +443,14 @@ class _HomeDashboardState extends State<_HomeDashboard> {
 
   Widget _header(_HomeData data, AppUser? user) {
     final theme = Theme.of(context);
+    final isAdmin = user?.role == UserRole.admin;
     final name =
         user?.name.trim().isNotEmpty == true ? user!.name.trim() : 'equipo';
-    final status = data.openNow
-        ? 'Abierto ahora'
+    final statusText = data.openNow
+        ? 'Abierto ahora · servicio ${_shortDate(data.serviceDay)}'
         : data.opensLaterToday
-            ? 'Abre esta noche'
-            : 'Cerrado';
+            ? 'Abre esta noche · ${_shortDate(data.nextOpen)}'
+            : 'Cerrado · próxima apertura ${_shortDate(data.nextOpen)}';
     final statusColor = data.openNow || data.opensLaterToday
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
@@ -462,74 +458,81 @@ class _HomeDashboardState extends State<_HomeDashboard> {
         ? Icons.nightlife
         : Icons.nightlight_round;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  child: Text(
-                    user?.initial ?? '?',
-                    style: theme.textTheme.titleMedium,
-                  ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                child: Text(
+                  user?.initial ?? '?',
+                  style: theme.textTheme.titleSmall,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hola, $name',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Hola, $name',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      Text(
-                        _longDate(data.now),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                    ),
+                    Text(
+                      _longDate(data.now),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(statusIcon, size: 18, color: statusColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  statusText,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: statusColor,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Chip(
-                  avatar: Icon(statusIcon, size: 18, color: statusColor),
-                  label: Text(status),
-                  backgroundColor: statusColor.withValues(alpha: 0.12),
-                  side: BorderSide.none,
+              ),
+            ],
+          ),
+          if (isAdmin) _nextSpecialLine(data),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _quickAction(Icons.edit_note, 'Lista', HomeTab.list),
+              _quickAction(Icons.insights, 'Previsión', HomeTab.forecast),
+              _quickAction(Icons.groups, 'Turnos', HomeTab.shifts),
+              if (isAdmin)
+                _quickAction(
+                  Icons.admin_panel_settings,
+                  'Admin',
+                  HomeTab.admin,
                 ),
-                Chip(
-                  label: Text(user?.role.label ?? UserRole.employee.label),
-                  backgroundColor: theme.colorScheme.surfaceContainerHigh,
-                  side: BorderSide.none,
-                ),
-                Text(
-                  data.openNow
-                      ? 'Servicio: ${_shortDate(data.serviceDay)}'
-                      : 'Próxima apertura: ${_shortDate(data.nextOpen)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            if (user?.role == UserRole.admin) _nextSpecialLine(data),
-          ],
-        ),
+              _quickAction(
+                Icons.account_circle_outlined,
+                'Cuenta',
+                HomeTab.account,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -578,46 +581,31 @@ class _HomeDashboardState extends State<_HomeDashboard> {
   Widget _sectionCard({
     required IconData icon,
     required String title,
-    String? subtitle,
-    Widget? action,
     required List<Widget> children,
   }) {
     final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Icon(icon, size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
+                Icon(icon, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (subtitle != null)
-                        Text(
-                          subtitle,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                    ],
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                if (action != null) action,
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             ...children,
           ],
         ),
@@ -627,45 +615,41 @@ class _HomeDashboardState extends State<_HomeDashboard> {
 
   Widget _mutedText(String text) => Text(
         text,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
       );
 
-  Widget _quickActionsCard(bool isAdmin) {
-    return _sectionCard(
-      icon: Icons.bolt,
-      title: 'Accesos rápidos',
+  Widget _warningLine(String text) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _quickAction(Icons.edit_note, 'Lista', HomeTab.list),
-            _quickAction(Icons.insights, 'Previsión', HomeTab.forecast),
-            _quickAction(Icons.groups, 'Turnos', HomeTab.shifts),
-            if (isAdmin)
-              _quickAction(
-                Icons.admin_panel_settings,
-                'Admin',
-                HomeTab.admin,
-              ),
-            _quickAction(
-              Icons.account_circle_outlined,
-              'Cuenta',
-              HomeTab.account,
+        Icon(
+          Icons.warning_amber_rounded,
+          size: 16,
+          color: theme.colorScheme.error,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.error,
             ),
-          ],
+          ),
         ),
       ],
     );
   }
 
   Widget _quickAction(IconData icon, String label, HomeTab tab) {
-    return OutlinedButton.icon(
-      onPressed: () => widget.onNavigate(tab),
-      icon: Icon(icon, size: 18),
+    return ActionChip(
+      avatar: Icon(icon, size: 16),
       label: Text(label),
+      onPressed: () => widget.onNavigate(tab),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -674,14 +658,13 @@ class _HomeDashboardState extends State<_HomeDashboard> {
   // -------------------------------------------------------------------------
 
   Widget _adminTonightCard(_HomeData data) {
-    final theme = Theme.of(context);
     final shifts = data.focusShifts;
     final drafts =
         shifts.where((shift) => shift.status == ShiftStatus.draft).length;
     final activeUsers = data.users
         .where((user) => user.active && user.jobRole != null)
         .toList();
-    final noOpener = <Floor>{};
+    final noOpener = <Floor>[];
     for (final floor in Floor.values) {
       final hasOpener = activeUsers.any(
         (user) =>
@@ -692,20 +675,15 @@ class _HomeDashboardState extends State<_HomeDashboard> {
       );
       if (!hasOpener) noOpener.add(floor);
     }
-
-    final subtitle = [
-      _longDate(data.focusDay),
-      if (drafts > 0) '$drafts en borrador',
+    final title = [
+      data.focusIsTonight ? 'Esta noche' : 'Próxima noche',
+      _shortDate(data.focusDay),
+      if (drafts > 0) drafts == 1 ? '1 borrador' : '$drafts borradores',
     ].join(' · ');
 
     return _sectionCard(
       icon: Icons.nightlife,
-      title: data.focusIsTonight ? 'Esta noche' : 'Próxima noche',
-      subtitle: subtitle,
-      action: TextButton(
-        onPressed: () => widget.onNavigate(HomeTab.shifts),
-        child: const Text('Ver turnos'),
-      ),
+      title: title,
       children: [
         if (shifts.isEmpty)
           _mutedText('Aún no hay turnos generados para esa noche.')
@@ -714,38 +692,19 @@ class _HomeDashboardState extends State<_HomeDashboard> {
             _teamRow(
               floor: floor,
               shifts: shifts.where((shift) => shift.floor == floor).toList(),
-              warning: noOpener.contains(floor)
-                  ? 'Falta un opener disponible en esta planta.'
-                  : null,
-              showStatus: true,
             ),
-        if (noOpener.isNotEmpty) ...[
-          const Divider(height: 20),
-          Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 18,
-                color: theme.colorScheme.error,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Hay plantas sin opener para esa noche. Revisa los puestos '
-                  'y los días disponibles del equipo.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-              ),
-            ],
+        if (shifts.isNotEmpty && noOpener.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: _warningLine(
+              'Sin opener en ${noOpener.map((floor) => floor.label).join(', ')}.',
+            ),
           ),
-        ],
       ],
     );
   }
 
-  Widget _adminMonthCard(_HomeData data) {
+  Widget _adminPlanningCard(_HomeData data) {
     final theme = Theme.of(context);
     final draft = data.monthShifts
         .where((shift) => shift.status == ShiftStatus.draft)
@@ -757,14 +716,28 @@ class _HomeDashboardState extends State<_HomeDashboard> {
         .where((shift) => shift.status == ShiftStatus.confirmed)
         .length;
     final withoutShifts = _openDaysWithoutShifts(data);
-    final hasEligibleUsers = data.users.any(
-      (user) => user.active && user.jobRole != null,
-    );
+    final activeUsers = data.users.where((user) => user.active).toList();
+    final withoutRole =
+        activeUsers.where((user) => user.jobRole == null).length;
+    final hasEligibleUsers = activeUsers.any((user) => user.jobRole != null);
+    final warnings = <String>[
+      if (!hasEligibleUsers)
+        'Añade puestos y usuarios activos para generar el horario',
+      if (withoutShifts > 0)
+        withoutShifts == 1
+            ? '1 día de apertura sin turnos'
+            : '$withoutShifts días de apertura sin turnos',
+      if (withoutRole > 0)
+        withoutRole == 1
+            ? '1 usuario activo sin puesto'
+            : '$withoutRole usuarios activos sin puesto',
+    ];
+    final result = data.forecast;
+    final items = result?.items.take(3).toList() ?? const <Forecast>[];
 
     return _sectionCard(
       icon: Icons.event_note,
-      title: 'Turnos de ${_monthLabel(data.month)}',
-      subtitle: '${data.monthShifts.length} turnos en total',
+      title: 'Planificación · ${_monthLabel(data.month)}',
       children: [
         Row(
           children: [
@@ -773,27 +746,12 @@ class _HomeDashboardState extends State<_HomeDashboard> {
             _stat('$confirmed', 'Confirmados', theme.colorScheme.tertiary),
           ],
         ),
-        if (withoutShifts > 0)
+        if (warnings.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '$withoutShifts días de apertura sin turnos.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
+            padding: const EdgeInsets.only(top: 6),
+            child: _warningLine(warnings.join(' · ')),
           ),
-        if (!hasEligibleUsers)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Añade puestos y usuarios activos para poder generar el horario.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -811,150 +769,85 @@ class _HomeDashboardState extends State<_HomeDashboard> {
               icon: const Icon(Icons.publish),
               label: const Text('Publicar'),
             ),
-            TextButton.icon(
-              onPressed: () => widget.onNavigate(HomeTab.shifts),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Ver turnos'),
+          ],
+        ),
+        const Divider(height: 22),
+        Row(
+          children: [
+            Icon(Icons.insights, size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Previsión · ${_shortDate(data.nextOpen)}',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),
-      ],
-    );
-  }
-
-  Widget _adminForecastCard(_HomeData data) {
-    final result = data.forecast;
-    final items = result?.items.take(3).toList() ?? const <Forecast>[];
-    return _sectionCard(
-      icon: Icons.insights,
-      title: 'Previsión',
-      subtitle: 'Apertura: ${_shortDate(data.nextOpen)}',
-      action: TextButton(
-        onPressed: () => widget.onNavigate(HomeTab.forecast),
-        child: const Text('Ver previsión'),
-      ),
-      children: [
+        const SizedBox(height: 4),
         if (items.isEmpty)
           _mutedText(
             result == null || result.recentNights == 0
-                ? 'Aún no hay histórico suficiente para calcular la previsión.'
-                : 'No hay productos con consumo registrado para esta noche.',
+                ? 'Sin histórico suficiente para calcular la previsión.'
+                : 'Sin productos con consumo registrado para esa noche.',
           )
-        else ...[
+        else
           for (final item in items)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5),
+              padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 children: [
-                  Expanded(child: Text(item.product.name)),
+                  Expanded(
+                    child: Text(
+                      item.product.name,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
                   Text(
                     '${item.units} uds',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     '${item.boxes} cajas',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
             ),
-          const SizedBox(height: 4),
-          Text(
-            '${result!.items.length} productos · '
-            '${result.recentNights} noches base',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
       ],
     );
-  }
-
-  Widget _adminWarningsCard(_HomeData data) {
-    final warnings = _adminWarnings(data);
-    if (warnings.isEmpty) return const SizedBox.shrink();
-
-    final theme = Theme.of(context);
-    return _sectionCard(
-      icon: Icons.warning_amber_rounded,
-      title: 'Avisos',
-      children: [
-        for (final warning in warnings)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 18,
-                  color: theme.colorScheme.error,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    warning,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  List<String> _adminWarnings(_HomeData data) {
-    final warnings = <String>[];
-    final activeUsers = data.users.where((user) => user.active).toList();
-    final withoutRole =
-        activeUsers.where((user) => user.jobRole == null).length;
-    if (withoutRole > 0) {
-      warnings.add(
-        '$withoutRole usuario${withoutRole == 1 ? '' : 's'} activo'
-        '${withoutRole == 1 ? '' : 's'} sin puesto asignado.',
-      );
-    }
-
-    final withoutShifts = _openDaysWithoutShifts(data);
-    if (withoutShifts > 0) {
-      warnings.add(
-        '$withoutShifts día${withoutShifts == 1 ? '' : 's'} de apertura sin '
-        'turnos este mes.',
-      );
-    }
-
-    final forecast = data.forecast;
-    if (forecast == null || forecast.recentNights == 0) {
-      warnings.add(
-        'Sin histórico suficiente para calcular la previsión.',
-      );
-    }
-    return warnings;
   }
 
   // -------------------------------------------------------------------------
   // Empleado
   // -------------------------------------------------------------------------
 
-  Widget _myShiftCard(_HomeData data, AppUser? user) {
+  Widget _myDayCard(_HomeData data, AppUser? user) {
     final theme = Theme.of(context);
     final next = data.myUpcoming.isEmpty ? null : data.myUpcoming.first;
+    final myShifts = data.monthShifts
+        .where((shift) =>
+            shift.userId == user?.id && shift.status != ShiftStatus.draft)
+        .toList(growable: false);
+    final total = myShifts.fold<int>(
+      0,
+      (sum, shift) => sum + shift.workedMinutes,
+    );
+    final hoursLabel = myShifts.isEmpty
+        ? 'Sin horas publicadas este mes'
+        : 'Este mes: ${formatHours(total)} · '
+            '${myShifts.length} turno${myShifts.length == 1 ? '' : 's'}';
+
     return _sectionCard(
       icon: Icons.event_available,
-      title: 'Mi próximo turno',
-      action: TextButton(
-        onPressed: () => widget.onNavigate(HomeTab.shifts),
-        child: const Text('Ver horario'),
-      ),
+      title: 'Mi turno',
       children: [
         if (next == null)
           _mutedText(
@@ -976,7 +869,7 @@ class _HomeDashboardState extends State<_HomeDashboard> {
               _statusChip(next.status),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             next.timeLabel,
             style: theme.textTheme.headlineSmall?.copyWith(
@@ -985,71 +878,42 @@ class _HomeDashboardState extends State<_HomeDashboard> {
           ),
           Text(
             '${next.roleName} · ${next.floor.label}',
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           if (data.myUpcoming.length > 1)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Tienes ${data.myUpcoming.length - 1} turnos más publicados.',
+                '+${data.myUpcoming.length - 1} turnos más publicados',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
         ],
-      ],
-    );
-  }
-
-  Widget _myHoursCard(_HomeData data, AppUser? user) {
-    final theme = Theme.of(context);
-    final myShifts = data.monthShifts
-        .where((shift) =>
-            shift.userId == user?.id && shift.status != ShiftStatus.draft)
-        .toList(growable: false);
-    final total = myShifts.fold<int>(
-      0,
-      (sum, shift) => sum + shift.workedMinutes,
-    );
-
-    return _sectionCard(
-      icon: Icons.schedule,
-      title: 'Mis horas de ${_monthLabel(data.month)}',
-      children: [
-        if (myShifts.isEmpty)
-          _mutedText('Aún no hay turnos publicados este mes.')
-        else
+        if (next != null || myShifts.isNotEmpty) ...[
+          const Divider(height: 18),
           Row(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      formatHours(total),
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '${myShifts.length} turnos publicados o confirmados',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               Icon(
-                Icons.timer_outlined,
-                size: 36,
+                Icons.schedule,
+                size: 18,
                 color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  hoursLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ],
           ),
+        ],
       ],
     );
   }
@@ -1058,12 +922,13 @@ class _HomeDashboardState extends State<_HomeDashboard> {
     final visible = data.focusShifts
         .where((shift) => shift.status != ShiftStatus.draft)
         .toList(growable: false);
+    final title = [
+      data.focusIsTonight ? 'Esta noche' : 'Próxima noche',
+      _shortDate(data.focusDay),
+    ].join(' · ');
     return _sectionCard(
       icon: Icons.groups,
-      title: data.focusIsTonight
-          ? 'Esta noche en el bar'
-          : 'Próxima noche en el bar',
-      subtitle: _longDate(data.focusDay),
+      title: title,
       children: [
         if (visible.isEmpty)
           _mutedText('Aún no hay turnos publicados para esa noche.')
@@ -1073,20 +938,6 @@ class _HomeDashboardState extends State<_HomeDashboard> {
               floor: floor,
               shifts: visible.where((shift) => shift.floor == floor).toList(),
             ),
-      ],
-    );
-  }
-
-  Widget _employeeNoticeCard(_HomeData data) {
-    if (!data.mySchedulePending) return const SizedBox.shrink();
-    return _sectionCard(
-      icon: Icons.info_outline,
-      title: 'Aviso',
-      children: [
-        _mutedText(
-          'Tu horario está pendiente de publicación. Cuando el encargado lo '
-          'publique, aparecerá en Inicio y en Turnos.',
-        ),
       ],
     );
   }
@@ -1122,80 +973,40 @@ class _HomeDashboardState extends State<_HomeDashboard> {
   Widget _teamRow({
     required Floor floor,
     required List<Shift> shifts,
-    String? warning,
-    bool showStatus = false,
   }) {
     final theme = Theme.of(context);
+    final names = shifts.map((shift) => shift.userName).join(', ');
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             _floorIcon(floor),
-            size: 20,
+            size: 18,
             color: theme.colorScheme.primary,
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        floor.label,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (shifts.isNotEmpty)
-                      Text(
-                        '${shifts.length}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                if (shifts.isEmpty)
-                  Text(
-                    'Sin turnos',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  )
-                else
-                  Text(
-                    shifts.map((shift) => shift.userName).join(', '),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                if (showStatus &&
-                    shifts.any((s) => s.status == ShiftStatus.draft))
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      '${shifts.where((s) => s.status == ShiftStatus.draft).length} '
-                      'en borrador',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '${floor.label}: ',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                if (warning != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      warning,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.error,
-                      ),
+                  TextSpan(
+                    text: names.isEmpty ? 'Sin turnos' : names,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: names.isEmpty
+                          ? theme.colorScheme.onSurfaceVariant
+                          : null,
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
