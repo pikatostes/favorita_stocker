@@ -1285,4 +1285,54 @@ class Db {
     });
     _changed();
   }
+
+  /// Inserta los puestos y empleados iniciales si la tabla `employee` está
+  /// vacía. Los puestos que ya existan se reutilizan por nombre, así que la
+  /// semilla no falla si el usuario creó alguno antes.
+  Future<void> seedStaff(
+    List<JobRole> roles,
+    List<({String name, String role})> employees,
+  ) async {
+    final database = await db;
+    await database.transaction((t) async {
+      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM employee'))
+          .single['c'] as int;
+      if (count > 0) return;
+      final now = _now;
+      final roleIds = <String, int>{};
+      for (final role in roles) {
+        final name = role.name.trim();
+        final existing = await t.query(
+          'role',
+          columns: ['id'],
+          where: 'name = ?',
+          whereArgs: [name],
+          limit: 1,
+        );
+        roleIds[name] = existing.isNotEmpty
+            ? existing.single['id'] as int
+            : await t.insert('role', {
+                'name': name,
+                'floor': role.floor.db,
+                'note': role.note.trim(),
+                'created_at': now,
+                'updated_at': now,
+              });
+      }
+      for (final employee in employees) {
+        final roleId = roleIds[employee.role];
+        if (roleId == null) continue;
+        await t.insert('employee', {
+          'name': employee.name.trim(),
+          'role_id': roleId,
+          'active': 1,
+          'opener': 0,
+          'working_days': '',
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
+    });
+    _changed();
+  }
 }

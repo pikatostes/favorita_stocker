@@ -1,4 +1,5 @@
 import 'models.dart';
+import 'shifts.dart';
 
 const _cola = ['Original', 'Zero', 'Zero Zero', 'Light'];
 const _bliss = ['Tónica', 'Limón', 'Berry', 'Ginger Ale'];
@@ -143,4 +144,28 @@ final List<Product> initialProducts = [
 
   _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
   _p('Agua Aquabona', _refrescos, _aquabona),
+];
+
+/// Puestos iniciales del local. El nombre es único: la planta y la nota se
+/// guardan en el propio puesto.
+const List<JobRole> initialRoles = [
+  JobRole(name: 'camarero', floor: Floor.plantaBaja),
+  JobRole(name: 'manteni', floor: Floor.plantaBaja),
+  JobRole(name: 'camareroo', floor: Floor.karaoke),
+  JobRole(name: 'bandeja', floor: Floor.terraza),
+  JobRole(name: 'camarerooo', floor: Floor.terraza),
+];
+
+/// Empleados iniciales: nombre y nombre del puesto al que pertenecen.
+const List<({String name, String role})> initialEmployees = [
+  (name: 'Carmen', role: 'camarero'),
+  (name: 'Lucía', role: 'camarero'),
+  (name: 'María Moreno', role: 'camarero'),
+  (name: 'María Hidalgo', role: 'camarero'),
+  (name: 'Elena', role: 'camarero'),
+  (name: 'Jesús', role: 'camarero'),
+  (name: 'Alejandro', role: 'camarero'),
+  (name: 'Alfonso', role: 'camarero'),
+  (name: 'Antonio', role: 'camarero'),
+  (name: 'Juanma', role: 'camarero'),
 ];
