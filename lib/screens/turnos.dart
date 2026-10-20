@@ -54,6 +54,25 @@ void _snack(BuildContext context, String text) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 }
 
+/// Pestañas internas de Turnos. [roles] (Puestos) solo está disponible para
+/// administradores.
+enum TurnoTab {
+  schedule('Horario'),
+  users('Usuarios'),
+  roles('Puestos', adminOnly: true);
+
+  final String label;
+  final bool adminOnly;
+
+  const TurnoTab(this.label, {this.adminOnly = false});
+}
+
+/// Pestañas internas de Turnos visibles para [role].
+List<TurnoTab> visibleTurnoTabs(UserRole role) => [
+      for (final tab in TurnoTab.values)
+        if (!tab.adminOnly || role == UserRole.admin) tab,
+    ];
+
 /// Pestaña "Turnos": horario mensual, usuarios y puestos.
 class TurnosScreen extends StatefulWidget {
   const TurnosScreen({super.key});
@@ -62,37 +81,71 @@ class TurnosScreen extends StatefulWidget {
 }
 
 class _TurnosScreenState extends State<TurnosScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+    with TickerProviderStateMixin {
+  late bool _isAdmin;
+  late TabController _tabs;
+
+  bool get _hasAdminRole => AuthController.i.user?.role == UserRole.admin;
+
+  @override
+  void initState() {
+    super.initState();
+    _isAdmin = _hasAdminRole;
+    _tabs = TabController(length: _isAdmin ? 3 : 2, vsync: this);
+    AuthController.i.addListener(_onAuthChanged);
+  }
 
   @override
   void dispose() {
+    AuthController.i.removeListener(_onAuthChanged);
     _tabs.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const AppLogo(),
-          bottom: TabBar(
-            controller: _tabs,
-            tabs: const [
-              Tab(text: 'Horario'),
-              Tab(text: 'Usuarios'),
-              Tab(text: 'Puestos'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          controller: _tabs,
-          children: const [
-            _ScheduleTab(),
-            _AppUsersTab(),
-            _RolesTab(),
-          ],
-        ),
+  void _onAuthChanged() {
+    if (!mounted) return;
+    final isAdmin = _hasAdminRole;
+    if (isAdmin == _isAdmin) return;
+
+    final old = _tabs;
+    final length = isAdmin ? 3 : 2;
+    final nextIndex = old.index >= length ? 0 : old.index;
+    setState(() {
+      _isAdmin = isAdmin;
+      _tabs = TabController(
+        length: length,
+        vsync: this,
+        initialIndex: nextIndex,
       );
+    });
+    old.dispose();
+  }
+
+  Widget _pageFor(TurnoTab tab) => switch (tab) {
+        TurnoTab.schedule => _ScheduleTab(isAdmin: _isAdmin),
+        TurnoTab.users => _AppUsersTab(isAdmin: _isAdmin),
+        TurnoTab.roles => const _RolesTab(),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = visibleTurnoTabs(
+      AuthController.i.user?.role ?? UserRole.employee,
+    );
+    return Scaffold(
+      appBar: AppBar(
+        title: const AppLogo(),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: [for (final tab in tabs) Tab(text: tab.label)],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabs,
+        children: [for (final tab in tabs) _pageFor(tab)],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +160,10 @@ class _ScheduleData {
 }
 
 class _ScheduleTab extends StatefulWidget {
-  const _ScheduleTab();
+  final bool isAdmin;
+
+  const _ScheduleTab({required this.isAdmin});
+
   @override
   State<_ScheduleTab> createState() => _ScheduleTabState();
 }
@@ -535,16 +591,18 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  FilledButton.icon(
-                    onPressed: _generate,
-                    icon: const Icon(Icons.auto_awesome),
-                    label: const Text('Generar mes'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: data.shifts.isEmpty ? null : _publish,
-                    icon: const Icon(Icons.publish),
-                    label: const Text('Publicar'),
-                  ),
+                  if (widget.isAdmin) ...[
+                    FilledButton.icon(
+                      onPressed: _generate,
+                      icon: const Icon(Icons.auto_awesome),
+                      label: const Text('Generar mes'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: data.shifts.isEmpty ? null : _publish,
+                      icon: const Icon(Icons.publish),
+                      label: const Text('Publicar'),
+                    ),
+                  ],
                   TextButton.icon(
                     onPressed: _goToday,
                     icon: const Icon(Icons.today),
@@ -556,11 +614,13 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                 Card(
                   margin: const EdgeInsets.only(top: 12),
                   color: Theme.of(context).colorScheme.errorContainer,
-                  child: const Padding(
-                    padding: EdgeInsets.all(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
                     child: Text(
-                      'Añade puestos en «Puestos» y usuarios en «Usuarios» '
-                      'para poder generar el horario.',
+                      widget.isAdmin
+                          ? 'Añade puestos en «Puestos» y usuarios en '
+                              '«Usuarios» para poder generar el horario.'
+                          : 'Todavía no hay usuarios con un puesto asignado.',
                     ),
                   ),
                 ),
@@ -883,7 +943,10 @@ class _ShiftDialogState extends State<_ShiftDialog> {
 // ---------------------------------------------------------------------------
 
 class _AppUsersTab extends StatefulWidget {
-  const _AppUsersTab();
+  final bool isAdmin;
+
+  const _AppUsersTab({required this.isAdmin});
+
   @override
   State<_AppUsersTab> createState() => _AppUsersTabState();
 }
@@ -910,6 +973,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
   }
 
   Future<void> _edit([AppUser? user]) async {
+    if (!widget.isAdmin) return;
     final roles = await Db.i.roles();
     if (!mounted) return;
     final result = await showDialog<_UserFormResult>(
@@ -931,6 +995,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
   }
 
   Future<void> _toggle(AppUser user) async {
+    if (!widget.isAdmin) return;
     try {
       await Db.i.setUserActive(user.id!, !user.active);
       await AuthController.i.refresh();
@@ -939,6 +1004,11 @@ class _AppUsersTabState extends State<_AppUsersTab> {
       _snack(context, 'No se pudo cambiar el estado: $e');
     }
   }
+
+  Future<void> _showInfo(AppUser user) => showDialog<void>(
+        context: context,
+        builder: (_) => _UserInfoDialog(user: user),
+      );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -957,8 +1027,12 @@ class _AppUsersTabState extends State<_AppUsersTab> {
             }
             final users = snapshot.data!;
             if (users.isEmpty) {
-              return const Center(
-                child: Text('Añade tu primer usuario con +'),
+              return Center(
+                child: Text(
+                  widget.isAdmin
+                      ? 'Añade tu primer usuario con +'
+                      : 'No hay usuarios.',
+                ),
               );
             }
             return ListView.builder(
@@ -984,20 +1058,110 @@ class _AppUsersTabState extends State<_AppUsersTab> {
                     '${user.opener ? ' · Puede abrir' : ''}',
                   ),
                   isThreeLine: true,
-                  trailing: Switch(
-                    value: user.active,
-                    onChanged: (_) => _toggle(user),
-                  ),
-                  onTap: () => _edit(user),
+                  trailing: widget.isAdmin
+                      ? Switch(
+                          value: user.active,
+                          onChanged: (_) => _toggle(user),
+                        )
+                      : null,
+                  onTap: () => widget.isAdmin ? _edit(user) : _showInfo(user),
                 );
               },
             );
           },
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => _edit(),
-          child: const Icon(Icons.person_add),
+        floatingActionButton: widget.isAdmin
+            ? FloatingActionButton(
+                onPressed: () => _edit(),
+                child: const Icon(Icons.person_add),
+              )
+            : null,
+      );
+}
+
+/// Ficha de solo lectura que se muestra a los empleados al tocar un usuario.
+class _UserInfoDialog extends StatelessWidget {
+  final AppUser user;
+
+  const _UserInfoDialog({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final jobRole = user.jobRole;
+    return AlertDialog(
+      title: Row(
+        children: [
+          CircleAvatar(child: Text(user.initial)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(user.fullName)),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _InfoRow(
+              icon: Icons.mail_outline,
+              label: 'Email',
+              value: user.email.isEmpty ? 'Sin email' : user.email,
+            ),
+            _InfoRow(
+              icon: Icons.shield_outlined,
+              label: 'Rol de acceso',
+              value: user.role.label,
+            ),
+            _InfoRow(
+              icon: Icons.work_outline,
+              label: 'Puesto habitual',
+              value: jobRole == null
+                  ? 'Sin puesto'
+                  : '${jobRole.name} · ${jobRole.floor.label}',
+            ),
+            _InfoRow(
+              icon: Icons.verified_user_outlined,
+              label: 'Estado',
+              value: user.active ? 'Activo' : 'Inactivo',
+            ),
+            _InfoRow(
+              icon: Icons.lock_open_outlined,
+              label: 'Puede abrir',
+              value: user.opener ? 'Sí' : 'No',
+            ),
+            _InfoRow(
+              icon: Icons.event_available_outlined,
+              label: 'Días que puede trabajar',
+              value: user.workingDaysLabel,
+            ),
+          ],
         ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon),
+        title: Text(label),
+        subtitle: Text(value),
       );
 }
 
