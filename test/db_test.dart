@@ -284,6 +284,35 @@ void main() {
     );
   });
 
+  test('genera el horario del mes desde la base de datos', () async {
+    final d = await Db.openAt(p.join(dir.path, 'generar_mes.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.addRole(const JobRole(name: 'Sala', floor: Floor.plantaBaja));
+    final role = (await Db.i.roles()).single;
+    await Db.i.addUser(
+      AppUser(
+        name: 'Ana',
+        email: 'ana@favorita.local',
+        jobRole: role,
+        opener: true,
+      ),
+      password: 'secreto1',
+    );
+
+    final count = await Db.i.generateMonthShifts(DateTime(2026, 10));
+    expect(count, greaterThan(0));
+
+    final shifts = await Db.i.shiftsForMonth(DateTime(2026, 10));
+    expect(shifts, hasLength(count));
+    expect(shifts.every((s) => s.status == ShiftStatus.draft), isTrue);
+    expect(shifts.every((s) => s.userName == 'Ana'), isTrue);
+  });
+
   test('guarda la marca de apertura y los días del empleado', () async {
     final d = await Db.openAt(p.join(dir.path, 'empleados.db'));
     Db.i.useDatabase(d);

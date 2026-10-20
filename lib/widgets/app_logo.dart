@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Logotipo de La Favorita. Se usa como título en la barra superior de cada
-/// pestaña (Lista, Previsión, Turnos, Calendario y Productos).
+/// pestaña (Inicio, Lista, Previsión, Turnos, Admin y Cuenta).
 class AppLogo extends StatelessWidget {
   /// Alto del logotipo dentro de la barra superior.
   final double height;

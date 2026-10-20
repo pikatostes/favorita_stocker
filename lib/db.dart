@@ -1636,6 +1636,22 @@ class Db {
     return rows.map(Shift.fromRow).toList();
   }
 
+  /// Genera y guarda el horario de [month] a partir de los usuarios activos
+  /// con puesto. Devuelve cuántos turnos se han creado.
+  Future<int> generateMonthShifts(DateTime month) async {
+    final users = (await this.users())
+        .where((u) => u.jobRole != null)
+        .toList(growable: false);
+    final special = await specialDays();
+    final generated = ShiftGenerator.generateMonth(
+      month: month,
+      users: users,
+      specialDays: special,
+    );
+    await replaceMonthShifts(month, generated);
+    return generated.length;
+  }
+
   /// Sustituye todos los turnos del mes por [shifts].
   ///
   /// El generador siempre parte de cero, así que regenerar un mes descarta los

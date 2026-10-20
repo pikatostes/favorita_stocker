@@ -8,7 +8,13 @@ void main() {
 
     expect(
       tabs,
-      [HomeTab.list, HomeTab.forecast, HomeTab.shifts, HomeTab.account],
+      [
+        HomeTab.start,
+        HomeTab.list,
+        HomeTab.forecast,
+        HomeTab.shifts,
+        HomeTab.account,
+      ],
     );
     expect(tabs.map((tab) => tab.label), isNot(contains('Calendario')));
     expect(tabs.map((tab) => tab.label), isNot(contains('Productos')));
@@ -20,7 +26,7 @@ void main() {
     expect(tabs, HomeTab.values);
     expect(
       tabs.map((tab) => tab.label),
-      ['Lista', 'Previsión', 'Turnos', 'Admin', 'Cuenta'],
+      ['Inicio', 'Lista', 'Previsión', 'Turnos', 'Admin', 'Cuenta'],
     );
   });
 }

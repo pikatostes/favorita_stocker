@@ -1,7 +1,7 @@
 # ai.md — Guía del proyecto para agentes IA
 
 > Documento de consulta rápida. Léelo **antes** de tocar código.
-> Última revisión: 2026-10-19.
+> Última revisión: 2026-10-20.
 
 ---
 
@@ -52,7 +52,7 @@ lib/
   theme.dart             Paleta de marca (AppColors), propuestas de tema (AppPalettes) y selector.
   models.dart            Dominio: formatMeasure, kGroupImages, CrateType, Product, SpecialDay, Forecast(Result).
   schedule.dart          Calendario/horario del bar (apertura, día de servicio, retención).
-  shifts.dart            Turnos: Floor, ShiftStatus, JobRole, Employee, Shift y ShiftGenerator.
+  shifts.dart            Turnos: Floor, ShiftStatus, JobRole, AppUser, Shift y ShiftGenerator.
   db.dart                Acceso a SQLite. Singleton Db.i, esquema + migraciones, CRUD. (archivo grande, ~1.100 líneas)
   seed.dart              Catálogo inicial (initialProducts) en código.
   seed_runner.dart       initializeSeedData() -> Db.seedCatalog(initialProducts).
@@ -60,10 +60,10 @@ lib/
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
   product_entries.dart   buildProductEntries(): agrupa variantes para las listas de UI.
   screens/
-    home.dart            NavigationBar con 5 pestañas (IndexedStack).
+    home.dart            NavigationBar + IndexedStack; Inicio (panel admin/empleado) y pestañas.
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     prevision.dart       "Previsión": previsión por fecha + montar cajas.
-    turnos.dart          "Turnos": horario mensual, empleados y puestos.
+    turnos.dart          "Turnos": horario mensual, usuarios y puestos.
     calendario.dart      "Calendario": mes, días trabajados, excepciones, detalle del día.
     productos.dart       "Productos": CRUD de catálogo (diálogo de alta/edición).
     plan.dart            Pantalla "Montar cajas" (compartida por las 3 anteriores).
@@ -234,16 +234,21 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 
 ## 8. UI y patrones (`screens/`, `widgets/`)
 
-- **Navegación**: `HomeScreen` con `NavigationBar` + `IndexedStack` (5 pestañas:
-  Lista, Previsión, Turnos, Calendario, Productos).
+- **Navegación**: `HomeScreen` con `NavigationBar` + `IndexedStack`. Inicio es
+  la primera pestaña; Lista, Previsión, Turnos y Cuenta son comunes. Admin
+  agrupa Calendario y Productos y solo aparece para `UserRole.admin`.
+- **Inicio**: panel contextual por rol. El administrador ve turnos y personal
+  de la noche, estado del mes, previsión y avisos, con acciones para
+  generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
+  noche y avisos; los turnos en borrador no se muestran.
 - **Recarga reactiva**: cada pantalla hace en `initState`
   `Db.i.version.addListener(_reload)` y lo quita en `dispose`. `_reload` vuelve a
   lanzar el `Future` y hace `setState`. **Mantén este patrón.**
 - **Carga de datos**: siempre `FutureBuilder` con estados loading/error/vacío.
 - **`CategoryTabs`**: genera las pestañas a partir de las categorías de los productos;
   recrea el `TabController` solo si cambian las categorías (evita la aserción de tabs).
-- **`TurnosScreen`** (`screens/turnos.dart`): `TabBar` con Horario, Empleados y
-  Puestos. Horario es un calendario mensual: los días con turnos se rellenan,
+- **`TurnosScreen`** (`screens/turnos.dart`): `TabBar` con Horario, Usuarios y
+  Puestos (este último solo para administradores). Horario es un calendario mensual: los días con turnos se rellenan,
   los días que abren sin turnos se marcan con borde y las excepciones con color.
   Al tocar un día se muestran sus turnos agrupados por planta; debajo queda el
   resumen de horas del mes. Permite generar/publicar el mes. Los formularios de
@@ -270,6 +275,8 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |
 | `category_tabs_test.dart` | Widget: añadir/quitar categorías y alternar pantalla sin excepciones. |
+| `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
+| `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
 
 Convención: helpers `_p(...)`/`_product(...)` para construir objetos de prueba.
 Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
