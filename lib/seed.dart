@@ -147,16 +147,25 @@ final List<Product> initialProducts = [
 
 /// Puestos iniciales del local. El nombre es único: la planta y la nota se
 /// guardan en el propio puesto.
+///
+/// Se declaran como constantes para que [initialUsers] guarde una referencia al
+/// puesto de esta lista y no un nombre suelto.
+const _camarero = JobRole(name: 'camarero', floor: Floor.plantaBaja);
+const _manteni = JobRole(name: 'manteni', floor: Floor.plantaBaja);
+const _camareroKaraoke = JobRole(name: 'camareroo', floor: Floor.karaoke);
+const _bandeja = JobRole(name: 'bandeja', floor: Floor.terraza);
+const _camareroTerraza = JobRole(name: 'camarerooo', floor: Floor.terraza);
+
 const List<JobRole> initialRoles = [
-  JobRole(name: 'camarero', floor: Floor.plantaBaja),
-  JobRole(name: 'manteni', floor: Floor.plantaBaja),
-  JobRole(name: 'camareroo', floor: Floor.karaoke),
-  JobRole(name: 'bandeja', floor: Floor.terraza),
-  JobRole(name: 'camarerooo', floor: Floor.terraza),
+  _camarero,
+  _manteni,
+  _camareroKaraoke,
+  _bandeja,
+  _camareroTerraza,
 ];
 
-/// Usuarios iniciales: nombre, apellidos, email, puesto habitual y rol de
-/// acceso.
+/// Usuarios iniciales: nombre, apellidos, email, puesto habitual ([JobRole]) y
+/// rol de acceso.
 ///
 /// Las cuentas se crean con la contraseña temporal «favorita» y el puesto
 /// «camarero». Alejandro es el único administrador inicial; el resto son
@@ -166,77 +175,77 @@ const List<
       String name,
       String surname,
       String email,
-      String jobRole,
+      JobRole jobRole,
       UserRole role,
     })> initialUsers = [
   (
     name: 'Carmen',
     surname: '',
     email: 'carmen@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Lucía',
     surname: '',
     email: 'lucia@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Moreno',
     email: 'maria.moreno@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Hidalgo',
     email: 'maria.hidalgo@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Elena',
     surname: '',
     email: 'elena@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Jesús',
     surname: '',
     email: 'jesus@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Alejandro',
     surname: '',
     email: 'alejandro@favorita.local',
-    jobRole: 'manteni',
+    jobRole: _manteni,
     role: UserRole.admin,
   ),
   (
     name: 'Alfonso',
     surname: '',
     email: 'alfonso@favorita.local',
-    jobRole: 'bandeja',
+    jobRole: _bandeja,
     role: UserRole.employee,
   ),
   (
     name: 'Antonio',
     surname: '',
     email: 'antonio@favorita.local',
-    jobRole: 'camarerooo',
+    jobRole: _camareroTerraza,
     role: UserRole.employee,
   ),
   (
     name: 'Juanma',
     surname: '',
     email: 'juanma@favorita.local',
-    jobRole: 'camarero',
+    jobRole: _camarero,
     role: UserRole.employee,
   ),
 ];

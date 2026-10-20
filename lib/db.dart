@@ -1786,7 +1786,7 @@ class Db {
               String name,
               String surname,
               String email,
-              String jobRole,
+              JobRole jobRole,
               UserRole role,
             })>
         users,
@@ -1828,7 +1828,7 @@ class Db {
           'password_hash': PasswordHasher.hash(kSeedPassword, salt),
           'password_salt': salt,
           'role': user.role.db,
-          'role_id': roleIds[roleNameKey(user.jobRole)],
+          'role_id': roleIds[roleNameKey(user.jobRole.name)],
           'active': 1,
           'opener': 0,
           'working_days': '',

@@ -678,6 +678,32 @@ void main() {
     final alejandro =
         users.firstWhere((u) => u.email == 'alejandro@favorita.local');
     expect(alejandro.role, UserRole.admin);
+    expect(alejandro.jobRole?.name, 'manteni');
+    expect(alejandro.jobRole?.floor, Floor.plantaBaja);
+
+    final antonio =
+        users.firstWhere((u) => u.email == 'antonio@favorita.local');
+    expect(antonio.jobRole?.name, 'camarerooo');
+    expect(antonio.jobRole?.floor, Floor.terraza);
+
+    final alfonso =
+        users.firstWhere((u) => u.email == 'alfonso@favorita.local');
+    expect(alfonso.jobRole?.name, 'bandeja');
+    expect(alfonso.jobRole?.floor, Floor.terraza);
+
+    expect(
+      initialUsers.firstWhere((u) => u.name == 'Alejandro').jobRole,
+      same(initialRoles.firstWhere((r) => r.name == 'manteni')),
+    );
+    expect(
+      initialUsers.firstWhere((u) => u.name == 'Antonio').jobRole,
+      same(initialRoles.firstWhere((r) => r.name == 'camarerooo')),
+    );
+    expect(
+      initialUsers.firstWhere((u) => u.name == 'Alfonso').jobRole,
+      same(initialRoles.firstWhere((r) => r.name == 'bandeja')),
+    );
+
     expect(users.where((u) => u.role == UserRole.admin).length, 1);
     expect(
       (await Db.i.authenticate('carmen@favorita.local', kSeedPassword))?.id,
