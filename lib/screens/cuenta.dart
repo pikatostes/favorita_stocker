@@ -106,7 +106,7 @@ class CuentaScreen extends StatelessWidget {
           if (user == null) {
             return const Center(child: Text('No hay una sesión iniciada.'));
           }
-          final role = user.role;
+          final jobRole = user.jobRole;
           return Scaffold(
             appBar: AppBar(title: const AppLogo()),
             body: ListView(
@@ -136,10 +136,15 @@ class CuentaScreen extends StatelessWidget {
                         Chip(
                           avatar: const Icon(Icons.work_outline, size: 18),
                           label: Text(
-                            role == null
+                            jobRole == null
                                 ? 'Sin puesto asignado'
-                                : '${role.name} · ${role.floor.label}',
+                                : '${jobRole.name} · ${jobRole.floor.label}',
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Chip(
+                          avatar: const Icon(Icons.shield_outlined, size: 18),
+                          label: Text(user.role.label),
                         ),
                       ],
                     ),

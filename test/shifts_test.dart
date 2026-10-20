@@ -5,13 +5,15 @@ import 'package:stock_bar/shifts.dart';
 JobRole _role(int id, String name, Floor floor, {String note = ''}) =>
     JobRole(id: id, name: name, floor: floor, note: note);
 
-AppUser _user(int id, String name, JobRole role,
+AppUser _user(int id, String name, JobRole jobRole,
         {bool active = true,
         bool opener = false,
-        Set<int> workingDays = const {}}) =>
+        Set<int> workingDays = const {},
+        UserRole role = UserRole.employee}) =>
     AppUser(
       id: id,
       name: name,
+      jobRole: jobRole,
       role: role,
       active: active,
       opener: opener,

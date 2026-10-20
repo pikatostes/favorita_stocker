@@ -128,6 +128,7 @@ void main() {
         'email',
         'password_hash',
         'password_salt',
+        'role',
         'role_id',
         'opener',
         'working_days',
@@ -223,7 +224,7 @@ void main() {
       AppUser(
         name: 'Ana',
         email: 'ana@favorita.local',
-        role: roles.single,
+        jobRole: roles.single,
         opener: true,
       ),
       password: 'secreto1',
@@ -231,7 +232,8 @@ void main() {
     final users = await Db.i.users();
     expect(users.single.name, 'Ana');
     expect(users.single.email, 'ana@favorita.local');
-    expect(users.single.role?.floor, Floor.karaoke);
+    expect(users.single.jobRole?.floor, Floor.karaoke);
+    expect(users.single.role, UserRole.employee);
 
     final generated = ShiftGenerator.generateMonth(
       month: DateTime(2026, 10),
@@ -296,7 +298,7 @@ void main() {
       AppUser(
         name: 'Ana',
         email: 'ana@favorita.local',
-        role: role,
+        jobRole: role,
         opener: true,
         workingDays: const {DateTime.friday, DateTime.saturday},
       ),
@@ -306,9 +308,16 @@ void main() {
     final saved = (await Db.i.users()).single;
     expect(saved.opener, isTrue);
     expect(saved.workingDays, {DateTime.friday, DateTime.saturday});
+    expect(saved.role, UserRole.employee);
 
     await Db.i.updateUser(
-      saved.copyWith(opener: false, workingDays: const {}),
+      saved.copyWith(role: UserRole.admin),
+    );
+    final promoted = (await Db.i.users()).single;
+    expect(promoted.role, UserRole.admin);
+
+    await Db.i.updateUser(
+      promoted.copyWith(opener: false, workingDays: const {}),
     );
     final updated = (await Db.i.users()).single;
     expect(updated.opener, isFalse);
@@ -330,7 +339,8 @@ void main() {
       password: 'clave123',
     );
     expect(user.email, 'nuevo@ejemplo.com');
-    expect(user.role, isNull);
+    expect(user.jobRole, isNull);
+    expect(user.role, UserRole.employee);
     expect((await Db.i.currentUser())?.id, user.id);
 
     await Db.i.logout();
@@ -480,9 +490,10 @@ void main() {
     final keys = roles.map((r) => r['name_key']).toList();
     expect(keys.toSet().length, keys.length);
 
-    final carmen =
-        (await Db.i.users()).firstWhere((u) => u.email == 'carmen@favorita.local');
-    expect(carmen.role?.name, 'Camarero');
+    final carmen = (await Db.i.users())
+        .firstWhere((u) => u.email == 'carmen@favorita.local');
+    expect(carmen.jobRole?.name, 'Camarero');
+    expect(carmen.role, UserRole.employee);
   });
 
   test('v17 fusiona puestos duplicados y reasigna usuarios y turnos', () async {
@@ -573,6 +584,52 @@ void main() {
     expect(indexes, isNotEmpty);
   });
 
+  test('v18 añade el rol de acceso y solo Alejandro es admin', () async {
+    final path = p.join(dir.path, 'roles_acceso.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 17,
+        onCreate: (d, _) async {
+          await d.execute('''CREATE TABLE users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            surname TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL,
+            updated_at INTEGER NOT NULL)''');
+        },
+      ),
+    );
+    await legacy.insert('users', {
+      'name': 'Alejandro',
+      'surname': '',
+      'email': 'alejandro@favorita.local',
+      'updated_at': 1,
+    });
+    await legacy.insert('users', {
+      'name': 'Carmen',
+      'surname': '',
+      'email': 'carmen@favorita.local',
+      'updated_at': 1,
+    });
+    await legacy.insert('users', {
+      'name': 'Alejandro',
+      'surname': 'Pérez',
+      'email': 'alejandro.perez@favorita.local',
+      'updated_at': 1,
+    });
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final rows = await d.query('users', orderBy: 'id');
+    expect(rows[0]['role'], UserRole.admin.db);
+    expect(rows[1]['role'], UserRole.employee.db);
+    expect(rows[2]['role'], UserRole.employee.db);
+    expect(rows.where((r) => r['role'] == UserRole.admin.db).length, 1);
+  });
+
   test('siembra puestos y usuarios iniciales con clave temporal', () async {
     final d = await Db.openAt(p.join(dir.path, 'seed.db'));
     Db.i.useDatabase(d);
@@ -587,7 +644,12 @@ void main() {
     expect(users.length, initialUsers.length);
     final carmen = users.firstWhere((u) => u.email == 'carmen@favorita.local');
     expect(carmen.fullName, 'Carmen');
-    expect(carmen.role?.name, 'camarero');
+    expect(carmen.jobRole?.name, 'camarero');
+    expect(carmen.role, UserRole.employee);
+    final alejandro =
+        users.firstWhere((u) => u.email == 'alejandro@favorita.local');
+    expect(alejandro.role, UserRole.admin);
+    expect(users.where((u) => u.role == UserRole.admin).length, 1);
     expect(
       (await Db.i.authenticate('carmen@favorita.local', kSeedPassword))?.id,
       carmen.id,
@@ -785,8 +847,7 @@ void main() {
     expect(images['Heineken'], isNull);
   });
 
-  test('rellena las imágenes pendientes de grupos ya migrados (v15)',
-      () async {
+  test('rellena las imágenes pendientes de grupos ya migrados (v15)', () async {
     final path = p.join(dir.path, 'group_images.db');
     final legacy = await databaseFactory.openDatabase(
       path,

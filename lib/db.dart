@@ -6,15 +6,17 @@ import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
 
-/// Acceso a SQLite (esquema v17, tablas en inglés singular).
+/// Acceso a SQLite (esquema v18, tablas en inglés singular).
 ///
 /// Normaliza el catálogo: `category`, `product_group`, `subcategory` y `box`
 /// son entidades propias; `product` solo guarda referencias. El consumo vive en
 /// `consumption` (una fila por producto y noche) y `night` marca qué noches
 /// existen. Los productos se borran de forma lógica (`deleted_at`). Los
 /// usuarios (`users`) sustituyen a la antigua tabla `employee` y guardan sus
-/// credenciales de acceso con hash y sal. Los puestos (`role`) tienen una clave
-/// normalizada (`name_key`) para que no se dupliquen por mayúsculas o espacios.
+/// credenciales de acceso con hash y sal. `users.role` es el permiso de acceso
+/// (`admin` o `employee`); el puesto habitual sigue en `users.role_id`. Los
+/// puestos (`role`) tienen una clave normalizada (`name_key`) para que no se
+/// dupliquen por mayúsculas o espacios.
 class Db {
   Db._();
   static final Db i = Db._();
@@ -25,7 +27,12 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 17;
+  static const int schemaVersion = 18;
+
+  /// Cuenta que conserva el rol de administrador tras la migración. El resto
+  /// empieza como `employee` y podrá ser ascendido desde Usuarios.
+  static const String _initialAdminName = 'Alejandro';
+  static const String _initialAdminEmail = 'alejandro@favorita.local';
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -64,6 +71,7 @@ class Db {
           await _createShiftSchema(d);
           await _migrateToV16(d);
           await _migrateToV17(d);
+          await _migrateToV18(d);
         },
         onUpgrade: _onUpgrade,
       );
@@ -129,6 +137,8 @@ class Db {
     if (oldV < 16) await _migrateToV16(d);
     // ...y la deduplicación de puestos por nombre normalizado a v17.
     if (oldV < 17) await _migrateToV17(d);
+    // ...y el rol de acceso admin/employee a v18.
+    if (oldV < 18) await _migrateToV18(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -269,8 +279,7 @@ class Db {
           'opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1))');
     }
     if (!columns.contains('working_days')) {
-      await d.execute(
-          'ALTER TABLE employee ADD COLUMN working_days TEXT');
+      await d.execute('ALTER TABLE employee ADD COLUMN working_days TEXT');
     }
   }
 
@@ -297,10 +306,8 @@ class Db {
           .toSet();
       for (final e in employees) {
         final fullName = (e['name'] as String? ?? '').trim();
-        final parts = fullName
-            .split(RegExp(r'\s+'))
-            .where((p) => p.isNotEmpty)
-            .toList();
+        final parts =
+            fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
         final name = parts.isEmpty ? 'Usuario' : parts.first;
         final surname = parts.length > 1 ? parts.sublist(1).join(' ') : '';
         final salt = PasswordHasher.newSalt();
@@ -352,10 +359,9 @@ class Db {
       await d.execute('DROP TABLE shift');
     }
     await d.execute('ALTER TABLE shift_v16 RENAME TO shift');
-    await d.execute(
-        'CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
-    await d.execute(
-        'CREATE INDEX IF NOT EXISTS idx_shift_user ON shift(user_id)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
+    await d
+        .execute('CREATE INDEX IF NOT EXISTS idx_shift_user ON shift(user_id)');
     if (hasEmployee) {
       await d.execute('DROP TABLE employee');
       await d.execute('DROP INDEX IF EXISTS idx_employee_role');
@@ -466,6 +472,52 @@ class Db {
     );
   }
 
+  /// v18: añade el rol de acceso (`admin`/`employee`). Las cuentas existentes
+  /// pasan a `employee` salvo Alejandro, que queda como único administrador
+  /// inicial. Los nuevos registros nacen como `employee`.
+  static Future<void> _migrateToV18(Database d) async {
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!tables.contains('users')) return;
+
+    final columns = (await d.rawQuery('PRAGMA table_info(users)'))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!columns.contains('role')) {
+      await d.execute('''
+        ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'
+          CHECK(role IN ('admin', 'employee'))''');
+    }
+
+    // Solo Alejandro conserva el acceso de administrador en esta migración.
+    await d.execute("UPDATE users SET role = 'employee'");
+    final select = ['id', 'name'];
+    if (columns.contains('surname')) select.add('surname');
+    if (columns.contains('email')) select.add('email');
+    final rows = await d.query('users', columns: select, orderBy: 'id');
+    int? adminId;
+    for (final row in rows) {
+      final email = ((row['email'] as String?) ?? '').trim().toLowerCase();
+      final name = ((row['name'] as String?) ?? '').trim();
+      final firstName = name.isEmpty ? '' : name.split(RegExp(r'\s+')).first;
+      if (email == _initialAdminEmail ||
+          roleNameKey(firstName) == roleNameKey(_initialAdminName)) {
+        adminId = row['id'] as int;
+        break;
+      }
+    }
+    if (adminId != null) {
+      await d.update(
+        'users',
+        {'role': UserRole.admin.db},
+        where: 'id = ?',
+        whereArgs: [adminId],
+      );
+    }
+  }
+
   static Future<void> _createUsersTable(DatabaseExecutor d) => d.execute('''
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -474,6 +526,8 @@ class Db {
       email TEXT NOT NULL COLLATE NOCASE UNIQUE,
       password_hash TEXT NOT NULL,
       password_salt TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'employee'
+        CHECK(role IN ('admin', 'employee')),
       role_id INTEGER REFERENCES role(id),
       active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
       opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1)),
@@ -1312,8 +1366,9 @@ class Db {
   }
 
   static const String _userSelect = '''
-    SELECT u.id, u.name, u.surname, u.email, u.active, u.opener, u.working_days,
-           r.id AS role_id, r.name AS role_name, r.floor, r.note AS role_note
+    SELECT u.id, u.name, u.surname, u.email, u.role, u.active, u.opener,
+           u.working_days, r.id AS role_id, r.name AS role_name, r.floor,
+           r.note AS role_note
     FROM users u
     LEFT JOIN role r ON r.id = u.role_id''';
 
@@ -1364,7 +1419,8 @@ class Db {
       'email': _normalizeEmail(user.email),
       'password_hash': PasswordHasher.hash(password, salt),
       'password_salt': salt,
-      'role_id': user.role?.id,
+      'role': user.role.db,
+      'role_id': user.jobRole?.id,
       'active': user.active ? 1 : 0,
       'opener': user.opener ? 1 : 0,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
@@ -1388,7 +1444,8 @@ class Db {
       'name': user.name.trim(),
       'surname': user.surname.trim(),
       'email': _normalizeEmail(user.email),
-      'role_id': user.role?.id,
+      'role': user.role.db,
+      'role_id': user.jobRole?.id,
       'active': user.active ? 1 : 0,
       'opener': user.opener ? 1 : 0,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
@@ -1708,7 +1765,15 @@ class Db {
   /// temporal [kSeedPassword].
   Future<void> seedStaff(
     List<JobRole> roles,
-    List<({String name, String surname, String email, String role})> users,
+    List<
+            ({
+              String name,
+              String surname,
+              String email,
+              String jobRole,
+              UserRole role,
+            })>
+        users,
   ) async {
     final database = await db;
     await database.transaction((t) async {
@@ -1746,7 +1811,8 @@ class Db {
           'email': _normalizeEmail(user.email),
           'password_hash': PasswordHasher.hash(kSeedPassword, salt),
           'password_salt': salt,
-          'role_id': roleIds[roleNameKey(user.role)],
+          'role': user.role.db,
+          'role_id': roleIds[roleNameKey(user.jobRole)],
           'active': 1,
           'opener': 0,
           'working_days': '',

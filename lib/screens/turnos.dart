@@ -123,7 +123,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     final usersF = Db.i.users();
     final specialF = Db.i.specialDays();
     final users =
-        (await usersF).where((u) => u.role != null).toList(growable: false);
+        (await usersF).where((u) => u.jobRole != null).toList(growable: false);
     return _ScheduleData(await shiftsF, users, await specialF);
   }
 
@@ -966,7 +966,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
               itemCount: users.length,
               itemBuilder: (context, index) {
                 final user = users[index];
-                final role = user.role;
+                final jobRole = user.jobRole;
                 return ListTile(
                   leading: CircleAvatar(child: Text(user.initial)),
                   title: Text(
@@ -978,7 +978,8 @@ class _AppUsersTabState extends State<_AppUsersTab> {
                   ),
                   subtitle: Text(
                     '${user.email}\n'
-                    '${role == null ? 'Sin puesto' : '${role.name} · ${role.floor.label}'}'
+                    '${user.role.label}'
+                    ' · ${jobRole == null ? 'Sin puesto' : '${jobRole.name} · ${jobRole.floor.label}'}'
                     ' · ${user.workingDaysLabel}'
                     '${user.opener ? ' · Puede abrir' : ''}',
                   ),
@@ -1026,7 +1027,8 @@ class _AppUserDialogState extends State<_AppUserDialog> {
   late final TextEditingController _email =
       TextEditingController(text: widget.user?.email ?? '');
   final _password = TextEditingController();
-  JobRole? _role;
+  JobRole? _jobRole;
+  late UserRole _accessRole = widget.user?.role ?? UserRole.employee;
   late bool _active = widget.user?.active ?? true;
   late bool _opener = widget.user?.opener ?? false;
   late final Set<int> _workingDays = {...?widget.user?.workingDays};
@@ -1038,7 +1040,7 @@ class _AppUserDialogState extends State<_AppUserDialog> {
     // El usuario trae una instancia de JobRole distinta a la de la lista de
     // puestos. El DropdownButton compara por identidad, así que hay que usar
     // exactamente el objeto que aparece en sus items.
-    _role = roleFromList(widget.roles, widget.user?.role);
+    _jobRole = roleFromList(widget.roles, widget.user?.jobRole);
   }
 
   @override
@@ -1061,7 +1063,8 @@ class _AppUserDialogState extends State<_AppUserDialog> {
           name: _name.text.trim(),
           surname: _surname.text.trim(),
           email: _email.text.trim().toLowerCase(),
-          role: _role,
+          jobRole: _jobRole,
+          role: _accessRole,
           active: _active,
           opener: _opener,
           workingDays: _workingDays,
@@ -1099,9 +1102,8 @@ class _AppUserDialogState extends State<_AppUserDialog> {
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(labelText: 'Email'),
-                validator: (value) => isValidEmail(value ?? '')
-                    ? null
-                    : 'El email no es válido.',
+                validator: (value) =>
+                    isValidEmail(value ?? '') ? null : 'El email no es válido.',
               ),
               TextFormField(
                 controller: _password,
@@ -1133,8 +1135,23 @@ class _AppUserDialogState extends State<_AppUserDialog> {
                   return null;
                 },
               ),
+              DropdownButtonFormField<UserRole>(
+                initialValue: _accessRole,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Rol de acceso'),
+                items: [
+                  for (final role in UserRole.values)
+                    DropdownMenuItem<UserRole>(
+                      value: role,
+                      child: Text(role.label),
+                    ),
+                ],
+                onChanged: (value) => setState(
+                  () => _accessRole = value ?? UserRole.employee,
+                ),
+              ),
               DropdownButtonFormField<JobRole>(
-                initialValue: _role,
+                initialValue: _jobRole,
                 isExpanded: true,
                 hint: const Text('Sin puesto'),
                 decoration: const InputDecoration(labelText: 'Puesto habitual'),
@@ -1148,13 +1165,13 @@ class _AppUserDialogState extends State<_AppUserDialog> {
                       ),
                     ),
                 ],
-                onChanged: (value) => setState(() => _role = value),
+                onChanged: (value) => setState(() => _jobRole = value),
               ),
-              if (_role != null)
+              if (_jobRole != null)
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
-                    onPressed: () => setState(() => _role = null),
+                    onPressed: () => setState(() => _jobRole = null),
                     icon: const Icon(Icons.clear, size: 18),
                     label: const Text('Dejar sin puesto'),
                   ),

@@ -77,6 +77,23 @@ String roleNameKey(String name) {
   return folded.toString();
 }
 
+/// Rol de acceso a la aplicación. No confundir con [JobRole], que es el puesto
+/// habitual (camarero, cocina, etc.).
+enum UserRole {
+  admin('admin', 'Administrador'),
+  employee('employee', 'Empleado');
+
+  final String db;
+  final String label;
+
+  const UserRole(this.db, this.label);
+
+  static UserRole fromDb(String? value) => values.firstWhere(
+        (role) => role.db == value,
+        orElse: () => UserRole.employee,
+      );
+}
+
 /// Puesto de trabajo configurable. Todos los empleados de un puesto comparten
 /// planta y nota (por ejemplo, un evento privado en el karaoke).
 class JobRole {
@@ -116,14 +133,14 @@ class JobRole {
       );
 }
 
-/// Devuelve la instancia de [roles] que corresponde a [role] por id.
+/// Devuelve la instancia de [roles] que corresponde a [jobRole] por id.
 ///
 /// Los desplegables de Flutter comparan el valor seleccionado por identidad
 /// (`==`), y los `JobRole` que vienen de un usuario y de la lista de puestos son
 /// objetos distintos aunque representen el mismo puesto. Sin esta conversión el
 /// `DropdownButton` no encuentra el elemento y lanza una assertion.
-JobRole? roleFromList(List<JobRole> roles, JobRole? role) {
-  final id = role?.id;
+JobRole? roleFromList(List<JobRole> roles, JobRole? jobRole) {
+  final id = jobRole?.id;
   if (id == null) return null;
   for (final candidate in roles) {
     if (candidate.id == id) return candidate;
@@ -131,14 +148,16 @@ JobRole? roleFromList(List<JobRole> roles, JobRole? role) {
   return null;
 }
 
-/// Usuario del local. Cubre un único puesto (puede no tenerlo todavía, por
-/// ejemplo al registrarse) y solo se le asignan turnos si está activo.
+/// Usuario del local. [jobRole] es el puesto habitual (puede no tenerlo
+/// todavía, por ejemplo al registrarse) y [role] es el permiso de acceso
+/// (`admin` o `employee`). Solo se le asignan turnos si está activo.
 class AppUser {
   final int? id;
   final String name;
   final String surname;
   final String email;
-  final JobRole? role;
+  final JobRole? jobRole;
+  final UserRole role;
   final bool active;
 
   /// Capacidad de abrir el bar o su planta.
@@ -154,7 +173,8 @@ class AppUser {
     required this.name,
     this.surname = '',
     this.email = '',
-    this.role,
+    this.jobRole,
+    this.role = UserRole.employee,
     this.active = true,
     this.opener = false,
     this.workingDays = const {},
@@ -170,7 +190,8 @@ class AppUser {
       active: (m['active'] as int) == 1,
       opener: (m['opener'] as int?) == 1,
       workingDays: parseWorkingDays(m['working_days']),
-      role: roleId == null
+      role: UserRole.fromDb(m['role'] as String?),
+      jobRole: roleId == null
           ? null
           : JobRole(
               id: roleId,
@@ -230,8 +251,9 @@ class AppUser {
     String? name,
     String? surname,
     String? email,
-    JobRole? role,
-    bool clearRole = false,
+    JobRole? jobRole,
+    bool clearJobRole = false,
+    UserRole? role,
     bool? active,
     bool? opener,
     Set<int>? workingDays,
@@ -241,7 +263,8 @@ class AppUser {
         name: name ?? this.name,
         surname: surname ?? this.surname,
         email: email ?? this.email,
-        role: clearRole ? null : (role ?? this.role),
+        jobRole: clearJobRole ? null : (jobRole ?? this.jobRole),
+        role: role ?? this.role,
         active: active ?? this.active,
         opener: opener ?? this.opener,
         workingDays: workingDays ?? this.workingDays,
@@ -404,13 +427,13 @@ class ShiftGenerator {
   }) {
     final active = [
       for (final e in users)
-        if (e.active && e.id != null && e.role?.id != null) e,
+        if (e.active && e.id != null && e.jobRole?.id != null) e,
     ];
     if (active.isEmpty) return const [];
 
     final byFloor = <Floor, List<AppUser>>{};
     for (final e in active) {
-      byFloor.putIfAbsent(e.role!.floor, () => []).add(e);
+      byFloor.putIfAbsent(e.jobRole!.floor, () => []).add(e);
     }
 
     // Horas acumuladas en el mes por empleado, para repartir los turnos largos.
@@ -442,7 +465,10 @@ class ShiftGenerator {
         // La apertura solo la puede cubrir quien tiene `opener = true`. Si esa
         // noche no hay ningún opener disponible, la planta no se abre y no se
         // genera nada para ella (el hueco queda visible en el calendario).
-        final openers = [for (final e in available) if (e.opener) e];
+        final openers = [
+          for (final e in available)
+            if (e.opener) e
+        ];
         if (openers.isEmpty) continue;
 
         // Los viernes la terraza abre a las 21:00: no hay turno a las 16:00 y
@@ -579,13 +605,13 @@ class ShiftGenerator {
         date: Schedule.fmt(date),
         userId: e.id!,
         userName: e.fullName,
-        roleId: e.role!.id!,
-        roleName: e.role!.name,
-        floor: e.role!.floor,
+        roleId: e.jobRole!.id!,
+        roleName: e.jobRole!.name,
+        floor: e.jobRole!.floor,
         startMin: start,
         endMin: end,
         breakMin: breakMinutesFor(startMin: start, endMin: end),
         status: ShiftStatus.draft,
-        note: e.role!.note.trim(),
+        note: e.jobRole!.note.trim(),
       );
 }

@@ -88,8 +88,7 @@ final List<Product> initialProducts = [
       group: 'Cruzcampo', subcategory: 'Gran Reserva'),
   _p('Cruzcampo Radler', _cervezas, _cerveza,
       group: 'Cruzcampo', subcategory: 'Radler'),
-  _p('Heineken', _cervezas, _cerveza,
-      group: 'Heineken', subcategory: 'Normal'),
+  _p('Heineken', _cervezas, _cerveza, group: 'Heineken', subcategory: 'Normal'),
   _p('Heineken 0,0', _cervezas, _cerveza,
       group: 'Heineken', subcategory: '0,0'),
   _otros('Amstel Tostada 0,0', image: 'lib/img/amstel00tostada.jpg'),
@@ -156,70 +155,88 @@ const List<JobRole> initialRoles = [
   JobRole(name: 'camarerooo', floor: Floor.terraza),
 ];
 
-/// Usuarios iniciales: nombre, apellidos, email y puesto habitual.
+/// Usuarios iniciales: nombre, apellidos, email, puesto habitual y rol de
+/// acceso.
 ///
 /// Las cuentas se crean con la contraseña temporal «favorita» y el puesto
-/// «camarero»; el resto de datos se puede editar desde la pestaña Usuarios.
-const List<({String name, String surname, String email, String role})>
-    initialUsers = [
+/// «camarero». Alejandro es el único administrador inicial; el resto son
+/// empleados. Todos los datos se pueden editar desde la pestaña Usuarios.
+const List<
+    ({
+      String name,
+      String surname,
+      String email,
+      String jobRole,
+      UserRole role,
+    })> initialUsers = [
   (
     name: 'Carmen',
     surname: '',
     email: 'carmen@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Lucía',
     surname: '',
     email: 'lucia@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Moreno',
     email: 'maria.moreno@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Hidalgo',
     email: 'maria.hidalgo@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Elena',
     surname: '',
     email: 'elena@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Jesús',
     surname: '',
     email: 'jesus@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Alejandro',
     surname: '',
     email: 'alejandro@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.admin,
   ),
   (
     name: 'Alfonso',
     surname: '',
     email: 'alfonso@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Antonio',
     surname: '',
     email: 'antonio@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
   (
     name: 'Juanma',
     surname: '',
     email: 'juanma@favorita.local',
-    role: 'camarero',
+    jobRole: 'camarero',
+    role: UserRole.employee,
   ),
 ];
