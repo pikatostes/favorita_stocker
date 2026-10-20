@@ -212,6 +212,12 @@ void main() {
       Db.i.addRole(const JobRole(name: 'Karaoke')),
       throwsA(isA<StateError>()),
     );
+    await expectLater(
+      Db.i.addRole(
+        const JobRole(name: ' KARAOKE ', floor: Floor.terraza),
+      ),
+      throwsA(isA<StateError>()),
+    );
 
     await Db.i.addUser(
       AppUser(
@@ -454,6 +460,117 @@ void main() {
         .map((r) => r['name'])
         .toSet();
     expect(tables, isNot(contains('employee')));
+  });
+
+  test('la semilla reutiliza un puesto existente sin duplicarlo', () async {
+    final d = await Db.openAt(p.join(dir.path, 'seed_roles.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.addRole(
+      const JobRole(name: ' Camarero ', floor: Floor.terraza),
+    );
+    await Db.i.seedStaff(initialRoles, initialUsers);
+
+    final roles = await d.query('role', orderBy: 'id');
+    expect(roles.length, initialRoles.length);
+    final keys = roles.map((r) => r['name_key']).toList();
+    expect(keys.toSet().length, keys.length);
+
+    final carmen =
+        (await Db.i.users()).firstWhere((u) => u.email == 'carmen@favorita.local');
+    expect(carmen.role?.name, 'Camarero');
+  });
+
+  test('v17 fusiona puestos duplicados y reasigna usuarios y turnos', () async {
+    final path = p.join(dir.path, 'roles_duplicados.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 16,
+        onCreate: (d, _) async {
+          await d.execute('''CREATE TABLE role(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            floor TEXT NOT NULL DEFAULT 'planta_baja',
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL)''');
+          await d.execute('''CREATE TABLE users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role_id INTEGER,
+            updated_at INTEGER NOT NULL)''');
+          await d.execute('''CREATE TABLE shift(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            role_name TEXT NOT NULL,
+            floor TEXT NOT NULL,
+            updated_at INTEGER NOT NULL)''');
+        },
+      ),
+    );
+    final canonicalId = await legacy.insert('role', {
+      'name': 'Camarero',
+      'floor': 'planta_baja',
+      'note': null,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    final duplicateId = await legacy.insert('role', {
+      'name': ' camarero ',
+      'floor': 'terraza',
+      'note': null,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    await legacy.insert('role', {
+      'name': 'Karaoke',
+      'floor': 'karaoke',
+      'note': null,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    final userId = await legacy.insert('users', {
+      'name': 'Ana',
+      'role_id': duplicateId,
+      'updated_at': 1,
+    });
+    await legacy.insert('shift', {
+      'user_id': userId,
+      'role_id': duplicateId,
+      'role_name': ' camarero ',
+      'floor': 'terraza',
+      'updated_at': 1,
+    });
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final roles = await d.query('role', orderBy: 'id');
+    expect(roles.length, 2);
+    expect(roles.first['id'], canonicalId);
+    expect(roles.first['name'], 'Camarero');
+    expect(roles.first['name_key'], 'camarero');
+    expect(roles.last['name_key'], 'karaoke');
+
+    final user = (await d.query('users')).single;
+    expect(user['role_id'], canonicalId);
+    final shift = (await d.query('shift')).single;
+    expect(shift['role_id'], canonicalId);
+    expect(shift['role_name'], 'Camarero');
+    expect(shift['floor'], 'planta_baja');
+
+    final indexes = (await d.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+      ['idx_role_name_key'],
+    ));
+    expect(indexes, isNotEmpty);
   });
 
   test('siembra puestos y usuarios iniciales con clave temporal', () async {

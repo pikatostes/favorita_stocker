@@ -394,4 +394,13 @@ void main() {
       }
     });
   });
+
+  test('roleFromList usa la instancia de la lista para el desplegable', () {
+    final userRole = _role(1, 'Sala', Floor.plantaBaja);
+    final listRole = _role(1, 'Sala', Floor.plantaBaja);
+
+    expect(roleFromList([listRole], userRole), same(listRole));
+    expect(roleFromList([], userRole), isNull);
+    expect(roleFromList([listRole], null), isNull);
+  });
 }

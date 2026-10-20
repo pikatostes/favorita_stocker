@@ -6,14 +6,15 @@ import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
 
-/// Acceso a SQLite (esquema v16, tablas en inglés singular).
+/// Acceso a SQLite (esquema v17, tablas en inglés singular).
 ///
 /// Normaliza el catálogo: `category`, `product_group`, `subcategory` y `box`
 /// son entidades propias; `product` solo guarda referencias. El consumo vive en
 /// `consumption` (una fila por producto y noche) y `night` marca qué noches
 /// existen. Los productos se borran de forma lógica (`deleted_at`). Los
 /// usuarios (`users`) sustituyen a la antigua tabla `employee` y guardan sus
-/// credenciales de acceso con hash y sal.
+/// credenciales de acceso con hash y sal. Los puestos (`role`) tienen una clave
+/// normalizada (`name_key`) para que no se dupliquen por mayúsculas o espacios.
 class Db {
   Db._();
   static final Db i = Db._();
@@ -24,7 +25,7 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 16;
+  static const int schemaVersion = 17;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -62,6 +63,7 @@ class Db {
           await _createV8(d);
           await _createShiftSchema(d);
           await _migrateToV16(d);
+          await _migrateToV17(d);
         },
         onUpgrade: _onUpgrade,
       );
@@ -125,6 +127,8 @@ class Db {
     if (oldV < 15) await _setGroupImages(d);
     // ...y la conversión de empleados en usuarios con autenticación a v16.
     if (oldV < 16) await _migrateToV16(d);
+    // ...y la deduplicación de puestos por nombre normalizado a v17.
+    if (oldV < 17) await _migrateToV17(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -213,6 +217,7 @@ class Db {
     await d.execute('''CREATE TABLE IF NOT EXISTS role(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
+      name_key TEXT,
       floor TEXT NOT NULL DEFAULT 'planta_baja'
         CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
       note TEXT,
@@ -381,6 +386,86 @@ class Db {
       updated_at INTEGER NOT NULL,
       UNIQUE(user_id, date))''');
 
+  /// v17: unifica puestos que solo difieren en mayúsculas, acentos o espacios
+  /// sobrantes. Los usuarios y turnos que apuntaban a un duplicado pasan a
+  /// apuntar al puesto conservado (el de id más bajo).
+  static Future<void> _migrateToV17(Database d) async {
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!tables.contains('role')) return;
+
+    final columns = (await d.rawQuery('PRAGMA table_info(role)'))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!columns.contains('name_key')) {
+      await d.execute('ALTER TABLE role ADD COLUMN name_key TEXT');
+    }
+
+    final roles = await d.query('role', orderBy: 'id');
+    final canonical = <String, ({int id, String name, String floor})>{};
+    for (final row in roles) {
+      final id = row['id'] as int;
+      final rawName = row['name'] as String;
+      final key = roleNameKey(rawName);
+      final keep = canonical[key];
+      if (keep == null) {
+        canonical[key] = (
+          id: id,
+          name: normalizeRoleName(rawName),
+          floor: row['floor'] as String,
+        );
+        continue;
+      }
+
+      if (tables.contains('users')) {
+        await d.update(
+          'users',
+          {'role_id': keep.id, 'updated_at': _nowMs},
+          where: 'role_id = ?',
+          whereArgs: [id],
+        );
+      }
+      if (tables.contains('shift')) {
+        await d.update(
+          'shift',
+          {
+            'role_id': keep.id,
+            'role_name': keep.name,
+            'floor': keep.floor,
+            'updated_at': _nowMs,
+          },
+          where: 'role_id = ?',
+          whereArgs: [id],
+        );
+      }
+      await d.delete('role', where: 'id = ?', whereArgs: [id]);
+    }
+
+    // Renombrar una sola vez, cuando los duplicados ya no existen, evita
+    // chocar con la restricción UNIQUE(name).
+    for (final keep in canonical.values) {
+      await d.update(
+        'role',
+        {'name': keep.name, 'name_key': roleNameKey(keep.name)},
+        where: 'id = ?',
+        whereArgs: [keep.id],
+      );
+      if (tables.contains('shift')) {
+        await d.update(
+          'shift',
+          {'role_name': keep.name, 'floor': keep.floor},
+          where: 'role_id = ?',
+          whereArgs: [keep.id],
+        );
+      }
+    }
+    await d.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_role_name_key ON role(name_key)',
+    );
+  }
+
   static Future<void> _createUsersTable(DatabaseExecutor d) => d.execute('''
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,18 +494,9 @@ class Db {
     return email;
   }
 
-  static const Map<String, String> _accentMap = {
-    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a',
-    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
-    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
-    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o',
-    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
-    'ñ': 'n', 'ç': 'c',
-  };
-
   static String _slug(String value) {
     var text = value.toLowerCase();
-    _accentMap.forEach((from, to) => text = text.replaceAll(from, to));
+    kAccentFolding.forEach((from, to) => text = text.replaceAll(from, to));
     text = text
         .replaceAll(RegExp(r'[^a-z0-9]+'), '.')
         .replaceAll(RegExp(r'^\.+|\.+$'), '');
@@ -1149,16 +1225,17 @@ class Db {
   }
 
   Future<void> addRole(JobRole role) async {
-    final name = role.name.trim();
+    final name = normalizeRoleName(role.name);
     if (name.isEmpty) {
       throw ArgumentError('El nombre del puesto es obligatorio.');
     }
     final d = await db;
+    final key = roleNameKey(name);
     final duplicate = await d.query(
       'role',
       columns: ['id'],
-      where: 'name = ?',
-      whereArgs: [name],
+      where: 'name_key = ?',
+      whereArgs: [key],
       limit: 1,
     );
     if (duplicate.isNotEmpty) {
@@ -1167,6 +1244,7 @@ class Db {
     final now = _now;
     await d.insert('role', {
       'name': name,
+      'name_key': key,
       'floor': role.floor.db,
       'note': role.note.trim(),
       'created_at': now,
@@ -1179,16 +1257,17 @@ class Db {
     if (role.id == null) {
       throw ArgumentError('El puesto debe tener un id.');
     }
-    final name = role.name.trim();
+    final name = normalizeRoleName(role.name);
     if (name.isEmpty) {
       throw ArgumentError('El nombre del puesto es obligatorio.');
     }
     final d = await db;
+    final key = roleNameKey(name);
     final duplicate = await d.query(
       'role',
       columns: ['id'],
-      where: 'name = ? AND id <> ?',
-      whereArgs: [name, role.id],
+      where: 'name_key = ? AND id <> ?',
+      whereArgs: [key, role.id],
       limit: 1,
     );
     if (duplicate.isNotEmpty) {
@@ -1198,6 +1277,7 @@ class Db {
       'role',
       {
         'name': name,
+        'name_key': key,
         'floor': role.floor.db,
         'note': role.note.trim(),
         'updated_at': _now,
@@ -1638,18 +1718,20 @@ class Db {
       final now = _now;
       final roleIds = <String, int>{};
       for (final role in roles) {
-        final name = role.name.trim();
+        final name = normalizeRoleName(role.name);
+        final key = roleNameKey(name);
         final existing = await t.query(
           'role',
           columns: ['id'],
-          where: 'name = ?',
-          whereArgs: [name],
+          where: 'name_key = ?',
+          whereArgs: [key],
           limit: 1,
         );
-        roleIds[name] = existing.isNotEmpty
+        roleIds[key] = existing.isNotEmpty
             ? existing.single['id'] as int
             : await t.insert('role', {
                 'name': name,
+                'name_key': key,
                 'floor': role.floor.db,
                 'note': role.note.trim(),
                 'created_at': now,
@@ -1664,7 +1746,7 @@ class Db {
           'email': _normalizeEmail(user.email),
           'password_hash': PasswordHasher.hash(kSeedPassword, salt),
           'password_salt': salt,
-          'role_id': roleIds[user.role],
+          'role_id': roleIds[roleNameKey(user.role)],
           'active': 1,
           'opener': 0,
           'working_days': '',

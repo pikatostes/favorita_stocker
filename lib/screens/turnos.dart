@@ -1026,11 +1026,20 @@ class _AppUserDialogState extends State<_AppUserDialog> {
   late final TextEditingController _email =
       TextEditingController(text: widget.user?.email ?? '');
   final _password = TextEditingController();
-  late JobRole? _role = widget.user?.role;
+  JobRole? _role;
   late bool _active = widget.user?.active ?? true;
   late bool _opener = widget.user?.opener ?? false;
   late final Set<int> _workingDays = {...?widget.user?.workingDays};
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // El usuario trae una instancia de JobRole distinta a la de la lista de
+    // puestos. El DropdownButton compara por identidad, así que hay que usar
+    // exactamente el objeto que aparece en sus items.
+    _role = roleFromList(widget.roles, widget.user?.role);
+  }
 
   @override
   void dispose() {

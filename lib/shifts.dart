@@ -34,6 +34,49 @@ enum ShiftStatus {
       );
 }
 
+/// Equivalencias de acentos usadas para comparar nombres sin distinguir
+/// mayúsculas, acentos ni espacios sobrantes.
+const Map<String, String> kAccentFolding = {
+  'á': 'a',
+  'à': 'a',
+  'ä': 'a',
+  'â': 'a',
+  'é': 'e',
+  'è': 'e',
+  'ë': 'e',
+  'ê': 'e',
+  'í': 'i',
+  'ì': 'i',
+  'ï': 'i',
+  'î': 'i',
+  'ó': 'o',
+  'ò': 'o',
+  'ö': 'o',
+  'ô': 'o',
+  'ú': 'u',
+  'ù': 'u',
+  'ü': 'u',
+  'û': 'u',
+  'ñ': 'n',
+  'ç': 'c',
+};
+
+/// Nombre de puesto listo para mostrar: sin espacios en los extremos y con
+/// los espacios interiores colapsados.
+String normalizeRoleName(String name) =>
+    name.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// Clave de comparación de puestos. No se muestra: sirve para que «Camarero»,
+/// «camarero » y «CÁMARERO» cuenten como el mismo puesto.
+String roleNameKey(String name) {
+  final folded = StringBuffer();
+  for (final rune in normalizeRoleName(name).toLowerCase().runes) {
+    final char = String.fromCharCode(rune);
+    folded.write(kAccentFolding[char] ?? char);
+  }
+  return folded.toString();
+}
+
 /// Puesto de trabajo configurable. Todos los empleados de un puesto comparten
 /// planta y nota (por ejemplo, un evento privado en el karaoke).
 class JobRole {
@@ -71,6 +114,21 @@ class JobRole {
         floor: floor ?? this.floor,
         note: note ?? this.note,
       );
+}
+
+/// Devuelve la instancia de [roles] que corresponde a [role] por id.
+///
+/// Los desplegables de Flutter comparan el valor seleccionado por identidad
+/// (`==`), y los `JobRole` que vienen de un usuario y de la lista de puestos son
+/// objetos distintos aunque representen el mismo puesto. Sin esta conversión el
+/// `DropdownButton` no encuentra el elemento y lanza una assertion.
+JobRole? roleFromList(List<JobRole> roles, JobRole? role) {
+  final id = role?.id;
+  if (id == null) return null;
+  for (final candidate in roles) {
+    if (candidate.id == id) return candidate;
+  }
+  return null;
 }
 
 /// Usuario del local. Cubre un único puesto (puede no tenerlo todavía, por
