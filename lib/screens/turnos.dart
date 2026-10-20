@@ -662,54 +662,66 @@ class _DayCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _dateLabel(date),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                Text(
-                  '${shifts.length} pers. · ${formatHours(total)}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-            const Divider(height: 16),
-            for (final floor in Floor.values)
-              if (byFloor[floor] != null) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, bottom: 2),
-                  child: Row(
+      child: DefaultTabController(
+        length: Floor.values.length,
+        child: Builder(
+          builder: (context) {
+            final tabs = DefaultTabController.of(context);
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Icon(
-                        _floorIcon(floor),
-                        size: 16,
-                        color: theme.colorScheme.primary,
+                      Expanded(
+                        child: Text(
+                          _dateLabel(date),
+                          style: theme.textTheme.titleMedium,
+                        ),
                       ),
-                      const SizedBox(width: 6),
                       Text(
-                        floor.label,
-                        style: theme.textTheme.labelLarge
-                            ?.copyWith(color: theme.colorScheme.primary),
+                        '${shifts.length} pers. · ${formatHours(total)}',
+                        style: theme.textTheme.bodySmall,
                       ),
                     ],
                   ),
-                ),
-                for (final shift in byFloor[floor]!)
-                  _ShiftTile(
-                    shift: shift,
-                    onEdit: () => onEdit(shift),
-                    onDelete: () => onDelete(shift),
+                  const Divider(height: 16),
+                  TabBar(
+                    controller: tabs,
+                    tabs: [
+                      for (final floor in Floor.values) Tab(text: floor.label),
+                    ],
                   ),
-              ],
-          ],
+                  AnimatedBuilder(
+                    animation: tabs,
+                    builder: (context, _) {
+                      final floor = Floor.values[tabs.index];
+                      final floorShifts = byFloor[floor] ?? const <Shift>[];
+                      if (floorShifts.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: Text('Sin turnos en ${floor.label}.'),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (final shift in floorShifts)
+                            _ShiftTile(
+                              shift: shift,
+                              onEdit: () => onEdit(shift),
+                              onDelete: () => onDelete(shift),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
