@@ -18,7 +18,12 @@ String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 /// Calendario mensual: días trabajados (con lista guardada) resaltados.
 /// Al tocar un día se ven sus detalles.
 class CalendarioScreen extends StatefulWidget {
-  const CalendarioScreen({super.key});
+  /// Cuando se muestra dentro de [AdminScreen] no crea su propio Scaffold ni
+  /// AppBar; el botón «Hoy» pasa a la cabecera del contenido.
+  final bool embedded;
+
+  const CalendarioScreen({super.key, this.embedded = false});
+
   @override
   State<CalendarioScreen> createState() => _CalendarioScreenState();
 }
@@ -140,8 +145,8 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
             Container(
               width: 38,
               height: 38,
-              decoration:
-                  BoxDecoration(shape: BoxShape.circle, color: bg, border: border),
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle, color: bg, border: border),
               alignment: Alignment.center,
               child: Text('${day.day}',
                   style: TextStyle(
@@ -175,7 +180,8 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
         for (final w in const ['L', 'M', 'X', 'J', 'V', 'S', 'D'])
           Expanded(
               child: Center(
-                  child: Text(w, style: Theme.of(context).textTheme.labelMedium))),
+                  child:
+                      Text(w, style: Theme.of(context).textTheme.labelMedium))),
       ]),
       const SizedBox(height: 4),
       for (var r = 0; r < cells.length; r += 7)
@@ -201,7 +207,8 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
         decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: fill,
-            border: border == null ? null : Border.all(color: border, width: 1.5)));
+            border:
+                border == null ? null : Border.all(color: border, width: 1.5)));
     return Wrap(runSpacing: 4, children: [
       item(dot(cs.primary), 'Con lista'),
       item(dot(null, border: cs.primary), 'Abre'),
@@ -319,42 +326,56 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const AppLogo(),
-          actions: [
-            TextButton(onPressed: _goToday, child: const Text('Hoy')),
-          ],
-        ),
-        body: FutureBuilder<_CalData>(
-          future: _future,
-          builder: (_, s) {
-            if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final d = s.data!;
-            return ListView(padding: const EdgeInsets.all(12), children: [
-              Row(children: [
-                IconButton(
-                    icon: const Icon(Icons.chevron_left),
-                    onPressed: () => _goMonth(-1)),
-                Expanded(
-                  child: Center(
-                    child: Text(
-                        _cap(DateFormat('MMMM yyyy', 'es').format(_month)),
-                        style: Theme.of(context).textTheme.titleLarge),
-                  ),
+  Widget _body(BuildContext context) => FutureBuilder<_CalData>(
+        future: _future,
+        builder: (_, s) {
+          if (!s.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final d = s.data!;
+          return ListView(padding: const EdgeInsets.all(12), children: [
+            Row(children: [
+              IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () => _goMonth(-1)),
+              Expanded(
+                child: Center(
+                  child: Text(
+                      _cap(DateFormat('MMMM yyyy', 'es').format(_month)),
+                      style: Theme.of(context).textTheme.titleLarge),
                 ),
+              ),
+              IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () => _goMonth(1)),
+              if (widget.embedded)
                 IconButton(
-                    icon: const Icon(Icons.chevron_right),
-                    onPressed: () => _goMonth(1)),
-              ]),
-              _grid(d),
-              const SizedBox(height: 8),
-              _legend(),
-              _details(d),
-              const SizedBox(height: 24),
-            ]);
-          },
-        ),
+                  tooltip: 'Hoy',
+                  icon: const Icon(Icons.today),
+                  onPressed: _goToday,
+                ),
+            ]),
+            _grid(d),
+            const SizedBox(height: 8),
+            _legend(),
+            _details(d),
+            const SizedBox(height: 24),
+          ]);
+        },
       );
+
+  @override
+  Widget build(BuildContext context) {
+    final body = _body(context);
+    if (widget.embedded) return body;
+    return Scaffold(
+      appBar: AppBar(
+        title: const AppLogo(),
+        actions: [
+          TextButton(onPressed: _goToday, child: const Text('Hoy')),
+        ],
+      ),
+      body: body,
+    );
+  }
 }

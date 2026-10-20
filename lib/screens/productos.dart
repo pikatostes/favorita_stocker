@@ -12,7 +12,8 @@ typedef _ProductForm = ({Product product, String? groupImage});
 class _ProductOptions {
   final List<String> categories;
   final Map<String, List<String>> _groups; // categoría -> grupos
-  final Map<String, List<String>> _subcategories; // 'categoría\u0000grupo' -> subs
+  final Map<String, List<String>>
+      _subcategories; // 'categoría\u0000grupo' -> subs
   final List<CrateType> boxes;
   final Map<String, CrateType> boxByName;
 
@@ -48,7 +49,8 @@ Future<_ProductOptions> _loadOptions(Product? current) async {
   final subcategories = <String, Set<String>>{};
   for (final s in await subcategoriesF) {
     subcategories
-        .putIfAbsent('${s.category.trim()}\u0000${s.group.trim()}', () => <String>{})
+        .putIfAbsent(
+            '${s.category.trim()}\u0000${s.group.trim()}', () => <String>{})
         .add(s.name.trim());
   }
   final boxes = <String, CrateType>{
@@ -87,7 +89,12 @@ Future<_ProductOptions> _loadOptions(Product? current) async {
 }
 
 class ProductosScreen extends StatefulWidget {
-  const ProductosScreen({super.key});
+  /// Cuando se muestra dentro de [AdminScreen] no crea AppBar propia; el botón
+  /// de paletas pasa a la cabecera del contenido.
+  final bool embedded;
+
+  const ProductosScreen({super.key, this.embedded = false});
+
   @override
   State<ProductosScreen> createState() => _ProductosScreenState();
 }
@@ -220,36 +227,21 @@ class _ProductosScreenState extends State<ProductosScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const AppLogo(),
-          actions: [
-            IconButton(
-              tooltip: 'Paletas de color',
-              icon: const Icon(Icons.palette_outlined),
-              onPressed: _choosePalette,
-            ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton(
-            onPressed: () => _edit(), child: const Icon(Icons.add)),
-        body: FutureBuilder<List<Product>>(
-          future: _future,
-          builder: (_, s) {
-            if (s.hasError) {
-              return Center(
-                child: Text('No se pudieron cargar los productos: ${s.error}'),
-              );
-            }
-            if (!s.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (s.data!.isEmpty) {
-              return const Center(
-                  child: Text('Añade tu primer producto con +'));
-            }
-            return CategoryTabs(
+  Widget _body(BuildContext context) => FutureBuilder<List<Product>>(
+        future: _future,
+        builder: (_, s) {
+          final Widget content;
+          if (s.hasError) {
+            content = Center(
+              child: Text('No se pudieron cargar los productos: ${s.error}'),
+            );
+          } else if (!s.hasData) {
+            content = const Center(child: CircularProgressIndicator());
+          } else if (s.data!.isEmpty) {
+            content =
+                const Center(child: Text('Añade tu primer producto con +'));
+          } else {
+            content = CategoryTabs(
               products: s.data!,
               onCategory: (c) => _cat = c,
               builder: (_, list) => ListView(
@@ -266,8 +258,41 @@ class _ProductosScreenState extends State<ProductosScreen> {
                     .toList(),
               ),
             );
-          },
-        ),
+          }
+          if (!widget.embedded) return content;
+          return Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: 'Paletas de color',
+                  icon: const Icon(Icons.palette_outlined),
+                  onPressed: _choosePalette,
+                ),
+              ),
+              Expanded(child: content),
+            ],
+          );
+        },
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: widget.embedded
+            ? null
+            : AppBar(
+                title: const AppLogo(),
+                actions: [
+                  IconButton(
+                    tooltip: 'Paletas de color',
+                    icon: const Icon(Icons.palette_outlined),
+                    onPressed: _choosePalette,
+                  ),
+                ],
+              ),
+        floatingActionButton: FloatingActionButton(
+            onPressed: () => _edit(), child: const Icon(Icons.add)),
+        body: _body(context),
       );
 }
 
@@ -361,15 +386,18 @@ class _ProductDialogState extends State<_ProductDialog> {
     _subcategory = (_group != null &&
             subcategory != null &&
             subcategory.isNotEmpty &&
-            widget.options.subcategoriesFor(_category, _group!).contains(subcategory))
+            widget.options
+                .subcategoriesFor(_category, _group!)
+                .contains(subcategory))
         ? subcategory
         : null;
 
     final boxName = p?.box.name.trim() ?? '';
     final boxes = widget.options.boxes;
-    _boxType = (boxName.isNotEmpty && widget.options.boxByName.containsKey(boxName))
-        ? boxName
-        : (boxes.isNotEmpty ? boxes.first.name : '');
+    _boxType =
+        (boxName.isNotEmpty && widget.options.boxByName.containsKey(boxName))
+            ? boxName
+            : (boxes.isNotEmpty ? boxes.first.name : '');
     _fillBox(widget.options.boxFor(_boxType) ?? p?.box);
   }
 
@@ -442,11 +470,10 @@ class _ProductDialogState extends State<_ProductDialog> {
     }
 
     final groupName = product.groupName?.trim();
-    final groupImagePath = groupName == null ||
-            groupName.isEmpty ||
-            groupImage.text.trim().isEmpty
-        ? null
-        : groupImage.text.trim();
+    final groupImagePath =
+        groupName == null || groupName.isEmpty || groupImage.text.trim().isEmpty
+            ? null
+            : groupImage.text.trim();
 
     Navigator.pop(context, (product: product, groupImage: groupImagePath));
   }
@@ -459,7 +486,8 @@ class _ProductDialogState extends State<_ProductDialog> {
         : widget.options.subcategoriesFor(_category, _group!);
 
     return AlertDialog(
-      title: Text(widget.product == null ? 'Nuevo producto' : 'Editar producto'),
+      title:
+          Text(widget.product == null ? 'Nuevo producto' : 'Editar producto'),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(
@@ -472,8 +500,7 @@ class _ProductDialogState extends State<_ProductDialog> {
             items: [
               for (final c in widget.options.categories)
                 DropdownMenuItem<String>(
-                    value: c,
-                    child: Text(c, overflow: TextOverflow.ellipsis)),
+                    value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
             ],
             onChanged: (v) {
               if (v == null) return;
@@ -503,8 +530,8 @@ class _ProductDialogState extends State<_ProductDialog> {
           DropdownButtonFormField<String>(
             initialValue: _subcategory,
             isExpanded: true,
-            decoration: const InputDecoration(
-                labelText: 'Subcategoría (opcional)'),
+            decoration:
+                const InputDecoration(labelText: 'Subcategoría (opcional)'),
             items: [
               for (final s in subcategories)
                 DropdownMenuItem<String>(
@@ -544,7 +571,8 @@ class _ProductDialogState extends State<_ProductDialog> {
           TextField(
               controller: units,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Unidades por caja')),
+              decoration:
+                  const InputDecoration(labelText: 'Unidades por caja')),
           Row(children: [
             Expanded(
                 child: TextField(
@@ -575,8 +603,8 @@ class _ProductDialogState extends State<_ProductDialog> {
                 child: TextField(
                     controller: trip,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                        labelText: 'Cajas por viaje'))),
+                    decoration:
+                        const InputDecoration(labelText: 'Cajas por viaje'))),
           ]),
           const SizedBox(height: 4),
           Text(

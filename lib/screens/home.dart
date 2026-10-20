@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import '../auth_controller.dart';
 import '../shifts.dart';
 import 'registro.dart';
-import 'productos.dart';
 import 'prevision.dart';
-import 'calendario.dart';
 import 'turnos.dart';
+import 'admin.dart';
 import 'cuenta.dart';
 
 /// Pestañas de la aplicación. Las marcadas como [adminOnly] solo se muestran
@@ -14,8 +13,7 @@ enum HomeTab {
   list('Lista', Icons.edit_note),
   forecast('Previsión', Icons.insights),
   shifts('Turnos', Icons.groups),
-  calendar('Calendario', Icons.event_available, adminOnly: true),
-  products('Productos', Icons.liquor, adminOnly: true),
+  admin('Admin', Icons.admin_panel_settings, adminOnly: true),
   account('Cuenta', Icons.account_circle_outlined);
 
   final String label;
@@ -25,7 +23,7 @@ enum HomeTab {
   const HomeTab(this.label, this.icon, {this.adminOnly = false});
 }
 
-/// Pestañas visibles para [role]. Los empleados no ven Calendario ni Productos.
+/// Pestañas visibles para [role]. Los empleados no ven la zona de Admin.
 List<HomeTab> visibleHomeTabs(UserRole role) => [
       for (final tab in HomeTab.values)
         if (!tab.adminOnly || role == UserRole.admin) tab,
@@ -67,8 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
         HomeTab.list => const RegistroScreen(),
         HomeTab.forecast => const PrevisionScreen(),
         HomeTab.shifts => const TurnosScreen(),
-        HomeTab.calendar => const CalendarioScreen(),
-        HomeTab.products => const ProductosScreen(),
+        HomeTab.admin => const AdminScreen(),
         HomeTab.account => const CuentaScreen(),
       };
 

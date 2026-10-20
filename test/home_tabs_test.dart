@@ -14,7 +14,13 @@ void main() {
     expect(tabs.map((tab) => tab.label), isNot(contains('Productos')));
   });
 
-  test('los administradores ven todas las pestañas', () {
-    expect(visibleHomeTabs(UserRole.admin), HomeTab.values);
+  test('los administradores ven una única pestaña Admin', () {
+    final tabs = visibleHomeTabs(UserRole.admin);
+
+    expect(tabs, HomeTab.values);
+    expect(
+      tabs.map((tab) => tab.label),
+      ['Lista', 'Previsión', 'Turnos', 'Admin', 'Cuenta'],
+    );
   });
 }
