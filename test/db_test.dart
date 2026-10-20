@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:stock_bar/auth.dart';
 import 'package:stock_bar/db.dart';
 import 'package:stock_bar/models.dart';
+import 'package:stock_bar/seed.dart';
 import 'package:stock_bar/shifts.dart';
 
 /// Crea el esquema desnormalizado v7 con datos de ejemplo.
@@ -109,16 +111,28 @@ void main() {
         'special_day',
         'app_metadata',
         'role',
-        'employee',
+        'users',
         'shift',
       ]),
     );
     expect((await d.rawQuery('PRAGMA foreign_keys')).single.values.single, 1);
 
-    final employeeCols = (await d.rawQuery('PRAGMA table_info(employee)'))
+    final userCols = (await d.rawQuery('PRAGMA table_info(users)'))
         .map((r) => r['name'])
         .toSet();
-    expect(employeeCols, containsAll(['opener', 'working_days']));
+    expect(
+      userCols,
+      containsAll([
+        'name',
+        'surname',
+        'email',
+        'password_hash',
+        'password_salt',
+        'role_id',
+        'opener',
+        'working_days',
+      ]),
+    );
   });
 
   test('migra una base v7 al esquema normalizado v8', () async {
@@ -173,7 +187,7 @@ void main() {
             .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
         .map((r) => r['name'])
         .toSet();
-    expect(tables, containsAll(['role', 'employee', 'shift']));
+    expect(tables, containsAll(['role', 'users', 'shift']));
   });
 
   test('guarda puestos, empleados y turnos', () async {
@@ -199,15 +213,23 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    await Db.i.addEmployee(
-        Employee(name: 'Ana', role: roles.single, opener: true));
-    final employees = await Db.i.employees();
-    expect(employees.single.name, 'Ana');
-    expect(employees.single.role.floor, Floor.karaoke);
+    await Db.i.addUser(
+      AppUser(
+        name: 'Ana',
+        email: 'ana@favorita.local',
+        role: roles.single,
+        opener: true,
+      ),
+      password: 'secreto1',
+    );
+    final users = await Db.i.users();
+    expect(users.single.name, 'Ana');
+    expect(users.single.email, 'ana@favorita.local');
+    expect(users.single.role?.floor, Floor.karaoke);
 
     final generated = ShiftGenerator.generateMonth(
       month: DateTime(2026, 10),
-      employees: employees,
+      users: users,
       specialDays: const {},
     );
     expect(generated, isNotEmpty);
@@ -244,9 +266,9 @@ void main() {
       published.length - 1,
     );
 
-    await Db.i.setEmployeeActive(employees.single.id!, false);
-    expect(await Db.i.employees(), isEmpty);
-    expect((await Db.i.employees(includeInactive: true)).length, 1);
+    await Db.i.setUserActive(users.single.id!, false);
+    expect(await Db.i.users(), isEmpty);
+    expect((await Db.i.users(includeInactive: true)).length, 1);
 
     expect(
       () => Db.i.deleteRole(roles.single.id!),
@@ -264,22 +286,195 @@ void main() {
 
     await Db.i.addRole(const JobRole(name: 'Sala', floor: Floor.plantaBaja));
     final role = (await Db.i.roles()).single;
-    await Db.i.addEmployee(Employee(
-      name: 'Ana',
-      role: role,
-      opener: true,
-      workingDays: const {DateTime.friday, DateTime.saturday},
-    ));
+    await Db.i.addUser(
+      AppUser(
+        name: 'Ana',
+        email: 'ana@favorita.local',
+        role: role,
+        opener: true,
+        workingDays: const {DateTime.friday, DateTime.saturday},
+      ),
+      password: 'secreto1',
+    );
 
-    final saved = (await Db.i.employees()).single;
+    final saved = (await Db.i.users()).single;
     expect(saved.opener, isTrue);
     expect(saved.workingDays, {DateTime.friday, DateTime.saturday});
 
-    await Db.i.updateEmployee(
-        saved.copyWith(opener: false, workingDays: const {}));
-    final updated = (await Db.i.employees()).single;
+    await Db.i.updateUser(
+      saved.copyWith(opener: false, workingDays: const {}),
+    );
+    final updated = (await Db.i.users()).single;
     expect(updated.opener, isFalse);
     expect(updated.workingDays, isEmpty);
+  });
+
+  test('registro, login y cambio de contraseña', () async {
+    final d = await Db.openAt(p.join(dir.path, 'auth.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    final user = await Db.i.registerUser(
+      name: 'Nuevo',
+      surname: 'Usuario',
+      email: 'Nuevo@Ejemplo.com',
+      password: 'clave123',
+    );
+    expect(user.email, 'nuevo@ejemplo.com');
+    expect(user.role, isNull);
+    expect((await Db.i.currentUser())?.id, user.id);
+
+    await Db.i.logout();
+    expect(await Db.i.currentUser(), isNull);
+    expect(await Db.i.authenticate('nuevo@ejemplo.com', 'mala'), isNull);
+
+    final logged = await Db.i.authenticate('NUEVO@ejemplo.com', 'clave123');
+    expect(logged?.id, user.id);
+    expect((await Db.i.currentUser())?.email, 'nuevo@ejemplo.com');
+
+    await Db.i.changePassword(user.id!, 'clave123', 'nueva123');
+    await Db.i.logout();
+    expect(await Db.i.authenticate('nuevo@ejemplo.com', 'clave123'), isNull);
+    expect(
+      (await Db.i.authenticate('nuevo@ejemplo.com', 'nueva123'))?.id,
+      user.id,
+    );
+
+    await expectLater(
+      Db.i.registerUser(
+        name: 'Otra',
+        surname: '',
+        email: 'nuevo@ejemplo.com',
+        password: 'clave123',
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('migra employees a users conservando turnos y clave temporal', () async {
+    final path = p.join(dir.path, 'v15.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 15,
+        onCreate: (d, _) async {
+          await d.execute('''CREATE TABLE role(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            floor TEXT NOT NULL DEFAULT 'planta_baja',
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL)''');
+          await d.execute('''CREATE TABLE employee(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role_id INTEGER NOT NULL REFERENCES role(id),
+            active INTEGER NOT NULL DEFAULT 1,
+            opener INTEGER NOT NULL DEFAULT 0,
+            working_days TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL)''');
+          await d.execute('''CREATE TABLE shift(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            employee_id INTEGER NOT NULL REFERENCES employee(id),
+            role_id INTEGER NOT NULL REFERENCES role(id),
+            role_name TEXT NOT NULL,
+            floor TEXT NOT NULL,
+            start_min INTEGER NOT NULL,
+            end_min INTEGER NOT NULL,
+            break_min INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'borrador',
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(employee_id, date))''');
+        },
+      ),
+    );
+    final roleId = await legacy.insert('role', {
+      'name': 'Sala',
+      'floor': 'planta_baja',
+      'note': null,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    final employeeId = await legacy.insert('employee', {
+      'name': 'María Moreno',
+      'role_id': roleId,
+      'active': 1,
+      'opener': 1,
+      'working_days': '5,6',
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    await legacy.insert('shift', {
+      'date': '2026-10-02',
+      'employee_id': employeeId,
+      'role_id': roleId,
+      'role_name': 'Sala',
+      'floor': 'planta_baja',
+      'start_min': 960,
+      'end_min': 1260,
+      'break_min': 0,
+      'status': 'borrador',
+      'note': null,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final user = (await d.query('users')).single;
+    expect(user['id'], employeeId);
+    expect(user['name'], 'María');
+    expect(user['surname'], 'Moreno');
+    expect(user['email'], 'maria.moreno@favorita.local');
+    expect(user['opener'], 1);
+    expect(user['working_days'], '5,6');
+    expect(
+      PasswordHasher.verify(
+        kSeedPassword,
+        user['password_salt'] as String,
+        user['password_hash'] as String,
+      ),
+      isTrue,
+    );
+
+    final shift = (await d.query('shift')).single;
+    expect(shift['user_id'], employeeId);
+    expect(shift['user_name'], 'María Moreno');
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'])
+        .toSet();
+    expect(tables, isNot(contains('employee')));
+  });
+
+  test('siembra puestos y usuarios iniciales con clave temporal', () async {
+    final d = await Db.openAt(p.join(dir.path, 'seed.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.seedStaff(initialRoles, initialUsers);
+
+    final users = await Db.i.users();
+    expect(users.length, initialUsers.length);
+    final carmen = users.firstWhere((u) => u.email == 'carmen@favorita.local');
+    expect(carmen.fullName, 'Carmen');
+    expect(carmen.role?.name, 'camarero');
+    expect(
+      (await Db.i.authenticate('carmen@favorita.local', kSeedPassword))?.id,
+      carmen.id,
+    );
   });
 
   test('guarda y relee el consumo de una noche', () async {

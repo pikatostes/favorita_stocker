@@ -5,11 +5,11 @@ import 'package:stock_bar/shifts.dart';
 JobRole _role(int id, String name, Floor floor, {String note = ''}) =>
     JobRole(id: id, name: name, floor: floor, note: note);
 
-Employee _employee(int id, String name, JobRole role,
+AppUser _user(int id, String name, JobRole role,
         {bool active = true,
         bool opener = false,
         Set<int> workingDays = const {}}) =>
-    Employee(
+    AppUser(
       id: id,
       name: name,
       role: role,
@@ -66,14 +66,14 @@ void main() {
     test('reparte apertura y segundo turno y equilibra las horas', () {
       final role = _role(1, 'Sala', Floor.plantaBaja, note: 'Evento privado');
       final employees = [
-        _employee(1, 'Ana', role, opener: true),
-        _employee(2, 'Luis', role, opener: true),
+        _user(1, 'Ana', role, opener: true),
+        _user(2, 'Luis', role, opener: true),
       ];
 
       // Octubre de 2026 tiene 10 noches de viernes/sábado.
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: employees,
+        users: employees,
         specialDays: const {},
       );
 
@@ -91,8 +91,8 @@ void main() {
 
       final byEmployee = <int, int>{};
       for (final shift in shifts) {
-        byEmployee[shift.employeeId] =
-            (byEmployee[shift.employeeId] ?? 0) + shift.workedMinutes;
+        byEmployee[shift.userId] =
+            (byEmployee[shift.userId] ?? 0) + shift.workedMinutes;
       }
       expect(byEmployee[1], byEmployee[2]);
       expect(byEmployee[1], 60 * 60); // 10 noches × 12 h / 2
@@ -102,7 +102,7 @@ void main() {
       final role = _role(1, 'Karaoke', Floor.karaoke);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [_employee(1, 'Ana', role, opener: true)],
+        users: [_user(1, 'Ana', role, opener: true)],
         specialDays: const {},
       );
 
@@ -117,28 +117,28 @@ void main() {
       final role = _role(1, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', role, opener: true),
-          _employee(2, 'Luis', role, active: false),
+        users: [
+          _user(1, 'Ana', role, opener: true),
+          _user(2, 'Luis', role, active: false),
         ],
         specialDays: const {},
       );
 
       expect(shifts, isNotEmpty);
-      expect(shifts.every((s) => s.employeeId == 1), isTrue);
+      expect(shifts.every((s) => s.userId == 1), isTrue);
     });
 
     test('respeta los cierres y no genera aperturas extra', () {
       final role = _role(1, 'Sala', Floor.plantaBaja);
       final employees = [
-        _employee(1, 'Ana', role, opener: true),
-        _employee(2, 'Luis', role, opener: true),
+        _user(1, 'Ana', role, opener: true),
+        _user(2, 'Luis', role, opener: true),
       ];
       final closed = SpecialDay('2026-10-02', open: false);
       final thursday = SpecialDay('2026-10-01', open: true);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: employees,
+        users: employees,
         specialDays: {
           closed.date: closed,
           thursday.date: thursday,
@@ -153,22 +153,22 @@ void main() {
     test('equilibra tres personas en la misma planta', () {
       final role = _role(1, 'Sala', Floor.plantaBaja);
       final employees = [
-        _employee(1, 'Ana', role, opener: true),
-        _employee(2, 'Luis', role, opener: true),
-        _employee(3, 'Marta', role, opener: true),
+        _user(1, 'Ana', role, opener: true),
+        _user(2, 'Luis', role, opener: true),
+        _user(3, 'Marta', role, opener: true),
       ];
 
       // Abril de 2027 tiene 9 noches: el reparto adaptativo iguala las horas.
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2027, 4),
-        employees: employees,
+        users: employees,
         specialDays: const {},
       );
 
       final byEmployee = <int, int>{};
       for (final shift in shifts) {
-        byEmployee[shift.employeeId] =
-            (byEmployee[shift.employeeId] ?? 0) + shift.workedMinutes;
+        byEmployee[shift.userId] =
+            (byEmployee[shift.userId] ?? 0) + shift.workedMinutes;
       }
       expect(byEmployee.values.toSet().length, 1);
       expect(byEmployee[1], 57 * 60); // 9 noches × 19 h / 3
@@ -178,27 +178,27 @@ void main() {
       final role = _role(1, 'Sala', Floor.plantaBaja);
       final employees = [
         // Ana solo trabaja los viernes; Luis, solo los sábados.
-        _employee(1, 'Ana', role, opener: true, workingDays: {
+        _user(1, 'Ana', role, opener: true, workingDays: {
           DateTime.friday,
         }),
-        _employee(2, 'Luis', role, opener: true, workingDays: {
+        _user(2, 'Luis', role, opener: true, workingDays: {
           DateTime.saturday,
         }),
       ];
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: employees,
+        users: employees,
         specialDays: const {},
       );
 
       for (final shift in shifts) {
         final weekday = DateTime.parse(shift.date).weekday;
-        if (shift.employeeId == 1) expect(weekday, DateTime.friday);
-        if (shift.employeeId == 2) expect(weekday, DateTime.saturday);
+        if (shift.userId == 1) expect(weekday, DateTime.friday);
+        if (shift.userId == 2) expect(weekday, DateTime.saturday);
       }
       // Al no coincidir nunca, cada uno cubre su noche en solitario.
-      expect(shifts.any((s) => s.employeeId == 1), isTrue);
-      expect(shifts.any((s) => s.employeeId == 2), isTrue);
+      expect(shifts.any((s) => s.userId == 1), isTrue);
+      expect(shifts.any((s) => s.userId == 2), isTrue);
     });
 
     test('cada planta usa solo a su personal', () {
@@ -207,10 +207,10 @@ void main() {
       final terraza = _role(3, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', baja, opener: true),
-          _employee(2, 'Luis', karaoke, opener: true),
-          _employee(3, 'Marta', terraza, opener: true),
+        users: [
+          _user(1, 'Ana', baja, opener: true),
+          _user(2, 'Luis', karaoke, opener: true),
+          _user(3, 'Marta', terraza, opener: true),
         ],
         specialDays: const {},
       );
@@ -218,9 +218,9 @@ void main() {
       for (final shift in shifts) {
         expect(
             shift.floor,
-            shift.employeeId == 1
+            shift.userId == 1
                 ? Floor.plantaBaja
-                : shift.employeeId == 2
+                : shift.userId == 2
                     ? Floor.karaoke
                     : Floor.terraza);
       }
@@ -230,13 +230,13 @@ void main() {
     test('solo los empleados con opener abren', () {
       final role = _role(1, 'Sala', Floor.plantaBaja);
       final employees = [
-        _employee(1, 'Ana', role, opener: true),
-        _employee(2, 'Luis', role),
-        _employee(3, 'Marta', role),
+        _user(1, 'Ana', role, opener: true),
+        _user(2, 'Luis', role),
+        _user(3, 'Marta', role),
       ];
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: employees,
+        users: employees,
         specialDays: const {},
       );
 
@@ -244,18 +244,18 @@ void main() {
       // nadie sin opener empieza a las 16:00.
       final openings = shifts.where((s) => s.startMin == 16 * 60);
       expect(openings, isNotEmpty);
-      expect(openings.every((s) => s.employeeId == 1), isTrue);
-      expect(shifts.any((s) => s.employeeId == 2), isTrue);
-      expect(shifts.any((s) => s.employeeId == 3), isTrue);
+      expect(openings.every((s) => s.userId == 1), isTrue);
+      expect(shifts.any((s) => s.userId == 2), isTrue);
+      expect(shifts.any((s) => s.userId == 3), isTrue);
     });
 
     test('sin opener disponible la planta no se programa', () {
       final role = _role(1, 'Sala', Floor.plantaBaja);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Luis', role),
-          _employee(2, 'Marta', role),
+        users: [
+          _user(1, 'Luis', role),
+          _user(2, 'Marta', role),
         ],
         specialDays: const {},
       );
@@ -267,7 +267,7 @@ void main() {
       final role = _role(1, 'Karaoke', Floor.karaoke);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [_employee(1, 'Ana', role)],
+        users: [_user(1, 'Ana', role)],
         specialDays: const {},
       );
 
@@ -278,9 +278,9 @@ void main() {
       final terraza = _role(1, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', terraza, opener: true),
-          _employee(2, 'Luis', terraza),
+        users: [
+          _user(1, 'Ana', terraza, opener: true),
+          _user(2, 'Luis', terraza),
         ],
         specialDays: const {},
       );
@@ -305,10 +305,10 @@ void main() {
       final terraza = _role(1, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', terraza, opener: true),
-          _employee(2, 'Luis', terraza),
-          _employee(3, 'Marta', terraza),
+        users: [
+          _user(1, 'Ana', terraza, opener: true),
+          _user(2, 'Luis', terraza),
+          _user(3, 'Marta', terraza),
         ],
         specialDays: const {},
       );
@@ -329,9 +329,9 @@ void main() {
       final terraza = _role(1, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', terraza, opener: true),
-          _employee(2, 'Luis', terraza, opener: true),
+        users: [
+          _user(1, 'Ana', terraza, opener: true),
+          _user(2, 'Luis', terraza, opener: true),
         ],
         specialDays: const {},
       );
@@ -350,10 +350,10 @@ void main() {
       final terraza = _role(1, 'Terraza', Floor.terraza);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', terraza, opener: true),
-          _employee(2, 'Luis', terraza, opener: true),
-          _employee(3, 'Marta', terraza),
+        users: [
+          _user(1, 'Ana', terraza, opener: true),
+          _user(2, 'Luis', terraza, opener: true),
+          _user(3, 'Marta', terraza),
         ],
         specialDays: const {},
       );
@@ -380,9 +380,9 @@ void main() {
       final sala = _role(1, 'Sala', Floor.plantaBaja);
       final shifts = ShiftGenerator.generateMonth(
         month: DateTime(2026, 10),
-        employees: [
-          _employee(1, 'Ana', sala, opener: true),
-          _employee(2, 'Luis', sala, opener: true),
+        users: [
+          _user(1, 'Ana', sala, opener: true),
+          _user(2, 'Luis', sala, opener: true),
         ],
         specialDays: const {},
       );

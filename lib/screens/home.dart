@@ -4,6 +4,7 @@ import 'productos.dart';
 import 'prevision.dart';
 import 'calendario.dart';
 import 'turnos.dart';
+import 'cuenta.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     TurnosScreen(),
     CalendarioScreen(),
     ProductosScreen(),
+    CuentaScreen(),
   ];
 
   @override
@@ -35,6 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
             NavigationDestination(
                 icon: Icon(Icons.event_available), label: 'Calendario'),
             NavigationDestination(icon: Icon(Icons.liquor), label: 'Productos'),
+            NavigationDestination(
+                icon: Icon(Icons.account_circle_outlined), label: 'Cuenta'),
           ],
         ),
       );

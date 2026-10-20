@@ -156,16 +156,70 @@ const List<JobRole> initialRoles = [
   JobRole(name: 'camarerooo', floor: Floor.terraza),
 ];
 
-/// Empleados iniciales: nombre y nombre del puesto al que pertenecen.
-const List<({String name, String role})> initialEmployees = [
-  (name: 'Carmen', role: 'camarero'),
-  (name: 'Lucía', role: 'camarero'),
-  (name: 'María Moreno', role: 'camarero'),
-  (name: 'María Hidalgo', role: 'camarero'),
-  (name: 'Elena', role: 'camarero'),
-  (name: 'Jesús', role: 'camarero'),
-  (name: 'Alejandro', role: 'camarero'),
-  (name: 'Alfonso', role: 'camarero'),
-  (name: 'Antonio', role: 'camarero'),
-  (name: 'Juanma', role: 'camarero'),
+/// Usuarios iniciales: nombre, apellidos, email y puesto habitual.
+///
+/// Las cuentas se crean con la contraseña temporal «favorita» y el puesto
+/// «camarero»; el resto de datos se puede editar desde la pestaña Usuarios.
+const List<({String name, String surname, String email, String role})>
+    initialUsers = [
+  (
+    name: 'Carmen',
+    surname: '',
+    email: 'carmen@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Lucía',
+    surname: '',
+    email: 'lucia@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'María',
+    surname: 'Moreno',
+    email: 'maria.moreno@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'María',
+    surname: 'Hidalgo',
+    email: 'maria.hidalgo@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Elena',
+    surname: '',
+    email: 'elena@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Jesús',
+    surname: '',
+    email: 'jesus@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Alejandro',
+    surname: '',
+    email: 'alejandro@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Alfonso',
+    surname: '',
+    email: 'alfonso@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Antonio',
+    surname: '',
+    email: 'antonio@favorita.local',
+    role: 'camarero',
+  ),
+  (
+    name: 'Juanma',
+    surname: '',
+    email: 'juanma@favorita.local',
+    role: 'camarero',
+  ),
 ];

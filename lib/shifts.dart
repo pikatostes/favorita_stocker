@@ -73,12 +73,14 @@ class JobRole {
       );
 }
 
-/// Empleado del local. Cubre un único puesto y solo se le asignan turnos si
-/// está activo.
-class Employee {
+/// Usuario del local. Cubre un único puesto (puede no tenerlo todavía, por
+/// ejemplo al registrarse) y solo se le asignan turnos si está activo.
+class AppUser {
   final int? id;
   final String name;
-  final JobRole role;
+  final String surname;
+  final String email;
+  final JobRole? role;
   final bool active;
 
   /// Capacidad de abrir el bar o su planta.
@@ -89,28 +91,45 @@ class Employee {
   /// para generar el horario automático.
   final Set<int> workingDays;
 
-  const Employee({
+  const AppUser({
     this.id,
     required this.name,
-    required this.role,
+    this.surname = '',
+    this.email = '',
+    this.role,
     this.active = true,
     this.opener = false,
     this.workingDays = const {},
   });
 
-  factory Employee.fromRow(Map<String, Object?> m) => Employee(
-        id: m['id'] as int,
-        name: m['name'] as String,
-        active: (m['active'] as int) == 1,
-        opener: (m['opener'] as int?) == 1,
-        workingDays: parseWorkingDays(m['working_days']),
-        role: JobRole(
-          id: m['role_id'] as int,
-          name: m['role_name'] as String,
-          floor: Floor.fromDb(m['floor'] as String?),
-          note: (m['role_note'] as String?) ?? '',
-        ),
-      );
+  factory AppUser.fromRow(Map<String, Object?> m) {
+    final roleId = m['role_id'] as int?;
+    return AppUser(
+      id: m['id'] as int,
+      name: m['name'] as String,
+      surname: (m['surname'] as String?) ?? '',
+      email: (m['email'] as String?) ?? '',
+      active: (m['active'] as int) == 1,
+      opener: (m['opener'] as int?) == 1,
+      workingDays: parseWorkingDays(m['working_days']),
+      role: roleId == null
+          ? null
+          : JobRole(
+              id: roleId,
+              name: m['role_name'] as String,
+              floor: Floor.fromDb(m['floor'] as String?),
+              note: (m['role_note'] as String?) ?? '',
+            ),
+    );
+  }
+
+  /// Nombre completo para mostrar en listas y turnos.
+  String get fullName =>
+      [name.trim(), surname.trim()].where((p) => p.isNotEmpty).join(' ');
+
+  /// Inicial para el avatar de la lista.
+  String get initial =>
+      fullName.isEmpty ? '?' : fullName.substring(0, 1).toUpperCase();
 
   /// Días de la semana (1 = lunes .. 7 = domingo) guardados como "5,6".
   /// Un valor vacío o nulo significa "cualquier día".
@@ -140,21 +159,31 @@ class Employee {
       ? 'Cualquier día'
       : (workingDays.toList()..sort()).map(weekdayShort).join(', ');
 
-  String? get validationError =>
-      name.trim().isEmpty ? 'El nombre del empleado es obligatorio.' : null;
+  String? get validationError {
+    if (name.trim().isEmpty) return 'El nombre del usuario es obligatorio.';
+    if (email.trim().isNotEmpty && !email.contains('@')) {
+      return 'El email no es válido.';
+    }
+    return null;
+  }
 
-  Employee copyWith({
+  AppUser copyWith({
     int? id,
     String? name,
+    String? surname,
+    String? email,
     JobRole? role,
+    bool clearRole = false,
     bool? active,
     bool? opener,
     Set<int>? workingDays,
   }) =>
-      Employee(
+      AppUser(
         id: id ?? this.id,
         name: name ?? this.name,
-        role: role ?? this.role,
+        surname: surname ?? this.surname,
+        email: email ?? this.email,
+        role: clearRole ? null : (role ?? this.role),
         active: active ?? this.active,
         opener: opener ?? this.opener,
         workingDays: workingDays ?? this.workingDays,
@@ -166,8 +195,8 @@ class Employee {
 class Shift {
   final int? id;
   final String date;
-  final int employeeId;
-  final String employeeName;
+  final int userId;
+  final String userName;
   final int roleId;
   final String roleName;
   final Floor floor;
@@ -180,8 +209,8 @@ class Shift {
   const Shift({
     this.id,
     required this.date,
-    required this.employeeId,
-    required this.employeeName,
+    required this.userId,
+    required this.userName,
     required this.roleId,
     required this.roleName,
     required this.floor,
@@ -195,8 +224,8 @@ class Shift {
   factory Shift.fromRow(Map<String, Object?> m) => Shift(
         id: m['id'] as int,
         date: m['date'] as String,
-        employeeId: m['employee_id'] as int,
-        employeeName: m['employee_name'] as String,
+        userId: m['user_id'] as int,
+        userName: m['user_name'] as String,
         roleId: m['role_id'] as int,
         roleName: m['role_name'] as String,
         floor: Floor.fromDb(m['floor'] as String?),
@@ -224,8 +253,8 @@ class Shift {
       Shift(
         id: id ?? this.id,
         date: date,
-        employeeId: employeeId,
-        employeeName: employeeName,
+        userId: userId,
+        userName: userName,
         roleId: roleId,
         roleName: roleName,
         floor: floor,
@@ -301,9 +330,9 @@ String weekdayShort(int weekday) => weekdayShortNames[weekday - 1];
 /// incompleta.
 ///
 /// Las excepciones de cierre (`SpecialDay.open == false`) se respetan; las
-/// aperturas extra no se generan automáticamente. Un empleado solo entra en un
-/// día si no tiene restricción de [Employee.workingDays] o si ese día está
-/// entre sus días. La apertura solo la cubre quien tiene [Employee.opener]; si
+/// aperturas extra no se generan automáticamente. Un usuario solo entra en un
+/// día si no tiene restricción de [AppUser.workingDays] o si ese día está
+/// entre sus días. La apertura solo la cubre quien tiene [AppUser.opener]; si
 /// una planta no tiene ningún opener disponible esa noche, no se programa.
 class ShiftGenerator {
   static const int openingStart = Schedule.openHour * 60; // 16:00
@@ -312,18 +341,18 @@ class ShiftGenerator {
 
   static List<Shift> generateMonth({
     required DateTime month,
-    required List<Employee> employees,
+    required List<AppUser> users,
     required Map<String, SpecialDay> specialDays,
   }) {
     final active = [
-      for (final e in employees)
-        if (e.active && e.id != null && e.role.id != null) e,
+      for (final e in users)
+        if (e.active && e.id != null && e.role?.id != null) e,
     ];
     if (active.isEmpty) return const [];
 
-    final byFloor = <Floor, List<Employee>>{};
+    final byFloor = <Floor, List<AppUser>>{};
     for (final e in active) {
-      byFloor.putIfAbsent(e.role.floor, () => []).add(e);
+      byFloor.putIfAbsent(e.role!.floor, () => []).add(e);
     }
 
     // Horas acumuladas en el mes por empleado, para repartir los turnos largos.
@@ -422,7 +451,7 @@ class ShiftGenerator {
       final byDate = a.date.compareTo(b.date);
       if (byDate != 0) return byDate;
       final byFloor = a.floor.index.compareTo(b.floor.index);
-      return byFloor != 0 ? byFloor : a.employeeName.compareTo(b.employeeName);
+      return byFloor != 0 ? byFloor : a.userName.compareTo(b.userName);
     });
     return out;
   }
@@ -488,17 +517,17 @@ class ShiftGenerator {
     return best!;
   }
 
-  static Shift _build(DateTime date, Employee e, int start, int end) => Shift(
+  static Shift _build(DateTime date, AppUser e, int start, int end) => Shift(
         date: Schedule.fmt(date),
-        employeeId: e.id!,
-        employeeName: e.name,
-        roleId: e.role.id!,
-        roleName: e.role.name,
-        floor: e.role.floor,
+        userId: e.id!,
+        userName: e.fullName,
+        roleId: e.role!.id!,
+        roleName: e.role!.name,
+        floor: e.role!.floor,
         startMin: start,
         endMin: end,
         breakMin: breakMinutesFor(startMin: start, endMin: end),
         status: ShiftStatus.draft,
-        note: e.role.note.trim(),
+        note: e.role!.note.trim(),
       );
 }

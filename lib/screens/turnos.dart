@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../auth.dart';
+import '../auth_controller.dart';
 import '../db.dart';
 import '../models.dart';
 import '../schedule.dart';
@@ -52,7 +54,7 @@ void _snack(BuildContext context, String text) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 }
 
-/// Pestaña "Turnos": horario mensual, empleados y puestos.
+/// Pestaña "Turnos": horario mensual, usuarios y puestos.
 class TurnosScreen extends StatefulWidget {
   const TurnosScreen({super.key});
   @override
@@ -77,7 +79,7 @@ class _TurnosScreenState extends State<TurnosScreen>
             controller: _tabs,
             tabs: const [
               Tab(text: 'Horario'),
-              Tab(text: 'Empleados'),
+              Tab(text: 'Usuarios'),
               Tab(text: 'Puestos'),
             ],
           ),
@@ -86,7 +88,7 @@ class _TurnosScreenState extends State<TurnosScreen>
           controller: _tabs,
           children: const [
             _ScheduleTab(),
-            _EmployeesTab(),
+            _AppUsersTab(),
             _RolesTab(),
           ],
         ),
@@ -99,9 +101,9 @@ class _TurnosScreenState extends State<TurnosScreen>
 
 class _ScheduleData {
   final List<Shift> shifts;
-  final List<Employee> employees;
+  final List<AppUser> users;
   final Map<String, SpecialDay> special;
-  _ScheduleData(this.shifts, this.employees, this.special);
+  _ScheduleData(this.shifts, this.users, this.special);
 }
 
 class _ScheduleTab extends StatefulWidget {
@@ -118,9 +120,11 @@ class _ScheduleTabState extends State<_ScheduleTab> {
   Future<_ScheduleData> _load() async {
     // Las tres consultas son independientes: se lanzan a la vez.
     final shiftsF = Db.i.shiftsForMonth(_month);
-    final employeesF = Db.i.employees();
+    final usersF = Db.i.users();
     final specialF = Db.i.specialDays();
-    return _ScheduleData(await shiftsF, await employeesF, await specialF);
+    final users =
+        (await usersF).where((u) => u.role != null).toList(growable: false);
+    return _ScheduleData(await shiftsF, users, await specialF);
   }
 
   void _reload() {
@@ -157,9 +161,9 @@ class _ScheduleTabState extends State<_ScheduleTab> {
   Future<void> _generate() async {
     final data = await _load();
     if (!mounted) return;
-    if (data.employees.isEmpty) {
+    if (data.users.isEmpty) {
       _snack(context,
-          'Añade al menos un empleado en la pestaña «Empleados» para generar.');
+          'Añade al menos un usuario en la pestaña «Usuarios» para generar.');
       return;
     }
 
@@ -170,7 +174,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
           title: const Text('Regenerar el mes'),
           content: Text(
               'Se borrarán los ${data.shifts.length} turnos de este mes y se '
-              'crearán de nuevo a partir de los empleados.'),
+              'crearán de nuevo a partir de los usuarios.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -186,7 +190,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
 
     final generated = ShiftGenerator.generateMonth(
       month: _month,
-      employees: data.employees,
+      users: data.users,
       specialDays: data.special,
     );
     if (generated.isNotEmpty && mounted) {
@@ -221,7 +225,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('¿Borrar el turno de ${shift.employeeName}?'),
+        title: Text('¿Borrar el turno de ${shift.userName}?'),
         content: Text('${_dateLabel(shift.date)} · ${shift.timeLabel}'),
         actions: [
           TextButton(
@@ -467,18 +471,18 @@ class _ScheduleTabState extends State<_ScheduleTab> {
   }
 
   Widget _hoursSummary(_ScheduleData data) {
-    final byEmployee = <int, ({String name, int minutes})>{};
-    for (final e in data.employees) {
-      byEmployee[e.id!] = (name: e.name, minutes: 0);
+    final byUser = <int, ({String name, int minutes})>{};
+    for (final e in data.users) {
+      byUser[e.id!] = (name: e.fullName, minutes: 0);
     }
     for (final s in data.shifts) {
-      final current = byEmployee[s.employeeId];
-      byEmployee[s.employeeId] = (
-        name: s.employeeName,
+      final current = byUser[s.userId];
+      byUser[s.userId] = (
+        name: s.userName,
         minutes: (current?.minutes ?? 0) + s.workedMinutes,
       );
     }
-    final rows = byEmployee.values.toList()
+    final rows = byUser.values.toList()
       ..sort((a, b) => b.minutes.compareTo(a.minutes));
     final total = rows.fold<int>(0, (sum, r) => sum + r.minutes);
 
@@ -548,14 +552,14 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                   ),
                 ],
               ),
-              if (data.employees.isEmpty)
+              if (data.users.isEmpty)
                 Card(
                   margin: const EdgeInsets.only(top: 12),
                   color: Theme.of(context).colorScheme.errorContainer,
                   child: const Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      'Añade puestos en «Puestos» y empleados en «Empleados» '
+                      'Añade puestos en «Puestos» y usuarios en «Usuarios» '
                       'para poder generar el horario.',
                     ),
                   ),
@@ -680,7 +684,7 @@ class _ShiftTile extends StatelessWidget {
         children: [
           Flexible(
             child: Text(
-              shift.employeeName,
+              shift.userName,
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -780,8 +784,8 @@ class _ShiftDialogState extends State<_ShiftDialog> {
       Shift(
         id: widget.shift.id,
         date: widget.shift.date,
-        employeeId: widget.shift.employeeId,
-        employeeName: widget.shift.employeeName,
+        userId: widget.shift.userId,
+        userName: widget.shift.userName,
         roleId: widget.shift.roleId,
         roleName: widget.shift.roleName,
         floor: widget.shift.floor,
@@ -807,7 +811,7 @@ class _ShiftDialogState extends State<_ShiftDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.shift.employeeName} · ${widget.shift.roleName}',
+              '${widget.shift.userName} · ${widget.shift.roleName}',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             Text(
@@ -875,21 +879,21 @@ class _ShiftDialogState extends State<_ShiftDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// Empleados
+// Usuarios
 // ---------------------------------------------------------------------------
 
-class _EmployeesTab extends StatefulWidget {
-  const _EmployeesTab();
+class _AppUsersTab extends StatefulWidget {
+  const _AppUsersTab();
   @override
-  State<_EmployeesTab> createState() => _EmployeesTabState();
+  State<_AppUsersTab> createState() => _AppUsersTabState();
 }
 
-class _EmployeesTabState extends State<_EmployeesTab> {
-  late Future<List<Employee>> _future = Db.i.employees(includeInactive: true);
+class _AppUsersTabState extends State<_AppUsersTab> {
+  late Future<List<AppUser>> _future = Db.i.users(includeInactive: true);
 
   void _reload() {
     if (mounted) {
-      setState(() => _future = Db.i.employees(includeInactive: true));
+      setState(() => _future = Db.i.users(includeInactive: true));
     }
   }
 
@@ -905,33 +909,31 @@ class _EmployeesTabState extends State<_EmployeesTab> {
     super.dispose();
   }
 
-  Future<void> _edit([Employee? employee]) async {
+  Future<void> _edit([AppUser? user]) async {
     final roles = await Db.i.roles();
     if (!mounted) return;
-    if (roles.isEmpty) {
-      _snack(context, 'Crea primero un puesto en la pestaña «Puestos».');
-      return;
-    }
-    final result = await showDialog<Employee>(
+    final result = await showDialog<_UserFormResult>(
       context: context,
-      builder: (_) => _EmployeeDialog(employee: employee, roles: roles),
+      builder: (_) => _AppUserDialog(user: user, roles: roles),
     );
     if (result == null) return;
     try {
-      if (employee == null) {
-        await Db.i.addEmployee(result);
+      if (user == null) {
+        await Db.i.addUser(result.user, password: result.password!);
       } else {
-        await Db.i.updateEmployee(result);
+        await Db.i.updateUser(result.user, password: result.password);
+        await AuthController.i.refresh();
       }
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el empleado: $e');
+      _snack(context, 'No se pudo guardar el usuario: $e');
     }
   }
 
-  Future<void> _toggle(Employee employee) async {
+  Future<void> _toggle(AppUser user) async {
     try {
-      await Db.i.setEmployeeActive(employee.id!, !employee.active);
+      await Db.i.setUserActive(user.id!, !user.active);
+      await AuthController.i.refresh();
     } catch (e) {
       if (!mounted) return;
       _snack(context, 'No se pudo cambiar el estado: $e');
@@ -940,53 +942,52 @@ class _EmployeesTabState extends State<_EmployeesTab> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        body: FutureBuilder<List<Employee>>(
+        body: FutureBuilder<List<AppUser>>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Center(
                 child: Text(
-                  'No se pudieron cargar los empleados: ${snapshot.error}',
+                  'No se pudieron cargar los usuarios: ${snapshot.error}',
                 ),
               );
             }
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final employees = snapshot.data!;
-            if (employees.isEmpty) {
+            final users = snapshot.data!;
+            if (users.isEmpty) {
               return const Center(
-                child: Text('Añade tu primer empleado con +'),
+                child: Text('Añade tu primer usuario con +'),
               );
             }
             return ListView.builder(
               padding: const EdgeInsets.only(bottom: 90),
-              itemCount: employees.length,
+              itemCount: users.length,
               itemBuilder: (context, index) {
-                final employee = employees[index];
-                final initial = employee.name.trim().isEmpty
-                    ? '?'
-                    : employee.name.trim()[0].toUpperCase();
+                final user = users[index];
+                final role = user.role;
                 return ListTile(
-                  leading: CircleAvatar(child: Text(initial)),
+                  leading: CircleAvatar(child: Text(user.initial)),
                   title: Text(
-                    employee.name,
-                    style: employee.active
+                    user.fullName,
+                    style: user.active
                         ? null
                         : const TextStyle(
                             decoration: TextDecoration.lineThrough),
                   ),
                   subtitle: Text(
-                    '${employee.role.name} · ${employee.role.floor.label}\n'
-                    '${employee.workingDaysLabel}'
-                    '${employee.opener ? ' · Puede abrir' : ''}',
+                    '${user.email}\n'
+                    '${role == null ? 'Sin puesto' : '${role.name} · ${role.floor.label}'}'
+                    ' · ${user.workingDaysLabel}'
+                    '${user.opener ? ' · Puede abrir' : ''}',
                   ),
                   isThreeLine: true,
                   trailing: Switch(
-                    value: employee.active,
-                    onChanged: (_) => _toggle(employee),
+                    value: user.active,
+                    onChanged: (_) => _toggle(user),
                   ),
-                  onTap: () => _edit(employee),
+                  onTap: () => _edit(user),
                 );
               },
             );
@@ -999,72 +1000,138 @@ class _EmployeesTabState extends State<_EmployeesTab> {
       );
 }
 
-class _EmployeeDialog extends StatefulWidget {
-  final Employee? employee;
+class _AppUserDialog extends StatefulWidget {
+  final AppUser? user;
   final List<JobRole> roles;
 
-  const _EmployeeDialog({required this.employee, required this.roles});
+  const _AppUserDialog({required this.user, required this.roles});
 
   @override
-  State<_EmployeeDialog> createState() => _EmployeeDialogState();
+  State<_AppUserDialog> createState() => _AppUserDialogState();
 }
 
-class _EmployeeDialogState extends State<_EmployeeDialog> {
+class _UserFormResult {
+  final AppUser user;
+  final String? password;
+
+  const _UserFormResult({required this.user, this.password});
+}
+
+class _AppUserDialogState extends State<_AppUserDialog> {
+  final _form = GlobalKey<FormState>();
   late final TextEditingController _name =
-      TextEditingController(text: widget.employee?.name ?? '');
-  late JobRole _role = widget.roles.firstWhere(
-    (r) => r.id == widget.employee?.role.id,
-    orElse: () => widget.roles.first,
-  );
-  late bool _active = widget.employee?.active ?? true;
-  late bool _opener = widget.employee?.opener ?? false;
-  late final Set<int> _workingDays = {...?widget.employee?.workingDays};
+      TextEditingController(text: widget.user?.name ?? '');
+  late final TextEditingController _surname =
+      TextEditingController(text: widget.user?.surname ?? '');
+  late final TextEditingController _email =
+      TextEditingController(text: widget.user?.email ?? '');
+  final _password = TextEditingController();
+  late JobRole? _role = widget.user?.role;
+  late bool _active = widget.user?.active ?? true;
+  late bool _opener = widget.user?.opener ?? false;
+  late final Set<int> _workingDays = {...?widget.user?.workingDays};
+  bool _obscure = true;
 
   @override
   void dispose() {
     _name.dispose();
+    _surname.dispose();
+    _email.dispose();
+    _password.dispose();
     super.dispose();
   }
 
   void _save() {
-    final name = _name.text.trim();
-    if (name.isEmpty) {
-      _snack(context, 'El nombre del empleado es obligatorio.');
-      return;
-    }
+    if (!_form.currentState!.validate()) return;
+    final password = _password.text;
     Navigator.pop(
       context,
-      Employee(
-        id: widget.employee?.id,
-        name: name,
-        role: _role,
-        active: _active,
-        opener: _opener,
-        workingDays: _workingDays,
+      _UserFormResult(
+        user: AppUser(
+          id: widget.user?.id,
+          name: _name.text.trim(),
+          surname: _surname.text.trim(),
+          email: _email.text.trim().toLowerCase(),
+          role: _role,
+          active: _active,
+          opener: _opener,
+          workingDays: _workingDays,
+        ),
+        password: password.isEmpty ? null : password,
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(
-          widget.employee == null ? 'Nuevo empleado' : 'Editar empleado',
-        ),
-        content: SingleChildScrollView(
+  Widget build(BuildContext context) {
+    final editing = widget.user != null;
+    return AlertDialog(
+      title: Text(editing ? 'Editar usuario' : 'Nuevo usuario'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _form,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
+              TextFormField(
                 controller: _name,
+                textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(labelText: 'Nombre'),
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'El nombre es obligatorio.'
+                    : null,
+              ),
+              TextFormField(
+                controller: _surname,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Apellidos'),
+              ),
+              TextFormField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Email'),
+                validator: (value) => isValidEmail(value ?? '')
+                    ? null
+                    : 'El email no es válido.',
+              ),
+              TextFormField(
+                controller: _password,
+                obscureText: _obscure,
+                decoration: InputDecoration(
+                  labelText: editing ? 'Nueva contraseña' : 'Contraseña',
+                  helperText: editing
+                      ? 'Déjala vacía para mantener la actual.'
+                      : 'Mínimo 6 caracteres.',
+                  suffixIcon: IconButton(
+                    tooltip:
+                        _obscure ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                    icon: Icon(
+                      _obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
+                ),
+                validator: (value) {
+                  final password = value ?? '';
+                  if (!editing && password.isEmpty) {
+                    return 'La contraseña es obligatoria.';
+                  }
+                  if (password.isNotEmpty && password.length < 6) {
+                    return 'Debe tener al menos 6 caracteres.';
+                  }
+                  return null;
+                },
               ),
               DropdownButtonFormField<JobRole>(
                 initialValue: _role,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Puesto'),
+                hint: const Text('Sin puesto'),
+                decoration: const InputDecoration(labelText: 'Puesto habitual'),
                 items: [
                   for (final role in widget.roles)
-                    DropdownMenuItem(
+                    DropdownMenuItem<JobRole>(
                       value: role,
                       child: Text(
                         '${role.name} · ${role.floor.label}',
@@ -1072,10 +1139,17 @@ class _EmployeeDialogState extends State<_EmployeeDialog> {
                       ),
                     ),
                 ],
-                onChanged: (value) {
-                  if (value != null) setState(() => _role = value);
-                },
+                onChanged: (value) => setState(() => _role = value),
               ),
+              if (_role != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => _role = null),
+                    icon: const Icon(Icons.clear, size: 18),
+                    label: const Text('Dejar sin puesto'),
+                  ),
+                ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Activo'),
@@ -1125,14 +1199,16 @@ class _EmployeeDialogState extends State<_EmployeeDialog> {
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(onPressed: _save, child: const Text('Guardar')),
-        ],
-      );
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Guardar')),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,7 +1267,7 @@ class _RolesTabState extends State<_RolesTab> {
       builder: (ctx) => AlertDialog(
         title: Text('¿Borrar ${role.name}?'),
         content: const Text(
-          'Solo se puede borrar si no tiene empleados asignados.',
+          'Solo se puede borrar si no tiene usuarios asignados.',
         ),
         actions: [
           TextButton(

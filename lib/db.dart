@@ -1,16 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'auth.dart';
 import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
 
-/// Acceso a SQLite (esquema v8, tablas en inglés singular).
+/// Acceso a SQLite (esquema v16, tablas en inglés singular).
 ///
 /// Normaliza el catálogo: `category`, `product_group`, `subcategory` y `box`
 /// son entidades propias; `product` solo guarda referencias. El consumo vive en
 /// `consumption` (una fila por producto y noche) y `night` marca qué noches
-/// existen. Los productos se borran de forma lógica (`deleted_at`).
+/// existen. Los productos se borran de forma lógica (`deleted_at`). Los
+/// usuarios (`users`) sustituyen a la antigua tabla `employee` y guardan sus
+/// credenciales de acceso con hash y sal.
 class Db {
   Db._();
   static final Db i = Db._();
@@ -21,7 +24,7 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 15;
+  static const int schemaVersion = 16;
 
   /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -58,6 +61,7 @@ class Db {
         onCreate: (d, _) async {
           await _createV8(d);
           await _createShiftSchema(d);
+          await _migrateToV16(d);
         },
         onUpgrade: _onUpgrade,
       );
@@ -119,6 +123,8 @@ class Db {
     if (oldV < 14) await _setGroupImages(d);
     // ...y las imágenes de Coca-Cola, Nestea, Aquarius y Bliss a v15.
     if (oldV < 15) await _setGroupImages(d);
+    // ...y la conversión de empleados en usuarios con autenticación a v16.
+    if (oldV < 16) await _migrateToV16(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -261,6 +267,164 @@ class Db {
       await d.execute(
           'ALTER TABLE employee ADD COLUMN working_days TEXT');
     }
+  }
+
+  /// v16: convierte `employee` en `users`, añade email/contraseña y renombra
+  /// las referencias de los turnos.
+  ///
+  /// Los antiguos empleados conservan su id para no romper el histórico. Se les
+  /// asigna un email `nombre@favorita.local` y la contraseña temporal
+  /// [kSeedPassword]; podrán cambiarla desde la pestaña Usuarios o su perfil.
+  static Future<void> _migrateToV16(Database d) async {
+    await _createUsersTable(d);
+
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'] as String)
+        .toSet();
+    final hasEmployee = tables.contains('employee');
+    final hasShift = tables.contains('shift');
+
+    if (hasEmployee) {
+      final employees = await d.rawQuery('SELECT * FROM employee');
+      final usedEmails = (await d.query('users', columns: ['email']))
+          .map((r) => (r['email'] as String).toLowerCase())
+          .toSet();
+      for (final e in employees) {
+        final fullName = (e['name'] as String? ?? '').trim();
+        final parts = fullName
+            .split(RegExp(r'\s+'))
+            .where((p) => p.isNotEmpty)
+            .toList();
+        final name = parts.isEmpty ? 'Usuario' : parts.first;
+        final surname = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+        final salt = PasswordHasher.newSalt();
+        await d.insert(
+          'users',
+          {
+            'id': e['id'],
+            'name': name,
+            'surname': surname,
+            'email': _uniqueSeedEmail(fullName, usedEmails),
+            'password_hash': PasswordHasher.hash(kSeedPassword, salt),
+            'password_salt': salt,
+            'role_id': e['role_id'],
+            'active': e['active'] ?? 1,
+            'opener': e['opener'] ?? 0,
+            'working_days': e['working_days'] ?? '',
+            'created_at': e['created_at'] ?? _nowMs,
+            'updated_at': e['updated_at'] ?? _nowMs,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+
+    // La tabla shift antigua apuntaba a employee; se reconstruye apuntando a
+    // users. Se conservan los ids de turno y los datos históricos.
+    await _createShiftTableV16(d, 'shift_v16');
+    if (hasShift) {
+      if (hasEmployee) {
+        await d.execute('''
+          INSERT INTO shift_v16 (
+            id, date, user_id, user_name, role_id, role_name, floor,
+            start_min, end_min, break_min, status, note, created_at, updated_at)
+          SELECT s.id, s.date, s.employee_id, COALESCE(e.name, ''), s.role_id,
+                 s.role_name, s.floor, s.start_min, s.end_min, s.break_min,
+                 s.status, s.note, s.created_at, s.updated_at
+          FROM shift s
+          LEFT JOIN employee e ON e.id = s.employee_id''');
+      } else {
+        await d.execute('''
+          INSERT INTO shift_v16 (
+            id, date, user_id, user_name, role_id, role_name, floor,
+            start_min, end_min, break_min, status, note, created_at, updated_at)
+          SELECT s.id, s.date, s.employee_id, '', s.role_id,
+                 s.role_name, s.floor, s.start_min, s.end_min, s.break_min,
+                 s.status, s.note, s.created_at, s.updated_at
+          FROM shift s''');
+      }
+      await d.execute('DROP TABLE shift');
+    }
+    await d.execute('ALTER TABLE shift_v16 RENAME TO shift');
+    await d.execute(
+        'CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
+    await d.execute(
+        'CREATE INDEX IF NOT EXISTS idx_shift_user ON shift(user_id)');
+    if (hasEmployee) {
+      await d.execute('DROP TABLE employee');
+      await d.execute('DROP INDEX IF EXISTS idx_employee_role');
+      await d.execute('DROP INDEX IF EXISTS idx_shift_employee');
+    }
+  }
+
+  static Future<void> _createShiftTableV16(
+    DatabaseExecutor d,
+    String name,
+  ) =>
+      d.execute('''CREATE TABLE $name(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_name TEXT NOT NULL,
+      role_id INTEGER NOT NULL REFERENCES role(id),
+      role_name TEXT NOT NULL,
+      floor TEXT NOT NULL
+        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
+      start_min INTEGER NOT NULL CHECK(start_min >= 0 AND start_min < 1440),
+      end_min INTEGER NOT NULL CHECK(end_min >= 0 AND end_min < 1440),
+      break_min INTEGER NOT NULL DEFAULT 0 CHECK(break_min >= 0),
+      status TEXT NOT NULL DEFAULT 'borrador'
+        CHECK(status IN ('borrador', 'publicado', 'confirmado')),
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, date))''');
+
+  static Future<void> _createUsersTable(DatabaseExecutor d) => d.execute('''
+    CREATE TABLE IF NOT EXISTS users(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      surname TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      role_id INTEGER REFERENCES role(id),
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+      opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1)),
+      working_days TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL)''');
+
+  /// Email `nombre.apellido@favorita.local`, con sufijo numérico si ya existe.
+  static String _uniqueSeedEmail(String fullName, Set<String> used) {
+    final base = _slug(fullName);
+    var email = '$base@favorita.local';
+    var suffix = 2;
+    while (used.contains(email)) {
+      email = '$base$suffix@favorita.local';
+      suffix++;
+    }
+    used.add(email);
+    return email;
+  }
+
+  static const Map<String, String> _accentMap = {
+    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a',
+    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
+    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
+    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o',
+    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+    'ñ': 'n', 'ç': 'c',
+  };
+
+  static String _slug(String value) {
+    var text = value.toLowerCase();
+    _accentMap.forEach((from, to) => text = text.replaceAll(from, to));
+    text = text
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '.')
+        .replaceAll(RegExp(r'^\.+|\.+$'), '');
+    return text.isEmpty ? 'usuario' : text;
   }
 
   static Future<void> _legacyCreateSpecialDays(DatabaseExecutor d) =>
@@ -970,7 +1134,7 @@ class Db {
   }
 
   // ---------------------------------------------------------------------------
-  // Turnos: puestos, empleados y turnos
+  // Turnos: puestos, usuarios y turnos
   // ---------------------------------------------------------------------------
 
   /// Puestos configurados, ordenados por planta y nombre.
@@ -1044,16 +1208,16 @@ class Db {
     _changed();
   }
 
-  /// Borra un puesto solo si no tiene empleados asignados.
+  /// Borra un puesto solo si no tiene usuarios asignados.
   Future<void> deleteRole(int id) async {
     final d = await db;
     final count = Sqflite.firstIntValue(await d.rawQuery(
-          'SELECT COUNT(*) FROM employee WHERE role_id = ?',
+          'SELECT COUNT(*) FROM users WHERE role_id = ?',
           [id],
         )) ??
         0;
     if (count > 0) {
-      throw StateError('No se puede borrar un puesto con empleados asignados.');
+      throw StateError('No se puede borrar un puesto con usuarios asignados.');
     }
     final shiftCount = Sqflite.firstIntValue(await d.rawQuery(
           'SELECT COUNT(*) FROM shift WHERE role_id = ?',
@@ -1067,77 +1231,103 @@ class Db {
     _changed();
   }
 
-  static const String _employeeSelect = '''
-    SELECT e.id, e.name, e.active, e.opener, e.working_days,
+  static const String _userSelect = '''
+    SELECT u.id, u.name, u.surname, u.email, u.active, u.opener, u.working_days,
            r.id AS role_id, r.name AS role_name, r.floor, r.note AS role_note
-    FROM employee e
-    JOIN role r ON r.id = e.role_id''';
+    FROM users u
+    LEFT JOIN role r ON r.id = u.role_id''';
 
-  /// Empleados (solo activos salvo [includeInactive]), con su puesto.
-  Future<List<Employee>> employees({bool includeInactive = false}) async {
+  /// Usuarios (solo activos salvo [includeInactive]), con su puesto habitual.
+  Future<List<AppUser>> users({bool includeInactive = false}) async {
     final rows = await (await db).rawQuery(
-      '$_employeeSelect ${includeInactive ? '' : 'WHERE e.active = 1'} '
+      '$_userSelect ${includeInactive ? '' : 'WHERE u.active = 1'} '
       "ORDER BY CASE r.floor WHEN 'planta_baja' THEN 0 "
-      "WHEN 'karaoke' THEN 1 ELSE 2 END, r.name, e.name",
+      "WHEN 'karaoke' THEN 1 ELSE 2 END, r.name, u.name, u.surname",
     );
-    return rows.map(Employee.fromRow).toList();
+    return rows.map(AppUser.fromRow).toList();
   }
 
-  Future<void> addEmployee(Employee employee) async {
-    final name = employee.name.trim();
-    final roleId = employee.role.id;
-    if (name.isEmpty) {
-      throw ArgumentError('El nombre del empleado es obligatorio.');
+  Future<AppUser?> userById(int id) async {
+    final rows = await (await db).rawQuery(
+      '$_userSelect WHERE u.id = ? LIMIT 1',
+      [id],
+    );
+    return rows.isEmpty ? null : AppUser.fromRow(rows.single);
+  }
+
+  Future<bool> emailExists(String email, {int? exceptId}) async {
+    final rows = await (await db).query(
+      'users',
+      columns: ['id'],
+      where: exceptId == null ? 'email = ?' : 'email = ? AND id <> ?',
+      whereArgs: exceptId == null
+          ? [_normalizeEmail(email)]
+          : [_normalizeEmail(email), exceptId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Crea una cuenta. [password] no se guarda en claro: se almacena su hash
+  /// con una sal aleatoria.
+  Future<int> addUser(AppUser user, {required String password}) async {
+    _validateUser(user);
+    _validatePassword(password);
+    if (await emailExists(user.email)) {
+      throw StateError('Ya existe una cuenta con ese email.');
     }
-    if (roleId == null) {
-      throw ArgumentError('El empleado debe tener un puesto.');
-    }
+    final salt = PasswordHasher.newSalt();
     final now = _now;
-    await (await db).insert('employee', {
-      'name': name,
-      'role_id': roleId,
-      'active': employee.active ? 1 : 0,
-      'opener': employee.opener ? 1 : 0,
-      'working_days': Employee.formatWorkingDays(employee.workingDays),
+    final id = await (await db).insert('users', {
+      'name': user.name.trim(),
+      'surname': user.surname.trim(),
+      'email': _normalizeEmail(user.email),
+      'password_hash': PasswordHasher.hash(password, salt),
+      'password_salt': salt,
+      'role_id': user.role?.id,
+      'active': user.active ? 1 : 0,
+      'opener': user.opener ? 1 : 0,
+      'working_days': AppUser.formatWorkingDays(user.workingDays),
       'created_at': now,
       'updated_at': now,
     });
     _changed();
+    return id;
   }
 
-  Future<void> updateEmployee(Employee employee) async {
-    final id = employee.id;
-    final name = employee.name.trim();
-    final roleId = employee.role.id;
-    if (id == null) {
-      throw ArgumentError('El empleado debe tener un id.');
+  /// Actualiza los datos del usuario. Si [password] no es nulo ni vacío,
+  /// también cambia la contraseña.
+  Future<void> updateUser(AppUser user, {String? password}) async {
+    final id = user.id;
+    if (id == null) throw ArgumentError('El usuario debe tener un id.');
+    _validateUser(user);
+    if (await emailExists(user.email, exceptId: id)) {
+      throw StateError('Ya existe una cuenta con ese email.');
     }
-    if (name.isEmpty) {
-      throw ArgumentError('El nombre del empleado es obligatorio.');
+    final values = <String, Object?>{
+      'name': user.name.trim(),
+      'surname': user.surname.trim(),
+      'email': _normalizeEmail(user.email),
+      'role_id': user.role?.id,
+      'active': user.active ? 1 : 0,
+      'opener': user.opener ? 1 : 0,
+      'working_days': AppUser.formatWorkingDays(user.workingDays),
+      'updated_at': _now,
+    };
+    if (password != null && password.isNotEmpty) {
+      _validatePassword(password);
+      final salt = PasswordHasher.newSalt();
+      values['password_hash'] = PasswordHasher.hash(password, salt);
+      values['password_salt'] = salt;
     }
-    if (roleId == null) {
-      throw ArgumentError('El empleado debe tener un puesto.');
-    }
-    await (await db).update(
-      'employee',
-      {
-        'name': name,
-        'role_id': roleId,
-        'active': employee.active ? 1 : 0,
-        'opener': employee.opener ? 1 : 0,
-        'working_days': Employee.formatWorkingDays(employee.workingDays),
-        'updated_at': _now,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await (await db).update('users', values, where: 'id = ?', whereArgs: [id]);
     _changed();
   }
 
   /// Baja lógica: conserva los turnos históricos.
-  Future<void> setEmployeeActive(int id, bool active) async {
+  Future<void> setUserActive(int id, bool active) async {
     await (await db).update(
-      'employee',
+      'users',
       {'active': active ? 1 : 0, 'updated_at': _now},
       where: 'id = ?',
       whereArgs: [id],
@@ -1145,12 +1335,157 @@ class Db {
     _changed();
   }
 
+  // ---------------------------------------------------------------------------
+  // Autenticación y sesión
+  // ---------------------------------------------------------------------------
+
+  static const String _sessionKey = 'session_user_id';
+
+  /// Comprueba email y contraseña y, si son correctos, abre la sesión.
+  ///
+  /// Devuelve `null` si las credenciales no coinciden. Lanza [StateError] si
+  /// la cuenta existe pero está desactivada.
+  Future<AppUser?> authenticate(String email, String password) async {
+    final rows = await (await db).query(
+      'users',
+      where: 'email = ?',
+      whereArgs: [_normalizeEmail(email)],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.single;
+    final valid = PasswordHasher.verify(
+      password,
+      row['password_salt'] as String,
+      row['password_hash'] as String,
+    );
+    if (!valid) return null;
+    if ((row['active'] as int) != 1) {
+      throw StateError('La cuenta está desactivada.');
+    }
+    final user = await userById(row['id'] as int);
+    if (user == null) return null;
+    await _saveSession(user.id!);
+    return user;
+  }
+
+  /// Crea una cuenta desde el registro y la deja con la sesión iniciada.
+  Future<AppUser> registerUser({
+    required String name,
+    required String surname,
+    required String email,
+    required String password,
+  }) async {
+    final id = await addUser(
+      AppUser(
+        name: name.trim(),
+        surname: surname.trim(),
+        email: _normalizeEmail(email),
+      ),
+      password: password,
+    );
+    await _saveSession(id);
+    return (await userById(id))!;
+  }
+
+  /// Usuario de la sesión actual, o `null` si no hay sesión válida.
+  Future<AppUser?> currentUser() async {
+    final rows = await (await db).query(
+      'app_metadata',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_sessionKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final id = int.tryParse((rows.single['value'] as String?) ?? '');
+    if (id == null) {
+      await logout();
+      return null;
+    }
+    final user = await userById(id);
+    if (user == null || !user.active) {
+      await logout();
+      return null;
+    }
+    return user;
+  }
+
+  Future<void> logout() async {
+    await (await db).delete(
+      'app_metadata',
+      where: 'key = ?',
+      whereArgs: [_sessionKey],
+    );
+  }
+
+  Future<void> _saveSession(int userId) async {
+    await (await db).insert(
+      'app_metadata',
+      {'key': _sessionKey, 'value': '$userId'},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Cambia la contraseña verificando antes la actual.
+  Future<void> changePassword(
+    int userId,
+    String currentPassword,
+    String newPassword,
+  ) async {
+    _validatePassword(newPassword);
+    final rows = await (await db).query(
+      'users',
+      columns: ['password_hash', 'password_salt'],
+      where: 'id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('El usuario no existe.');
+    final row = rows.single;
+    if (!PasswordHasher.verify(
+      currentPassword,
+      row['password_salt'] as String,
+      row['password_hash'] as String,
+    )) {
+      throw StateError('La contraseña actual no es correcta.');
+    }
+    final salt = PasswordHasher.newSalt();
+    await (await db).update(
+      'users',
+      {
+        'password_hash': PasswordHasher.hash(newPassword, salt),
+        'password_salt': salt,
+        'updated_at': _now,
+      },
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
+    _changed();
+  }
+
+  static String _normalizeEmail(String email) => email.trim().toLowerCase();
+
+  static void _validateUser(AppUser user) {
+    if (user.name.trim().isEmpty) {
+      throw ArgumentError('El nombre del usuario es obligatorio.');
+    }
+    if (!isValidEmail(user.email)) {
+      throw ArgumentError('El email no es válido.');
+    }
+  }
+
+  static void _validatePassword(String password) {
+    if (password.length < 6) {
+      throw ArgumentError('La contraseña debe tener al menos 6 caracteres.');
+    }
+  }
+
   static const String _shiftSelect = '''
-    SELECT s.id, s.date, s.employee_id, e.name AS employee_name,
+    SELECT s.id, s.date, s.user_id, s.user_name,
            s.role_id, s.role_name, s.floor,
            s.start_min, s.end_min, s.break_min, s.status, s.note
-    FROM shift s
-    JOIN employee e ON e.id = s.employee_id''';
+    FROM shift s''';
 
   /// Turnos de un mes completo, ordenados por fecha y planta.
   Future<List<Shift>> shiftsForMonth(DateTime month) async {
@@ -1158,7 +1493,7 @@ class Db {
     final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
     final rows = await (await db).rawQuery(
       '$_shiftSelect WHERE s.date >= ? AND s.date <= ? '
-      'ORDER BY s.date, s.floor, s.role_name, e.name',
+      'ORDER BY s.date, s.floor, s.role_name, s.user_name',
       [first, last],
     );
     return rows.map(Shift.fromRow).toList();
@@ -1183,7 +1518,8 @@ class Db {
         final note = s.note.trim();
         await t.insert('shift', {
           'date': s.date,
-          'employee_id': s.employeeId,
+          'user_id': s.userId,
+          'user_name': s.userName,
           'role_id': s.roleId,
           'role_name': s.roleName,
           'floor': s.floor.db,
@@ -1286,16 +1622,17 @@ class Db {
     _changed();
   }
 
-  /// Inserta los puestos y empleados iniciales si la tabla `employee` está
-  /// vacía. Los puestos que ya existan se reutilizan por nombre, así que la
-  /// semilla no falla si el usuario creó alguno antes.
+  /// Inserta los puestos y usuarios iniciales si la tabla `users` está vacía.
+  /// Los puestos que ya existan se reutilizan por nombre, así que la semilla no
+  /// falla si el usuario creó alguno antes. Las cuentas usan la contraseña
+  /// temporal [kSeedPassword].
   Future<void> seedStaff(
     List<JobRole> roles,
-    List<({String name, String role})> employees,
+    List<({String name, String surname, String email, String role})> users,
   ) async {
     final database = await db;
     await database.transaction((t) async {
-      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM employee'))
+      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM users'))
           .single['c'] as int;
       if (count > 0) return;
       final now = _now;
@@ -1319,12 +1656,15 @@ class Db {
                 'updated_at': now,
               });
       }
-      for (final employee in employees) {
-        final roleId = roleIds[employee.role];
-        if (roleId == null) continue;
-        await t.insert('employee', {
-          'name': employee.name.trim(),
-          'role_id': roleId,
+      for (final user in users) {
+        final salt = PasswordHasher.newSalt();
+        await t.insert('users', {
+          'name': user.name.trim(),
+          'surname': user.surname.trim(),
+          'email': _normalizeEmail(user.email),
+          'password_hash': PasswordHasher.hash(kSeedPassword, salt),
+          'password_salt': salt,
+          'role_id': roleIds[user.role],
           'active': 1,
           'opener': 0,
           'working_days': '',
