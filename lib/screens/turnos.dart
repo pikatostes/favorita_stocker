@@ -1077,6 +1077,7 @@ class _AppUserDialogState extends State<_AppUserDialog> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.user != null;
+    final canAssignRole = AuthController.i.user?.role == UserRole.admin;
     return AlertDialog(
       title: Text(editing ? 'Editar usuario' : 'Nuevo usuario'),
       content: SingleChildScrollView(
@@ -1135,21 +1136,29 @@ class _AppUserDialogState extends State<_AppUserDialog> {
                   return null;
                 },
               ),
-              DropdownButtonFormField<UserRole>(
-                initialValue: _accessRole,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Rol de acceso'),
-                items: [
-                  for (final role in UserRole.values)
-                    DropdownMenuItem<UserRole>(
-                      value: role,
-                      child: Text(role.label),
-                    ),
-                ],
-                onChanged: (value) => setState(
-                  () => _accessRole = value ?? UserRole.employee,
+              if (canAssignRole)
+                DropdownButtonFormField<UserRole>(
+                  initialValue: _accessRole,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Rol de acceso'),
+                  items: [
+                    for (final role in UserRole.values)
+                      DropdownMenuItem<UserRole>(
+                        value: role,
+                        child: Text(role.label),
+                      ),
+                  ],
+                  onChanged: (value) => setState(
+                    () => _accessRole = value ?? UserRole.employee,
+                  ),
+                )
+              else
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Rol de acceso'),
+                  subtitle: Text(_accessRole.label),
+                  trailing: const Icon(Icons.lock_outline, size: 18),
                 ),
-              ),
               DropdownButtonFormField<JobRole>(
                 initialValue: _jobRole,
                 isExpanded: true,
