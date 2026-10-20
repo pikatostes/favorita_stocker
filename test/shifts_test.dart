@@ -18,6 +18,22 @@ Employee _employee(int id, String name, JobRole role,
       workingDays: workingDays,
     );
 
+List<Shift> _day(List<Shift> shifts, String date) =>
+    shifts.where((s) => s.date == date).toList();
+
+Set<String> _datesOn(List<Shift> shifts, int weekday) => shifts
+    .map((s) => s.date)
+    .where((d) => DateTime.parse(d).weekday == weekday)
+    .toSet();
+
+/// Presentes a las 16:00: apertura y turno completo.
+int _atOpening(List<Shift> day) =>
+    day.where((s) => s.startMin == ShiftGenerator.openingStart).length;
+
+/// Presentes a las 21:00: segundo turno y turno completo.
+int _atPeak(List<Shift> day) =>
+    day.where((s) => s.endMin == ShiftGenerator.closingEnd).length;
+
 void main() {
   group('duración y descansos', () {
     test('calcula la duración y el cruce de medianoche', () {
@@ -256,6 +272,126 @@ void main() {
       );
 
       expect(shifts, isEmpty);
+    });
+
+    test('los viernes la terraza abre a las 21:00 con dos personas', () {
+      final terraza = _role(1, 'Terraza', Floor.terraza);
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        employees: [
+          _employee(1, 'Ana', terraza, opener: true),
+          _employee(2, 'Luis', terraza),
+        ],
+        specialDays: const {},
+      );
+
+      final fridays = _datesOn(shifts, DateTime.friday);
+      expect(fridays, isNotEmpty);
+      for (final date in fridays) {
+        final day = _day(shifts, date);
+        expect(day.length, 2, reason: date);
+        // La terraza no abre a las 16:00: todos entran a las 21:00.
+        expect(_atOpening(day), 0, reason: date);
+        expect(
+          day.every((s) => s.startMin == ShiftGenerator.openingEnd),
+          isTrue,
+          reason: date,
+        );
+        expect(_atPeak(day), 2, reason: date);
+      }
+    });
+
+    test('los viernes la terraza programa a todos los disponibles', () {
+      final terraza = _role(1, 'Terraza', Floor.terraza);
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        employees: [
+          _employee(1, 'Ana', terraza, opener: true),
+          _employee(2, 'Luis', terraza),
+          _employee(3, 'Marta', terraza),
+        ],
+        specialDays: const {},
+      );
+
+      for (final date in _datesOn(shifts, DateTime.friday)) {
+        final day = _day(shifts, date);
+        expect(day.length, 3, reason: date);
+        expect(
+          day.every((s) => s.startMin == ShiftGenerator.openingEnd),
+          isTrue,
+          reason: date,
+        );
+        expect(_atPeak(day), greaterThanOrEqualTo(2), reason: date);
+      }
+    });
+
+    test('la terraza tiene dos personas desde las 16:00 los sábados', () {
+      final terraza = _role(1, 'Terraza', Floor.terraza);
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        employees: [
+          _employee(1, 'Ana', terraza, opener: true),
+          _employee(2, 'Luis', terraza, opener: true),
+        ],
+        specialDays: const {},
+      );
+
+      final saturdays = _datesOn(shifts, DateTime.saturday);
+      expect(saturdays, isNotEmpty);
+      for (final date in saturdays) {
+        final day = _day(shifts, date);
+        expect(day.length, 2, reason: date);
+        expect(_atOpening(day), greaterThanOrEqualTo(2), reason: date);
+        expect(_atPeak(day), greaterThanOrEqualTo(2), reason: date);
+      }
+    });
+
+    test('la terraza cubre ambos tramos con tres personas', () {
+      final terraza = _role(1, 'Terraza', Floor.terraza);
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        employees: [
+          _employee(1, 'Ana', terraza, opener: true),
+          _employee(2, 'Luis', terraza, opener: true),
+          _employee(3, 'Marta', terraza),
+        ],
+        specialDays: const {},
+      );
+
+      for (final date in _datesOn(shifts, DateTime.saturday)) {
+        final day = _day(shifts, date);
+        expect(day.length, 3, reason: date);
+        expect(_atOpening(day), 2, reason: date);
+        expect(_atPeak(day), 2, reason: date);
+        // Un turno completo cubre la apertura y el segundo turno.
+        expect(
+          day
+              .where((s) =>
+                  s.startMin == ShiftGenerator.openingStart &&
+                  s.endMin == ShiftGenerator.closingEnd)
+              .length,
+          1,
+          reason: date,
+        );
+      }
+    });
+
+    test('la regla de dos personas solo aplica a la terraza', () {
+      final sala = _role(1, 'Sala', Floor.plantaBaja);
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        employees: [
+          _employee(1, 'Ana', sala, opener: true),
+          _employee(2, 'Luis', sala, opener: true),
+        ],
+        specialDays: const {},
+      );
+
+      for (final date in _datesOn(shifts, DateTime.saturday)) {
+        final day = _day(shifts, date);
+        expect(_atOpening(day), 1, reason: date);
+        expect(_atPeak(day), 1, reason: date);
+      }
     });
   });
 }

@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'models.dart';
 import 'schedule.dart';
 
@@ -292,11 +290,15 @@ String weekdayShort(int weekday) => weekdayShortNames[weekday - 1];
 /// Genera el horario de un mes a partir de los empleados activos.
 ///
 /// Solo se trabaja viernes y sábado. Cada empleado hace un turno por noche:
-/// apertura (16:00–21:00) o segundo turno (21:00–04:00). Para equilibrar las
+/// apertura (16:00–21:00), segundo turno (21:00–04:00) o turno completo
+/// (16:00–04:00) cuando hace falta cubrir ambos tramos. Para equilibrar las
 /// horas, dentro de cada planta se asignan los turnos más largos a quienes
-/// llevan menos horas acumuladas en el mes. Si una planta tiene una sola
-/// persona, esa persona cubre el turno completo (16:00–04:00) para no dejar la
-/// planta sin nadie.
+/// llevan menos horas acumuladas en el mes.
+///
+/// La terraza abre a las 21:00 los viernes y a las 16:00 los sábados; en ambos
+/// casos necesita al menos dos personas desde la hora de apertura. Si no hay
+/// suficientes empleados disponibles, se programa a todos y la terraza queda
+/// incompleta.
 ///
 /// Las excepciones de cierre (`SpecialDay.open == false`) se respetan; las
 /// aperturas extra no se generan automáticamente. Un empleado solo entra en un
@@ -356,36 +358,59 @@ class ShiftGenerator {
         final openers = [for (final e in available) if (e.opener) e];
         if (openers.isEmpty) continue;
 
-        if (available.length == 1) {
-          // El único disponible es un opener: cubre 16:00–04:00.
-          final e = available.single;
-          out.add(_build(d, e, openingStart, closingEnd));
-          final minutes =
-              workedMinutesFor(startMin: openingStart, endMin: closingEnd);
-          worked[e.id!] = worked[e.id!]! + minutes;
+        // Los viernes la terraza abre a las 21:00: no hay turno a las 16:00 y
+        // todo el mundo empieza en el segundo turno. Al haber un opener
+        // disponible, la terraza se puede abrir.
+        if (floor == Floor.terraza && d.weekday == DateTime.friday) {
+          for (final e in available) {
+            out.add(_build(d, e, openingEnd, closingEnd));
+            worked[e.id!] = worked[e.id!]! +
+                workedMinutesFor(startMin: openingEnd, endMin: closingEnd);
+          }
           continue;
         }
 
-        // Apertura: la mitad hacia abajo, pero como mucho tantos como openers
-        // haya. Los no-openers van siempre al segundo turno.
-        final earlyCount = min(available.length ~/ 2, openers.length);
+        // Mínimos de personas por tramo según la planta y el día.
+        final mins = _minimums(floor, d.weekday);
+        final counts = _splitCounts(
+          n: available.length,
+          openers: openers.length,
+          openMin: mins.open,
+          peakMin: mins.peak,
+        );
 
-        // Entre los openers, los que llevan más horas del mes hacen la apertura
-        // (turno más corto); así los turnos largos rotan hacia quien lleva
-        // menos. Los no-openers quedan en el segundo turno por obligación.
-        final earlyIds = (openers.toList()
+        // Los turnos completos (los más largos) van a los openers con menos
+        // horas del mes; la apertura (el más corto), a los que llevan más. Así
+        // los turnos largos rotan. Los no-openers van al segundo turno.
+        final openersByHours = openers.toList()
+          ..sort((a, b) {
+            final byHours = worked[a.id]!.compareTo(worked[b.id]!);
+            return byHours != 0 ? byHours : a.name.compareTo(b.name);
+          });
+        final fullIds =
+            openersByHours.take(counts.full).map((e) => e.id).toSet();
+        final earlyIds = (openersByHours.skip(counts.full).toList()
               ..sort((a, b) {
                 final byHours = worked[b.id]!.compareTo(worked[a.id]!);
                 return byHours != 0 ? byHours : a.name.compareTo(b.name);
               }))
-            .take(earlyCount)
+            .take(counts.early)
             .map((e) => e.id)
             .toSet();
 
         for (final e in available) {
-          final early = earlyIds.contains(e.id);
-          final start = early ? openingStart : openingEnd;
-          final end = early ? openingEnd : closingEnd;
+          final int start;
+          final int end;
+          if (fullIds.contains(e.id)) {
+            start = openingStart;
+            end = closingEnd;
+          } else if (earlyIds.contains(e.id)) {
+            start = openingStart;
+            end = openingEnd;
+          } else {
+            start = openingEnd;
+            end = closingEnd;
+          }
           out.add(_build(d, e, start, end));
           worked[e.id!] =
               worked[e.id!]! + workedMinutesFor(startMin: start, endMin: end);
@@ -400,6 +425,67 @@ class ShiftGenerator {
       return byFloor != 0 ? byFloor : a.employeeName.compareTo(b.employeeName);
     });
     return out;
+  }
+
+  /// Mínimos de personas por tramo (apertura 16:00–21:00 y segundo turno
+  /// 21:00–04:00) para una planta y un día. La terraza abre a las 16:00 los
+  /// sábados y necesita dos personas desde esa hora; el resto de plantas, una
+  /// persona en cada tramo. Los viernes la terraza se trata aparte porque abre
+  /// directamente a las 21:00.
+  static ({int open, int peak}) _minimums(Floor floor, int weekday) {
+    if (floor == Floor.terraza && weekday == DateTime.saturday) {
+      return (open: 2, peak: 2);
+    }
+    return (open: 1, peak: 1);
+  }
+
+  /// Reparte [n] personas en apertura, segundo turno y turno completo para
+  /// cubrir [openMin] y [peakMin]. El turno completo cuenta para ambos tramos.
+  /// Si no se pueden cumplir (p. ej. faltan openers), devuelve el reparto que
+  /// cubre lo máximo posible con las personas disponibles.
+  static ({int early, int late, int full}) _splitCounts({
+    required int n,
+    required int openers,
+    required int openMin,
+    required int peakMin,
+  }) {
+    if (n <= 1) return (early: 0, late: 0, full: n);
+
+    // Reparto de referencia: mitad en apertura y mitad en el segundo turno.
+    final baseEarly = n ~/ 2;
+    ({int early, int late, int full})? best;
+    int? bestMet;
+    int? bestDeficit;
+    int? bestDistance;
+
+    for (var full = 0; full <= n; full++) {
+      for (var early = 0; early <= n - full; early++) {
+        final late = n - full - early;
+        if (early + full > openers) continue; // abrir exige opener
+        final open = early + full;
+        final peak = late + full;
+        final met = (open >= openMin ? 1 : 0) + (peak >= peakMin ? 1 : 0);
+        final deficit = (openMin > open ? openMin - open : 0) +
+            (peakMin > peak ? peakMin - peak : 0);
+        // A igualdad de cobertura, parecerse al reparto de referencia y usar
+        // los menos turnos completos posibles.
+        final distance = (early - baseEarly).abs() * 2 + full;
+
+        final better = best == null ||
+            met > bestMet! ||
+            (met == bestMet && deficit < bestDeficit!) ||
+            (met == bestMet &&
+                deficit == bestDeficit &&
+                distance < bestDistance!);
+        if (better) {
+          best = (early: early, late: late, full: full);
+          bestMet = met;
+          bestDeficit = deficit;
+          bestDistance = distance;
+        }
+      }
+    }
+    return best!;
   }
 
   static Shift _build(DateTime date, Employee e, int start, int end) => Shift(

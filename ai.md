@@ -190,22 +190,33 @@ eventos, meteorología, stock sobrante.
 ### Turnos (`shifts.dart`, `ShiftGenerator.generateMonth`)
 - Solo se generan **viernes y sábado** (`Schedule.openWeekdays`). Se respetan
   los cierres de `SpecialDay` (`open=false`); las aperturas extra no se generan.
-- Dos bloques: apertura **16:00–21:00** (5 h) y segundo **21:00–04:00** (7 h).
-  Cada empleado activo hace un turno por noche; no hay turno partido.
+- Tres tipos de turno: apertura **16:00–21:00** (5 h), segundo **21:00–04:00**
+  (7 h) y completo **16:00–04:00** (12 h) cuando hace falta cubrir ambos
+  tramos. Cada empleado activo hace un turno por noche; no hay turno partido.
 - **Descanso** solo si se entra antes de las 21:00: >8 h → 40 min; >6 h →
   25 min. Se guarda en `shift.break_min` y no se cuenta como trabajado.
+- **Terraza**: los **viernes abre a las 21:00**, así que todo su personal
+  entra al segundo turno (no se genera turno a las 16:00); los **sábados abre
+  a las 16:00** con el reparto normal. En ambos casos necesita **al menos dos
+  personas desde la hora de apertura**. Si faltan empleados, se programa a
+  todos los disponibles y la terraza puede quedar incompleta.
+- **Mínimos de cobertura**: cada planta necesita al menos una persona en la
+  apertura y otra en el segundo turno. El generador usa turnos completos
+  cuando no hay suficientes personas para cubrir ambos tramos por separado.
 - **Equidad por planta**: dentro de cada `Floor` se ordenan los empleados por
-  horas acumuladas del mes y los turnos largos (7 h) van a quien lleva menos.
-  Si una planta tiene una sola persona, esa persona cubre 16:00–04:00 (12 h,
-  40 min de descanso) para no dejar la planta vacía. La equidad global no se
-  fuerza entre plantas con distinto número de personas.
+  horas acumuladas del mes y los turnos más largos (completo > segundo >
+  apertura) van a quien lleva menos. Si una planta tiene una sola persona, esa
+  persona cubre la noche completa (16:00–04:00, o 21:00–04:00 en la terraza de
+  los viernes) para no dejar la planta vacía. La equidad global no se fuerza
+  entre plantas con distinto número de personas.
 - **Disponibilidad**: un empleado solo entra en un día si `workingDays` está
   vacío o contiene el día de la semana de esa fecha.
-- **Apertura solo con `opener`**: el turno de apertura (el que empieza a las
-  16:00) solo se asigna a empleados con `opener = true`. Los no-openers van
-  siempre al segundo turno. Si una planta no tiene ningún opener disponible esa
-  noche, **no se programa** (el hueco queda visible en el calendario); con una
-  sola persona disponible y opener, cubre 16:00–04:00.
+- **Apertura solo con `opener`**: los turnos que empiezan a las 16:00 (apertura
+  y completo) solo se asignan a empleados con `opener = true`. Los no-openers
+  van siempre al segundo turno. Si una planta no tiene ningún opener disponible
+  esa noche, **no se programa** (el hueco queda visible en el calendario); en la
+  terraza de los viernes, que abre a las 21:00, basta con que haya un opener
+  entre el personal programado.
 - `ShiftGenerator` usa el **día de servicio** (`Schedule.fmt`) y recorre el mes
   por componentes, no con `Duration(days: 1)`, para no perder el último día en
   los cambios de hora oficial.
@@ -304,5 +315,8 @@ Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
   `replaceMonthShifts` y añade tests.
 - **Equidad de turnos** es por planta: una planta con una sola persona trabaja
   12 h cada noche. Para repartir mejor, añade más personal a esa planta.
+- **Mínimo de terraza**: con pocos openers no se pueden cubrir las dos personas
+  desde la apertura; el generador programa a todos los disponibles y el hueco
+  queda visible, pero no inventa personal.
 - **Confirmación multidispositivo**: el estado `confirmado` es local. Que cada
   empleado confirme desde su móvil requiere backend; SQLite no sincroniza.
