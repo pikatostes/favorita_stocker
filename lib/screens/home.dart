@@ -993,7 +993,7 @@ class _HomeDashboardState extends State<_HomeDashboard> {
                         if (floorShifts.isEmpty)
                           _mutedText(emptyLabel)
                         else
-                          _teamRow(floor: floor, shifts: floorShifts),
+                          _teamRow(shifts: floorShifts),
                         if (noOpener.contains(floor))
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -1012,47 +1012,49 @@ class _HomeDashboardState extends State<_HomeDashboard> {
     );
   }
 
-  Widget _teamRow({
-    required Floor floor,
-    required List<Shift> shifts,
-  }) {
+  /// Miembros de la planta en filas de 5: avatar con su inicial y el nombre
+  /// debajo. La planta ya se indica en la pestaña seleccionada.
+  Widget _teamRow({required List<Shift> shifts}) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 6,
+        mainAxisExtent: 80,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 4,
+      ),
+      itemCount: shifts.length,
+      itemBuilder: (context, index) => _memberTile(shifts[index]),
+    );
+  }
+
+  Widget _memberTile(Shift shift) {
     final theme = Theme.of(context);
-    final names = shifts.map((shift) => shift.userName).join(', ');
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            _floorIcon(floor),
-            size: 18,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${floor.label}: ',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  TextSpan(
-                    text: names.isEmpty ? 'Sin turnos' : names,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: names.isEmpty
-                          ? theme.colorScheme.onSurfaceVariant
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
+    final name = shift.userName.trim();
+    final initial = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 20,
+          child: Text(
+            initial,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
     );
   }
 
