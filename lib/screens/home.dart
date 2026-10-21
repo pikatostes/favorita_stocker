@@ -685,21 +685,11 @@ class _HomeDashboardState extends State<_HomeDashboard> {
       icon: Icons.nightlife,
       title: title,
       children: [
-        if (shifts.isEmpty)
-          _mutedText('Aún no hay turnos generados para esa noche.')
-        else
-          for (final floor in Floor.values)
-            _teamRow(
-              floor: floor,
-              shifts: shifts.where((shift) => shift.floor == floor).toList(),
-            ),
-        if (shifts.isNotEmpty && noOpener.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: _warningLine(
-              'Sin opener en ${noOpener.map((floor) => floor.label).join(', ')}.',
-            ),
-          ),
+        _floorTabs(
+          shifts: shifts,
+          noOpener: noOpener.toSet(),
+          emptyLabel: 'Sin turnos generados en esta planta.',
+        ),
       ],
     );
   }
@@ -930,14 +920,10 @@ class _HomeDashboardState extends State<_HomeDashboard> {
       icon: Icons.groups,
       title: title,
       children: [
-        if (visible.isEmpty)
-          _mutedText('Aún no hay turnos publicados para esa noche.')
-        else
-          for (final floor in Floor.values)
-            _teamRow(
-              floor: floor,
-              shifts: visible.where((shift) => shift.floor == floor).toList(),
-            ),
+        _floorTabs(
+          shifts: visible,
+          emptyLabel: 'Sin turnos publicados en esta planta.',
+        ),
       ],
     );
   }
@@ -964,6 +950,62 @@ class _HomeDashboardState extends State<_HomeDashboard> {
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pestañas por planta del local. Cada pestaña conserva el icono de su
+  /// planta y solo muestra los turnos de la planta seleccionada.
+  Widget _floorTabs({
+    required List<Shift> shifts,
+    required String emptyLabel,
+    Set<Floor> noOpener = const {},
+  }) {
+    return DefaultTabController(
+      length: Floor.values.length,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TabBar(
+            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+            tabs: [
+              for (final floor in Floor.values)
+                Tab(icon: Icon(_floorIcon(floor)), text: floor.label),
+            ],
+          ),
+          Builder(
+            builder: (context) {
+              final tabs = DefaultTabController.of(context);
+              return AnimatedBuilder(
+                animation: tabs,
+                builder: (context, _) {
+                  final floor = Floor.values[tabs.index];
+                  final floorShifts = shifts
+                      .where((shift) => shift.floor == floor)
+                      .toList(growable: false);
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (floorShifts.isEmpty)
+                          _mutedText(emptyLabel)
+                        else
+                          _teamRow(floor: floor, shifts: floorShifts),
+                        if (noOpener.contains(floor))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child:
+                                _warningLine('Sin opener en ${floor.label}.'),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),
