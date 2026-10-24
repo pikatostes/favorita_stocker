@@ -4,6 +4,7 @@ import '../db.dart';
 import '../models.dart';
 import '../schedule.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/month_calendar.dart';
 import 'plan.dart';
 
 class _CalData {
@@ -62,9 +63,6 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
     super.dispose();
   }
 
-  void _goMonth(int delta) =>
-      setState(() => _month = DateTime(_month.year, _month.month + delta));
-
   void _goToday() {
     final now = DateTime.now();
     setState(() {
@@ -111,84 +109,34 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
 
   // ---------- Cuadrícula del mes ----------
 
-  Widget _cell(DateTime? day, _CalData d) {
-    if (day == null) return const SizedBox(height: 44);
+  CalendarDayStyle _dayStyle(_CalData d, DateTime day) {
     final cs = Theme.of(context).colorScheme;
     final key = Schedule.fmt(day);
-    final worked = d.nights.containsKey(key);
     final sp = d.special[key];
-    final open = Schedule.isOpen(day, d.special);
-    final today = day == Schedule.day(DateTime.now());
-    final selected = day == _selected;
-
-    Color? bg;
-    var fg = cs.onSurface;
-    Border? border;
-    if (worked) {
-      bg = cs.primary;
-      fg = cs.onPrimary;
-    } else if (sp != null && !sp.open) {
-      bg = cs.errorContainer;
-      fg = cs.onErrorContainer;
-    } else if (open) {
-      border = Border.all(color: cs.primary, width: 1.5);
+    if (d.nights.containsKey(key)) {
+      return CalendarDayStyle(fill: cs.primary, textColor: cs.onPrimary);
     }
-    if (selected) border = Border.all(color: cs.onSurface, width: 2.5);
-
-    return InkWell(
-      customBorder: const CircleBorder(),
-      onTap: () => setState(() => _selected = day),
-      child: SizedBox(
-        height: 44,
-        child: Center(
-          child: Stack(alignment: Alignment.center, children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: bg, border: border),
-              alignment: Alignment.center,
-              child: Text('${day.day}',
-                  style: TextStyle(
-                      color: fg,
-                      fontWeight: today ? FontWeight.w900 : FontWeight.normal,
-                      decoration: today ? TextDecoration.underline : null)),
-            ),
-            if (sp != null)
-              Positioned(
-                  bottom: 1,
-                  child: Icon(Icons.circle, size: 6, color: cs.tertiary)),
-          ]),
-        ),
-      ),
-    );
+    if (sp != null && !sp.open) {
+      return CalendarDayStyle(
+        fill: cs.errorContainer,
+        textColor: cs.onErrorContainer,
+      );
+    }
+    if (Schedule.isOpen(day, d.special)) {
+      return CalendarDayStyle(
+        border: Border.all(color: cs.primary, width: 1.5),
+      );
+    }
+    return const CalendarDayStyle();
   }
 
-  Widget _grid(_CalData d) {
-    final first = DateTime(_month.year, _month.month, 1);
-    final lead = first.weekday - 1;
-    final days = DateTime(_month.year, _month.month + 1, 0).day;
-    final cells = <DateTime?>[
-      for (var i = 0; i < lead; i++) null,
-      for (var i = 1; i <= days; i++) DateTime(_month.year, _month.month, i),
-    ];
-    while (cells.length % 7 != 0) {
-      cells.add(null);
-    }
-    return Column(children: [
-      Row(children: [
-        for (final w in const ['L', 'M', 'X', 'J', 'V', 'S', 'D'])
-          Expanded(
-              child: Center(
-                  child:
-                      Text(w, style: Theme.of(context).textTheme.labelMedium))),
-      ]),
-      const SizedBox(height: 4),
-      for (var r = 0; r < cells.length; r += 7)
-        Row(children: [
-          for (var c = 0; c < 7; c++) Expanded(child: _cell(cells[r + c], d)),
-        ]),
-    ]);
+  Widget? _dayFooter(_CalData d, DateTime day) {
+    if (!d.special.containsKey(Schedule.fmt(day))) return null;
+    return Icon(
+      Icons.circle,
+      size: 6,
+      color: Theme.of(context).colorScheme.tertiary,
+    );
   }
 
   Widget _legend() {
@@ -334,28 +282,21 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
           }
           final d = s.data!;
           return ListView(padding: const EdgeInsets.all(12), children: [
-            Row(children: [
-              IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => _goMonth(-1)),
-              Expanded(
-                child: Center(
-                  child: Text(
-                      _cap(DateFormat('MMMM yyyy', 'es').format(_month)),
-                      style: Theme.of(context).textTheme.titleLarge),
-                ),
-              ),
-              IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => _goMonth(1)),
-              if (widget.embedded)
-                IconButton(
-                  tooltip: 'Hoy',
-                  icon: const Icon(Icons.today),
-                  onPressed: _goToday,
-                ),
-            ]),
-            _grid(d),
+            MonthCalendar(
+              month: _month,
+              selected: _selected,
+              onSelect: (day) => setState(() => _selected = day),
+              onMonthChanged: (month) => setState(() => _month = month),
+              styleFor: (day) => _dayStyle(d, day),
+              footerFor: (day) => _dayFooter(d, day),
+              headerTrailing: widget.embedded
+                  ? IconButton(
+                      tooltip: 'Hoy',
+                      icon: const Icon(Icons.today),
+                      onPressed: _goToday,
+                    )
+                  : null,
+            ),
             const SizedBox(height: 8),
             _legend(),
             _details(d),

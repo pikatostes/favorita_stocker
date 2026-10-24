@@ -7,6 +7,7 @@ import '../models.dart';
 import '../schedule.dart';
 import '../shifts.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/month_calendar.dart';
 
 String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
@@ -199,12 +200,6 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     super.dispose();
   }
 
-  void _goMonth(int delta) => setState(() {
-        _month = DateTime(_month.year, _month.month + delta);
-        _selected = _firstOpenDay(_month);
-        _future = _load();
-      });
-
   void _goToday() {
     final next = _nextOpenDay(DateTime.now());
     setState(() {
@@ -297,152 +292,61 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     await Db.i.deleteShift(shift.id!);
   }
 
-  Widget _monthHeader() => Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => _goMonth(-1),
-          ),
-          Expanded(
-            child: Center(
-              child: Text(
-                _cap(DateFormat('MMMM yyyy', 'es').format(_month)),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => _goMonth(1),
-          ),
-        ],
-      );
-
-  Widget _calendar(
+  CalendarDayStyle _dayStyle(
     _ScheduleData data,
     Map<String, List<Shift>> byDate,
+    DateTime day,
   ) {
-    final first = DateTime(_month.year, _month.month, 1);
-    final leading = first.weekday - DateTime.monday;
-    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
-    final cells = <DateTime?>[
-      for (var i = 0; i < leading; i++) null,
-      for (var day = 1; day <= daysInMonth; day++)
-        DateTime(_month.year, _month.month, day),
-    ];
-    while (cells.length % 7 != 0) {
-      cells.add(null);
+    final cs = Theme.of(context).colorScheme;
+    final key = Schedule.fmt(day);
+    final special = data.special[key];
+    if ((byDate[key] ?? const <Shift>[]).isNotEmpty) {
+      return CalendarDayStyle(fill: cs.primary, textColor: cs.onPrimary);
     }
-
-    const weekdays = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-    return Column(
-      children: [
-        Row(
-          children: [
-            for (final label in weekdays)
-              Expanded(
-                child: Center(
-                  child: Text(
-                    label,
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        for (var row = 0; row < cells.length; row += 7)
-          Row(
-            children: [
-              for (var col = 0; col < 7; col++)
-                Expanded(
-                  child: _calendarCell(cells[row + col], data, byDate),
-                ),
-            ],
-          ),
-      ],
-    );
+    if (special != null && !special.open) {
+      return CalendarDayStyle(
+        fill: cs.errorContainer,
+        textColor: cs.onErrorContainer,
+      );
+    }
+    if (Schedule.isOpen(day, data.special)) {
+      return CalendarDayStyle(
+        border: Border.all(color: cs.primary, width: 1.5),
+      );
+    }
+    return const CalendarDayStyle();
   }
 
-  Widget _calendarCell(
-    DateTime? day,
+  Widget? _dayFooter(
     _ScheduleData data,
     Map<String, List<Shift>> byDate,
+    DateTime day,
   ) {
-    if (day == null) return const SizedBox(height: 50);
     final cs = Theme.of(context).colorScheme;
     final key = Schedule.fmt(day);
     final shifts = byDate[key] ?? const <Shift>[];
-    final special = data.special[key];
-    final open = Schedule.isOpen(day, data.special);
-    final today = _day(DateTime.now()) == day;
-    final selected = _selected == day;
-    final hasShifts = shifts.isNotEmpty;
-
-    Color? fill;
-    var textColor = cs.onSurface;
-    Border? border;
-    if (hasShifts) {
-      fill = cs.primary;
-      textColor = cs.onPrimary;
-    } else if (special != null && !special.open) {
-      fill = cs.errorContainer;
-      textColor = cs.onErrorContainer;
-    } else if (open) {
-      border = Border.all(color: cs.primary, width: 1.5);
-    }
-    if (selected) {
-      border = Border.all(color: cs.onSurface, width: 2.5);
-    }
-
-    return InkWell(
-      onTap: () => setState(() => _selected = day),
-      child: SizedBox(
-        height: 50,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: fill,
-                border: border,
-              ),
-              child: Text(
-                '${day.day}',
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: today ? FontWeight.w900 : FontWeight.normal,
-                  decoration: today ? TextDecoration.underline : null,
-                ),
-              ),
-            ),
-            if (hasShifts)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: cs.primaryContainer,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  '${shifts.length}',
-                  style: TextStyle(
-                    fontSize: 8,
-                    height: 1.2,
-                    color: cs.onPrimaryContainer,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              )
-            else if (special != null)
-              Icon(Icons.circle, size: 6, color: cs.tertiary),
-          ],
+    if (shifts.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: cs.primaryContainer,
+          borderRadius: BorderRadius.circular(6),
         ),
-      ),
-    );
+        child: Text(
+          '${shifts.length}',
+          style: TextStyle(
+            fontSize: 8,
+            height: 1.2,
+            color: cs.onPrimaryContainer,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+    if (data.special.containsKey(key)) {
+      return Icon(Icons.circle, size: 6, color: cs.tertiary);
+    }
+    return null;
   }
 
   Widget _legend() {
@@ -585,30 +489,41 @@ class _ScheduleTabState extends State<_ScheduleTab> {
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _monthHeader(),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (widget.isAdmin) ...[
-                    FilledButton.icon(
-                      onPressed: _generate,
-                      icon: const Icon(Icons.auto_awesome),
-                      label: const Text('Generar mes'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: data.shifts.isEmpty ? null : _publish,
-                      icon: const Icon(Icons.publish),
-                      label: const Text('Publicar'),
+              MonthCalendar(
+                month: _month,
+                selected: _selected,
+                onSelect: (day) => setState(() => _selected = day),
+                onMonthChanged: (month) => setState(() {
+                  _month = month;
+                  _selected = _firstOpenDay(month);
+                  _future = _load();
+                }),
+                styleFor: (day) => _dayStyle(data, byDate, day),
+                footerFor: (day) => _dayFooter(data, byDate, day),
+                cellHeight: 50,
+                headerActions: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (widget.isAdmin) ...[
+                      FilledButton.icon(
+                        onPressed: _generate,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('Generar mes'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: data.shifts.isEmpty ? null : _publish,
+                        icon: const Icon(Icons.publish),
+                        label: const Text('Publicar'),
+                      ),
+                    ],
+                    TextButton.icon(
+                      onPressed: _goToday,
+                      icon: const Icon(Icons.today),
+                      label: const Text('Hoy'),
                     ),
                   ],
-                  TextButton.icon(
-                    onPressed: _goToday,
-                    icon: const Icon(Icons.today),
-                    label: const Text('Hoy'),
-                  ),
-                ],
+                ),
               ),
               if (data.users.isEmpty)
                 Card(
@@ -625,8 +540,6 @@ class _ScheduleTabState extends State<_ScheduleTab> {
                   ),
                 ),
               const SizedBox(height: 12),
-              _calendar(data, byDate),
-              const SizedBox(height: 4),
               _legend(),
               const SizedBox(height: 8),
               _dayDetails(data, byDate),
