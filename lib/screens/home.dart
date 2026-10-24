@@ -76,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _pageFor(HomeTab tab) => switch (tab) {
-        HomeTab.start => _HomeDashboard(onNavigate: _goTo),
+        HomeTab.start => const _HomeDashboard(),
         HomeTab.list => const RegistroScreen(),
         HomeTab.forecast => const PrevisionScreen(),
         HomeTab.shifts => const TurnosScreen(),
@@ -175,9 +175,7 @@ class _HomeData {
 }
 
 class _HomeDashboard extends StatefulWidget {
-  final ValueChanged<HomeTab> onNavigate;
-
-  const _HomeDashboard({required this.onNavigate});
+  const _HomeDashboard();
 
   @override
   State<_HomeDashboard> createState() => _HomeDashboardState();
@@ -511,27 +509,6 @@ class _HomeDashboardState extends State<_HomeDashboard> {
             ],
           ),
           if (isAdmin) _nextSpecialLine(data),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _quickAction(Icons.edit_note, 'Lista', HomeTab.list),
-              _quickAction(Icons.insights, 'Previsión', HomeTab.forecast),
-              _quickAction(Icons.groups, 'Turnos', HomeTab.shifts),
-              if (isAdmin)
-                _quickAction(
-                  Icons.admin_panel_settings,
-                  'Admin',
-                  HomeTab.admin,
-                ),
-              _quickAction(
-                Icons.account_circle_outlined,
-                'Cuenta',
-                HomeTab.account,
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -640,16 +617,6 @@ class _HomeDashboardState extends State<_HomeDashboard> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _quickAction(IconData icon, String label, HomeTab tab) {
-    return ActionChip(
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
-      onPressed: () => widget.onNavigate(tab),
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
