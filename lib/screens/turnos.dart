@@ -430,43 +430,6 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     );
   }
 
-  Widget _hoursSummary(_ScheduleData data) {
-    final byUser = <int, ({String name, int minutes})>{};
-    for (final e in data.users) {
-      byUser[e.id!] = (name: e.fullName, minutes: 0);
-    }
-    for (final s in data.shifts) {
-      final current = byUser[s.userId];
-      byUser[s.userId] = (
-        name: s.userName,
-        minutes: (current?.minutes ?? 0) + s.workedMinutes,
-      );
-    }
-    final rows = byUser.values.toList()
-      ..sort((a, b) => b.minutes.compareTo(a.minutes));
-    final total = rows.fold<int>(0, (sum, r) => sum + r.minutes);
-
-    return Card(
-      margin: const EdgeInsets.only(top: 12),
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        title: const Text('Horas del mes'),
-        subtitle: Text('${formatHours(total)} en total'),
-        children: [
-          for (final row in rows)
-            ListTile(
-              dense: true,
-              title: Text(row.name),
-              trailing: Text(
-                formatHours(row.minutes),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) => FutureBuilder<_ScheduleData>(
         future: _future,
@@ -543,7 +506,6 @@ class _ScheduleTabState extends State<_ScheduleTab> {
               _legend(),
               const SizedBox(height: 8),
               _dayDetails(data, byDate),
-              if (data.shifts.isNotEmpty) _hoursSummary(data),
               const SizedBox(height: 80),
             ],
           );
