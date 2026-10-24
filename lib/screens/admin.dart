@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/app_logo.dart';
 import 'calendario.dart';
+import 'inventario.dart';
 import 'productos.dart';
 
 /// Zona de administración: agrupa Calendario, Productos e Inventario en una
@@ -40,7 +41,7 @@ class _AdminScreenState extends State<AdminScreen>
           children: const [
             CalendarioScreen(embedded: true),
             ProductosScreen(embedded: true),
-            SizedBox.shrink(),
+            InventarioScreen(embedded: true),
           ],
         ),
       );

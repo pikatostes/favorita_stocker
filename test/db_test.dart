@@ -134,6 +134,51 @@ void main() {
         'working_days',
       ]),
     );
+
+    final productCols = (await d.rawQuery('PRAGMA table_info(product)'))
+        .map((r) => r['name'])
+        .toSet();
+    expect(productCols, contains('unit_in_stock'));
+  });
+
+  test('migra una base v18 añadiendo unit_in_stock', () async {
+    final path = p.join(dir.path, 'v18.db');
+    final legacy = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 18,
+        onCreate: (d, _) async {
+          await d.execute('''CREATE TABLE product(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            box_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            subcategory_id INTEGER,
+            image TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            deleted_at INTEGER)''');
+          await d.insert('product', {
+            'name': 'Cruzcampo',
+            'box_id': 1,
+            'group_id': 1,
+            'created_at': 1,
+            'updated_at': 1,
+          });
+        },
+      ),
+    );
+    await legacy.close();
+
+    final d = await Db.openAt(path);
+    addTearDown(d.close);
+
+    final columns = (await d.rawQuery('PRAGMA table_info(product)'))
+        .map((r) => r['name'] as String)
+        .toSet();
+    expect(columns, contains('unit_in_stock'));
+    final row = (await d.query('product')).single;
+    expect(row['unit_in_stock'], 0);
   });
 
   test('migra una base v7 al esquema normalizado v8', () async {
@@ -725,10 +770,14 @@ void main() {
         category: 'Cervezas',
         groupName: 'Cerveza',
         box: const CrateType('Caja', 24, 1, 1, 1, 5),
+        unitInStock: 30,
       ),
       groupImage: null,
     );
     final product = (await Db.i.products()).single;
+    expect(product.unitInStock, 30);
+    expect(product.stockBoxes, 1);
+    expect(product.stockLooseUnits, 6);
 
     await Db.i.saveNight('2026-10-10', {product.id!: 30});
     expect(await Db.i.nightConsumption('2026-10-10'), {product.id!: 30});

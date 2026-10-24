@@ -461,6 +461,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       subcategory: _subcategory,
       image: image.text.trim().isEmpty ? null : image.text.trim(),
       box: box,
+      unitInStock: widget.product?.unitInStock ?? 0,
     );
 
     final validationError = product.validationError;

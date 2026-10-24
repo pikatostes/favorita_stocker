@@ -6,7 +6,7 @@ import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
 
-/// Acceso a SQLite (esquema v18, tablas en inglés singular).
+/// Acceso a SQLite (esquema v19, tablas en inglés singular).
 ///
 /// Normaliza el catálogo: `category`, `product_group`, `subcategory` y `box`
 /// son entidades propias; `product` solo guarda referencias. El consumo vive en
@@ -27,7 +27,7 @@ class Db {
   Future<Database>? _opening;
 
   /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 18;
+  static const int schemaVersion = 19;
 
   /// Cuenta que conserva el rol de administrador tras la migración. El resto
   /// empieza como `employee` y podrá ser ascendido desde Usuarios.
@@ -72,6 +72,7 @@ class Db {
           await _migrateToV16(d);
           await _migrateToV17(d);
           await _migrateToV18(d);
+          await _migrateToV19(d);
         },
         onUpgrade: _onUpgrade,
       );
@@ -139,6 +140,8 @@ class Db {
     if (oldV < 17) await _migrateToV17(d);
     // ...y el rol de acceso admin/employee a v18.
     if (oldV < 18) await _migrateToV18(d);
+    // ...y las unidades en stock a v19.
+    if (oldV < 19) await _migrateToV19(d);
   }
 
   // ---------------------------------------------------------------------------
@@ -180,6 +183,7 @@ class Db {
       group_id INTEGER NOT NULL REFERENCES product_group(id),
       subcategory_id INTEGER REFERENCES subcategory(id),
       image TEXT,
+      unit_in_stock INTEGER NOT NULL DEFAULT 0 CHECK(unit_in_stock >= 0),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       deleted_at INTEGER)''');
@@ -515,6 +519,23 @@ class Db {
         where: 'id = ?',
         whereArgs: [adminId],
       );
+    }
+  }
+
+  static Future<void> _migrateToV19(Database d) async {
+    final tables = (await d
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!tables.contains('product')) return;
+
+    final columns = (await d.rawQuery('PRAGMA table_info(product)'))
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!columns.contains('unit_in_stock')) {
+      await d.execute('ALTER TABLE product ADD COLUMN '
+          'unit_in_stock INTEGER NOT NULL DEFAULT 0 '
+          'CHECK(unit_in_stock >= 0)');
     }
   }
 
@@ -996,7 +1017,7 @@ class Db {
   // ---------------------------------------------------------------------------
 
   static const String _productSelect = '''
-    SELECT p.id, p.name, p.image, p.deleted_at,
+    SELECT p.id, p.name, p.image, p.unit_in_stock, p.deleted_at,
            g.image AS group_image,
            c.name AS category,
            g.name AS group_name,
@@ -1095,6 +1116,7 @@ class Db {
         'group_id': groupId,
         'subcategory_id': subcategoryId,
         'image': p.image,
+        'unit_in_stock': p.unitInStock,
         'created_at': now,
         'updated_at': now,
       });
@@ -1127,6 +1149,7 @@ class Db {
           'group_id': groupId,
           'subcategory_id': subcategoryId,
           'image': p.image,
+          'unit_in_stock': p.unitInStock,
           'updated_at': _now,
         },
         where: 'id = ?',
@@ -1767,6 +1790,7 @@ class Db {
           'group_id': groupId,
           'subcategory_id': subcategoryId,
           'image': p.image,
+          'unit_in_stock': p.unitInStock,
           'created_at': now,
           'updated_at': now,
         });

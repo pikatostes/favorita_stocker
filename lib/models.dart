@@ -77,6 +77,7 @@ class Product {
   final String? image;
   final String? groupImage; // imagen del grupo de variantes (compartida)
   final CrateType box;
+  final int unitInStock; // unidades físicas disponibles
   final bool deleted; // borrado lógico
 
   Product({
@@ -88,6 +89,7 @@ class Product {
     this.image,
     this.groupImage,
     CrateType? box,
+    this.unitInStock = 0,
     this.deleted = false,
   }) : box = box ?? const CrateType('Caja', 24, 1, 1, 1, 5);
 
@@ -100,13 +102,22 @@ class Product {
   String get crateName => box.name;
   int get tripCapacity => box.trip;
 
+  /// Cajas completas que se pueden formar con [unitInStock].
+  int get stockBoxes => unitsPerBox > 0 ? unitInStock ~/ unitsPerBox : 0;
+
+  /// Unidades que sobran después de completar las cajas.
+  int get stockLooseUnits =>
+      unitsPerBox > 0 ? unitInStock % unitsPerBox : unitInStock;
+
   String? get validationError {
     if (name.trim().isEmpty) return 'El nombre es obligatorio.';
     if (category.trim().isEmpty) return 'La categoría es obligatoria.';
     if (groupName == null || groupName!.trim().isEmpty) {
       return 'El grupo de variantes es obligatorio.';
     }
-    if (unitsPerBox <= 0) return 'Las unidades por caja deben ser mayores que 0.';
+    if (unitsPerBox <= 0) {
+      return 'Las unidades por caja deben ser mayores que 0.';
+    }
     if (!size.isFinite ||
         !height.isFinite ||
         !width.isFinite ||
@@ -118,6 +129,9 @@ class Product {
     if (format <= 0) return 'El formato debe ser mayor que 0.';
     if (tripCapacity <= 0) {
       return 'Las cajas por viaje deben ser mayores que 0.';
+    }
+    if (unitInStock < 0) {
+      return 'Las unidades en stock no pueden ser negativas.';
     }
     return null;
   }
@@ -131,6 +145,7 @@ class Product {
         subcategory: m['subcategory'] as String?,
         image: m['image'] as String?,
         groupImage: m['group_image'] as String?,
+        unitInStock: (m['unit_in_stock'] as int?) ?? 0,
         deleted: m['deleted_at'] != null,
         box: CrateType(
           (m['box_name'] as String?) ?? 'Caja',

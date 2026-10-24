@@ -15,6 +15,9 @@ void main() {
       expect(p.format, 1);
       expect(p.crateName, 'Caja');
       expect(p.tripCapacity, 5);
+      expect(p.unitInStock, 0);
+      expect(p.stockBoxes, 0);
+      expect(p.stockLooseUnits, 0);
     });
 
     test('un producto correcto no da error de validación', () {
@@ -26,7 +29,8 @@ void main() {
     });
 
     test('exige nombre, categoría y grupo', () {
-      expect(Product(name: '   ', category: 'X', groupName: 'g').validationError,
+      expect(
+          Product(name: '   ', category: 'X', groupName: 'g').validationError,
           isNotNull);
       expect(Product(name: 'X', category: '  ', groupName: 'g').validationError,
           isNotNull);
@@ -75,6 +79,7 @@ void main() {
         'width': 1.5,
         'format': 1,
         'trip_capacity': 6,
+        'unit_in_stock': 123,
       });
 
       expect(p.id, 7);
@@ -88,6 +93,40 @@ void main() {
       expect(p.height, 0.5);
       expect(p.width, 1.5);
       expect(p.tripCapacity, 6);
+      expect(p.unitInStock, 123);
+      expect(p.stockBoxes, 5);
+      expect(p.stockLooseUnits, 3);
+    });
+
+    test('calcula cajas completas y unidades sobrantes', () {
+      final p = Product(
+        name: 'Coca-Cola',
+        box: const CrateType('Cola', 24, 1, 1, 1, 5),
+        unitInStock: 53,
+      );
+
+      expect(p.stockBoxes, 2);
+      expect(p.stockLooseUnits, 5);
+
+      final exact = Product(
+        name: 'Coca-Cola',
+        box: const CrateType('Cola', 24, 1, 1, 1, 5),
+        unitInStock: 48,
+      );
+      expect(exact.stockBoxes, 2);
+      expect(exact.stockLooseUnits, 0);
+    });
+
+    test('rechaza unidades en stock negativas', () {
+      expect(
+        Product(
+          name: 'X',
+          category: 'X',
+          groupName: 'g',
+          unitInStock: -1,
+        ).validationError,
+        isNotNull,
+      );
     });
 
     test('boxInfo describe la caja del producto', () {
@@ -120,7 +159,8 @@ void main() {
 
   group('Forecast', () {
     test('redondea las cajas hacia arriba', () {
-      final p = Product(name: 'X', box: const CrateType('Caja', 24, 1, 1, 1, 5));
+      final p =
+          Product(name: 'X', box: const CrateType('Caja', 24, 1, 1, 1, 5));
 
       expect(Forecast(p, 0).boxes, 0);
       expect(Forecast(p, 1).boxes, 1);
