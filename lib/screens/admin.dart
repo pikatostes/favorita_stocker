@@ -3,8 +3,8 @@ import '../widgets/app_logo.dart';
 import 'calendario.dart';
 import 'productos.dart';
 
-/// Zona de administración: agrupa Calendario y Productos en una sola pestaña
-/// principal, con pestañas internas.
+/// Zona de administración: agrupa Calendario, Productos e Inventario en una
+/// sola pestaña principal, con pestañas internas.
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -14,7 +14,7 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+  late final TabController _tabs = TabController(length: 3, vsync: this);
 
   @override
   void dispose() {
@@ -31,6 +31,7 @@ class _AdminScreenState extends State<AdminScreen>
             tabs: const [
               Tab(text: 'Calendario'),
               Tab(text: 'Productos'),
+              Tab(text: 'Inventario'),
             ],
           ),
         ),
@@ -39,6 +40,7 @@ class _AdminScreenState extends State<AdminScreen>
           children: const [
             CalendarioScreen(embedded: true),
             ProductosScreen(embedded: true),
+            SizedBox.shrink(),
           ],
         ),
       );
