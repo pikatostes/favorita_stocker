@@ -62,6 +62,7 @@ lib/
   screens/
     home.dart            NavigationBar + IndexedStack; Inicio (panel admin/empleado) y pestañas.
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
+    confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
     prevision.dart       "Previsión": previsión por fecha + montar cajas.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
     calendario.dart      "Calendario": mes, días trabajados, excepciones, detalle del día.
@@ -259,6 +260,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   describen la caja seleccionada, **compartida** por todos los productos de ese tipo.
   El diálogo es dueño de sus `TextEditingController` y los destruye en `dispose`
   (no destruirlos antes de que el diálogo se desmonte: provocaba `_dependents.isEmpty`).
+- **Confirmación de la lista** (`screens/confirmar_lista.dart`): al pulsar
+  "Guardar y montar cajas" en Lista se abre una pantalla intermedia con el
+  resumen del pedido (por categoría, cajas/sueltos y totales). Solo si se
+  confirma se guarda la noche y se navega a `PlanScreen`; volver no escribe nada.
 - Imágenes por ruta/URI (`Image.asset` con `errorBuilder` → placeholder).
 - Textos de UI, `NumberFormat`/`DateFormat` con locale `'es'` (`intl`, `initializeDateFormatting('es')`).
 
@@ -275,6 +280,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |
 | `category_tabs_test.dart` | Widget: añadir/quitar categorías y alternar pantalla sin excepciones. |
+| `confirmar_lista_test.dart` | Widget: resumen del pedido y resultado de confirmar/volver. |
 | `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
 

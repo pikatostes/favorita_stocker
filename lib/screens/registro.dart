@@ -6,6 +6,7 @@ import '../product_entries.dart';
 import '../schedule.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/category_tabs.dart';
+import 'confirmar_lista.dart';
 import 'plan.dart';
 
 /// Introducir la lista de lo gastado esa noche (la de las ~3:00).
@@ -148,7 +149,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
         label: 'Cajas',
         value: boxes,
         onMinus: boxes > 0
-            ? () => _setBoxes(product, boxes - 1, refreshOverlay: refreshOverlay)
+            ? () =>
+                _setBoxes(product, boxes - 1, refreshOverlay: refreshOverlay)
             : null,
         onPlus: () =>
             _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
@@ -505,6 +507,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
     final qty = <int, int>{}; // total de botellines (lo que se guarda)
     final loose = <int, int>{}; // sueltos: se mezclan en el plan
     final boxes = <int, int>{}; // cajas completas: van dedicadas en el plan
+    final lines = <LineaPedido>[]; // resumen que se pide confirmar
     for (final p in products) {
       final b = _boxes[p.id] ?? 0;
       final l = _loose[p.id] ?? 0;
@@ -512,13 +515,23 @@ class _RegistroScreenState extends State<RegistroScreen> {
       qty[p.id!] = b * _boxSize(p) + l;
       if (l > 0) loose[p.id!] = l;
       if (b > 0) boxes[p.id!] = b;
+      lines.add(LineaPedido(p, boxes: b, loose: l));
     }
     if (qty.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Añade algún botellín a la lista')));
       return;
     }
-    await Db.i.saveNight(Schedule.fmt(_date), qty);
+    // Pantalla intermedia: se revisa el resumen y se confirma antes de guardar.
+    final date = _date;
+    final confirmed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConfirmarListaScreen(date: date, lines: lines),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await Db.i.saveNight(Schedule.fmt(date), qty);
     if (!mounted) return;
     // Refleja exactamente lo guardado (el total repartido en cajas y sueltos).
     await _loadNight();
@@ -583,8 +596,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
               badge: (category) {
                 final count = products
                     .where((product) =>
-                        product.category == category &&
-                        _totalFor(product) > 0)
+                        product.category == category && _totalFor(product) > 0)
                     .length;
                 return count == 0 ? '' : ' ($count)';
               },
