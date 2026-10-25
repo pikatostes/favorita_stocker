@@ -1,7 +1,7 @@
 import 'models.dart';
 
-/// Entrada del catálogo en la lista de la noche: o un producto suelto, o un
-/// grupo de variantes que se despliega.
+/// Entrada del catálogo: o un producto suelto, o un grupo de variantes que se
+/// muestra como una sola fila y se despliega en una tarjeta.
 class ProductEntry {
   final String? groupName;
   final List<Product> products;
@@ -33,7 +33,7 @@ class ProductEntry {
   }
 }
 
-/// Agrupa los productos (ya filtrados por categoría) para la lista.
+/// Agrupa los productos (ya filtrados por categoría) para una lista.
 ///
 /// Reglas:
 /// - Un producto **sin grupo** se muestra suelto.

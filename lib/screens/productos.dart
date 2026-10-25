@@ -3,7 +3,7 @@ import '../db.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/app_logo.dart';
-import '../widgets/category_tabs.dart';
+import '../widgets/product_catalog.dart';
 
 /// Datos que devuelve el formulario de alta/edición de un producto.
 typedef _ProductForm = ({Product product, String? groupImage});
@@ -100,24 +100,7 @@ class ProductosScreen extends StatefulWidget {
 }
 
 class _ProductosScreenState extends State<ProductosScreen> {
-  late Future<List<Product>> _future = Db.i.products();
-  String? _cat; // pestaña visible
-
-  void _reload() {
-    if (mounted) setState(() => _future = Db.i.products());
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    Db.i.version.addListener(_reload);
-  }
-
-  @override
-  void dispose() {
-    Db.i.version.removeListener(_reload);
-    super.dispose();
-  }
+  String? _cat; // categoría visible, para el alta de productos
 
   /// Alta (p == null) o edición de un producto.
   Future<void> _edit([Product? p]) async {
@@ -227,54 +210,38 @@ class _ProductosScreenState extends State<ProductosScreen> {
     );
   }
 
-  Widget _body(BuildContext context) => FutureBuilder<List<Product>>(
-        future: _future,
-        builder: (_, s) {
-          final Widget content;
-          if (s.hasError) {
-            content = Center(
-              child: Text('No se pudieron cargar los productos: ${s.error}'),
-            );
-          } else if (!s.hasData) {
-            content = const Center(child: CircularProgressIndicator());
-          } else if (s.data!.isEmpty) {
-            content =
-                const Center(child: Text('Añade tu primer producto con +'));
-          } else {
-            content = CategoryTabs(
-              products: s.data!,
-              onCategory: (c) => _cat = c,
-              builder: (_, list) => ListView(
-                padding: const EdgeInsets.only(bottom: 90),
-                children: list
-                    .map((p) => ListTile(
-                          title: Text(p.name),
-                          subtitle: Text(p.boxInfo),
-                          onTap: () => _edit(p),
-                          trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => _delete(p)),
-                        ))
-                    .toList(),
-              ),
-            );
-          }
-          if (!widget.embedded) return content;
-          return Column(
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: IconButton(
-                  tooltip: 'Paletas de color',
-                  icon: const Icon(Icons.palette_outlined),
-                  onPressed: _choosePalette,
-                ),
-              ),
-              Expanded(child: content),
-            ],
-          );
+  Widget _body(BuildContext context) {
+    final catalog = ProductCatalog(
+      emptyMessage: 'Añade tu primer producto con +',
+      onCategoryChanged: (category) => _cat = category,
+      onProductTap: (product) => _edit(product),
+      productSubtitle: (product) => product.boxInfo,
+      listPadding: const EdgeInsets.only(bottom: 90),
+      trailingBuilder: (rowContext, product, inOverlay) => IconButton(
+        tooltip: 'Borrar ${product.name}',
+        icon: const Icon(Icons.delete_outline),
+        onPressed: () {
+          if (inOverlay) Navigator.of(rowContext).pop();
+          _delete(product);
         },
-      );
+      ),
+    );
+
+    if (!widget.embedded) return catalog;
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            tooltip: 'Paletas de color',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: _choosePalette,
+          ),
+        ),
+        Expanded(child: catalog),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
