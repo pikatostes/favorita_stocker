@@ -570,6 +570,29 @@ void main() {
     expect(carmen.role, UserRole.employee);
   });
 
+  test('la semilla guarda las cantidades de ejemplo del catálogo', () async {
+    final d = await Db.openAt(p.join(dir.path, 'seed_stock.db'));
+    Db.i.useDatabase(d);
+    addTearDown(() async {
+      Db.i.useDatabase(null);
+      await d.close();
+    });
+
+    await Db.i.seedCatalog(initialProducts);
+    final saved = await Db.i.products();
+
+    expect(saved.length, initialProducts.length);
+    expect(saved.every((product) => product.unitInStock > 0), isTrue);
+    for (final product in initialProducts) {
+      expect(
+        saved
+            .firstWhere((savedProduct) => savedProduct.name == product.name)
+            .unitInStock,
+        product.unitInStock,
+      );
+    }
+  });
+
   test('v17 fusiona puestos duplicados y reasigna usuarios y turnos', () async {
     final path = p.join(dir.path, 'roles_duplicados.db');
     final legacy = await databaseFactory.openDatabase(

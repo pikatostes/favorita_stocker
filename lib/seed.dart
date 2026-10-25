@@ -14,6 +14,49 @@ const _cerveza =
     CrateType('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
 const _aquabona = CrateType('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
 
+/// Cantidades de ejemplo, en unidades sueltas, para que el inventario inicial
+/// no aparezca todo a cero. Son datos de demostración y se pueden sustituir
+/// por el stock real desde la base de datos.
+const Map<String, int> _exampleStock = {
+  // Cervezas y similares (cajas de 24).
+  'Cruzcampo': 132,
+  '1904': 72,
+  'Cruzcampo Gran Reserva': 54,
+  'Cruzcampo Radler': 24,
+  'Heineken': 114,
+  'Heineken 0,0': 58,
+  'Amstel Tostada 0,0': 29,
+  'Sol': 72,
+  'Desperados': 36,
+  'Ladrón de manzanas': 51,
+  'Paulaner': 52,
+  'Águila sin filtrar': 32,
+  'Guinness': 18,
+  'Alcázar': 24,
+  // Refrescos y zumos (cajas de 24, salvo el agua).
+  'Coca-Cola': 156,
+  'Coca-Cola Zero': 120,
+  'Coca-Cola Zero Zero': 55,
+  'Coca-Cola Light': 44,
+  'Bliss': 76,
+  'Bliss Limón': 24,
+  'Bliss Berry': 15,
+  'Bliss Ginger Ale': 56,
+  'Nestea': 106,
+  'Nestea Limón': 48,
+  'Nestea Maracuyá': 36,
+  'Nestea Melocotón': 20,
+  'Aquarius': 77,
+  'Aquarius Limón': 24,
+  'Aquarius Piña': 57,
+  'Aquarius Melocotón': 18,
+  'Zumo': 28,
+  'Zumo Melocotón': 12,
+  'Zumo Naranja': 48,
+  'Fanta Naranja': 78,
+  'Agua Aquabona': 87,
+};
+
 /// Crea un producto de la semilla. Si no se indica grupo, se usa el propio
 /// nombre del producto: el grupo es obligatorio en la BD.
 Product _p(
@@ -45,6 +88,7 @@ Product _p(
       b.trip,
       width: b.width,
     ),
+    unitInStock: _exampleStock[name] ?? 0,
   );
 }
 
