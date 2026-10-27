@@ -103,6 +103,8 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 - **`Employee`** = nombre, un único `role`, `active` (baja lógica), `opener`
   (puede abrir el bar o su planta) y `workingDays` (días de la semana en que
   puede trabajar; vacío = cualquiera, solo se usa al generar el horario).
+  `AppUser.isMaintenance` reconoce el puesto `manteni`/`mantenimiento` (sin
+  distinguir mayúsculas ni acentos) para el aviso de lista en Inicio.
 - **`Shift`** = turno de una noche: `date` (día de servicio `yyyy-MM-dd`),
   empleado, puesto (copia histórica de nombre y planta), `startMin`/`endMin`
   (minutos desde medianoche; si `endMin < startMin` termina al día siguiente),
@@ -158,6 +160,7 @@ y comprueban que sube al esquema actual).
 `products({includeDeleted})`, `categories()`, `boxTypes()`, `productGroups()`,
 `subcategories()`, `addProduct/updateProduct/deleteProduct`, `productGroupImage`,
 `setProductGroupImage`, `saveNight(date, Map<int,int>)`, `nights([since])`,
+`nightConsumption(date)`, `latestNightDate()`,
 `specialDays/setSpecialDay/deleteSpecialDay`, `roles/addRole/updateRole/deleteRole`,
 `employees/addEmployee/updateEmployee/setEmployeeActive`,
 `shiftsForMonth/replaceMonthShifts/updateShift/deleteShift`,
