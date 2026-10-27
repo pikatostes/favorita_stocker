@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../db.dart';
 import '../../models.dart';
+import '../../prediction.dart';
 import '../../schedule.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/month_calendar.dart';
@@ -274,6 +275,16 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
     );
   }
 
+  /// La previsión solo aporta valor en días abiertos que aún no tienen lista
+  /// guardada y que no han pasado: en un día pasado ya manda el consumo real.
+  bool _showForecast(_CalData d) {
+    final key = Schedule.fmt(_selected);
+    final today = Schedule.day(DateTime.now());
+    return !d.nights.containsKey(key) &&
+        !_selected.isBefore(today) &&
+        Schedule.isOpen(_selected, d.special);
+  }
+
   Widget _body(BuildContext context) => FutureBuilder<_CalData>(
         future: _future,
         builder: (_, s) {
@@ -300,6 +311,11 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
             const SizedBox(height: 8),
             _legend(),
             _details(d),
+            if (_showForecast(d))
+              _ForecastCard(
+                day: _selected,
+                revision: Db.i.version.value,
+              ),
             const SizedBox(height: 24),
           ]);
         },
@@ -317,6 +333,162 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
         ],
       ),
       body: body,
+    );
+  }
+}
+
+/// Previsión del día seleccionado, integrada en el detalle del calendario.
+///
+/// Solo se monta en días abiertos sin lista guardada. Se recalcula al cambiar
+/// de día o cuando cambia el histórico ([revision] es [Db.i.version]).
+class _ForecastCard extends StatefulWidget {
+  final DateTime day;
+  final int revision;
+
+  const _ForecastCard({required this.day, required this.revision});
+
+  @override
+  State<_ForecastCard> createState() => _ForecastCardState();
+}
+
+class _ForecastCardState extends State<_ForecastCard> {
+  late Future<ForecastResult> _future = _load();
+
+  Future<ForecastResult> _load() => Predictor.forecast(widget.day);
+
+  @override
+  void didUpdateWidget(covariant _ForecastCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (Schedule.fmt(widget.day) != Schedule.fmt(oldWidget.day) ||
+        widget.revision != oldWidget.revision) {
+      _future = _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(
+                Icons.insights,
+                size: 20,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Previsión para este día',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            FutureBuilder<ForecastResult>(
+              future: _future,
+              builder: (_, s) {
+                if (s.hasError) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'No se pudo calcular la previsión: ${s.error}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton.icon(
+                        onPressed: () => setState(() => _future = _load()),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reintentar'),
+                      ),
+                    ],
+                  );
+                }
+                if (!s.hasData) {
+                  return const Row(children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text('Calculando previsión…'),
+                  ]);
+                }
+                final r = s.data!;
+                if (r.items.isEmpty) {
+                  return Text(
+                    r.recentNights == 0
+                        ? 'Sin histórico suficiente para calcular la previsión.'
+                        : 'Sin productos con consumo registrado para una noche '
+                            'comparable.',
+                    style: theme.textTheme.bodyMedium,
+                  );
+                }
+                final totalBoxes =
+                    r.items.fold<int>(0, (total, f) => total + f.boxes);
+                final totalUnits =
+                    r.items.fold<int>(0, (total, f) => total + f.units);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$totalBoxes cajas · $totalUnits botellines',
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${r.recentNights} noches recientes como base. '
+                      '${r.seasonalYears == 0 ? "Sin histórico de años anteriores: todavía no se ajusta por temporada." : "Ajustado por temporada con ${r.seasonalYears} año(s) previo(s)."}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    for (final f in r.items)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(children: [
+                          Expanded(child: Text(f.product.name)),
+                          Text(
+                            '${f.units} uds',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${f.boxes} cajas',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ]),
+                      ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.inventory_2_outlined),
+                      label: const Text('Montar cajas según previsión'),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PlanScreen(
+                            qty: {
+                              for (final f in r.items) f.product.id!: f.units,
+                            },
+                            title: 'Previsión '
+                                '${DateFormat('d MMM', 'es').format(widget.day)}',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

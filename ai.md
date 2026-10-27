@@ -64,12 +64,11 @@ lib/
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
-    plan.dart            Pantalla "Montar cajas" (compartida por Lista, Previsión y Calendario).
+    plan.dart            Pantalla "Montar cajas" (compartida por Lista y Calendario).
     cuenta.dart          "Cuenta": datos del usuario y cambio de contraseña.
     admin/
-      admin.dart         "Admin": pestañas Calendario, Previsión, Productos e Inventario.
-      prevision.dart     "Previsión": previsión por fecha + montar cajas.
-      calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día.
+      admin.dart         "Admin": pestañas Calendario, Productos e Inventario.
+      calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día y previsión.
       productos.dart     "Productos": CRUD de catálogo (diálogo de alta/edición).
       inventario.dart    "Inventario": listado del catálogo con el stock disponible.
   widgets/
@@ -183,6 +182,11 @@ y comprueban que sube al esquema actual).
 Devuelve items ordenados de mayor a menor. Ampliaciones futuras previstas:
 eventos, meteorología, stock sobrante.
 
+En la UI, `Predictor.forecast` se usa en el panel de Inicio del administrador y
+en el detalle del día del Calendario: al seleccionar un día abierto, desde hoy
+en adelante y sin lista guardada, se muestra la previsión y el botón para
+montar cajas según ella.
+
 ### Montaje de cajas (`planner.dart`, `Planner.build`)
 - 0) **Cajas dedicadas** (un solo producto): las pedidas en `fullBoxes` y, si
   `preferFull`, las que salen de dividir por `unitsPerBox`.
@@ -241,9 +245,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 
 - **Navegación**: `HomeScreen` con `NavigationBar` + `IndexedStack`. Inicio es
   la primera pestaña; Lista, Turnos y Cuenta son comunes. Admin agrupa
-  Calendario, Previsión, Productos e Inventario y solo aparece para
-  `UserRole.admin`. La previsión también se resume en el panel de Inicio del
-  administrador, pero su pantalla completa vive en Admin.
+  Calendario, Productos e Inventario y solo aparece para `UserRole.admin`.
+  La previsión está integrada en el detalle del día del Calendario: se muestra
+  en días abiertos sin lista guardada y desde hoy en adelante. También se
+  resume en el panel de Inicio del administrador.
 - **Inicio**: panel contextual por rol. El administrador ve turnos y personal
   de la noche, estado del mes, previsión y avisos, con acciones para
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
@@ -286,7 +291,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |
 | `category_tabs_test.dart` | Widget: añadir/quitar categorías y alternar pantalla sin excepciones. |
-| `admin_tabs_test.dart` | Pestañas internas de Admin (incluye Previsión). |
+| `admin_tabs_test.dart` | Pestañas internas de Admin (Calendario, Productos e Inventario). |
 | `confirmar_lista_test.dart` | Widget: resumen del pedido y resultado de confirmar/volver. |
 | `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |

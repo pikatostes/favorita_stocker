@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import '../../widgets/app_logo.dart';
 import 'calendario.dart';
 import 'inventario.dart';
-import 'prevision.dart';
 import 'productos.dart';
 
 /// Pestañas internas de la zona de administración.
 enum AdminTab {
   calendar('Calendario'),
-  forecast('Previsión'),
   products('Productos'),
   inventory('Inventario');
 
@@ -17,8 +15,8 @@ enum AdminTab {
   const AdminTab(this.label);
 }
 
-/// Zona de administración: agrupa Calendario, Previsión, Productos e
-/// Inventario en una sola pestaña principal, con pestañas internas.
+/// Zona de administración: agrupa Calendario, Productos e Inventario en una
+/// sola pestaña principal, con pestañas internas.
 class AdminScreen extends StatelessWidget {
   const AdminScreen({super.key});
 
@@ -37,7 +35,6 @@ class AdminScreen extends StatelessWidget {
           body: const TabBarView(
             children: [
               CalendarioScreen(embedded: true),
-              PrevisionScreen(embedded: true),
               ProductosScreen(embedded: true),
               InventarioScreen(embedded: true),
             ],
