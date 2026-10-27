@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:stock_bar/db.dart';
 import 'package:stock_bar/models.dart';
-import 'package:stock_bar/screens/inventario.dart';
+import 'package:stock_bar/screens/admin/inventario.dart';
 
 /// Espera a que la consulta real a SQLite haga aparecer [finder].
 Future<void> _waitFor(WidgetTester tester, Finder finder) async {

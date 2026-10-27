@@ -8,9 +8,8 @@ import '../prediction.dart';
 import '../schedule.dart';
 import '../shifts.dart';
 import '../widgets/app_logo.dart';
-import 'admin.dart';
+import 'admin/admin.dart';
 import 'cuenta.dart';
-import 'prevision.dart';
 import 'registro.dart';
 import 'turnos.dart';
 
@@ -19,7 +18,6 @@ import 'turnos.dart';
 enum HomeTab {
   start('Inicio', Icons.home_outlined),
   list('Lista', Icons.edit_note),
-  forecast('Previsión', Icons.insights),
   shifts('Turnos', Icons.groups),
   admin('Admin', Icons.admin_panel_settings, adminOnly: true),
   account('Cuenta', Icons.account_circle_outlined);
@@ -78,7 +76,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _pageFor(HomeTab tab) => switch (tab) {
         HomeTab.start => const _HomeDashboard(),
         HomeTab.list => const RegistroScreen(),
-        HomeTab.forecast => const PrevisionScreen(),
         HomeTab.shifts => const TurnosScreen(),
         HomeTab.admin => const AdminScreen(),
         HomeTab.account => const CuentaScreen(),

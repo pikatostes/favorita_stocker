@@ -63,15 +63,19 @@ lib/
     home.dart            NavigationBar + IndexedStack; Inicio (panel admin/empleado) y pestañas.
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
-    prevision.dart       "Previsión": previsión por fecha + montar cajas.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
-    calendario.dart      "Calendario": mes, días trabajados, excepciones, detalle del día.
-    productos.dart       "Productos": CRUD de catálogo (diálogo de alta/edición).
-    plan.dart            Pantalla "Montar cajas" (compartida por las 3 anteriores).
+    plan.dart            Pantalla "Montar cajas" (compartida por Lista, Previsión y Calendario).
+    cuenta.dart          "Cuenta": datos del usuario y cambio de contraseña.
+    admin/
+      admin.dart         "Admin": pestañas Calendario, Previsión, Productos e Inventario.
+      prevision.dart     "Previsión": previsión por fecha + montar cajas.
+      calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día.
+      productos.dart     "Productos": CRUD de catálogo (diálogo de alta/edición).
+      inventario.dart    "Inventario": listado del catálogo con el stock disponible.
   widgets/
     category_tabs.dart   Pestañas por categoría (reutilizado en Lista y Productos).
   img/                   Imágenes de productos/grupos referenciadas por ruta (assets).
-test/                    Tests por módulo: db, models, planner, schedule, shifts, product_entries, category_tabs.
+test/                    Tests por módulo: db, models, planner, schedule, shifts, product_entries, category_tabs, etc.
 ```
 
 ## 5. Modelo de dominio (`models.dart`)
@@ -236,8 +240,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 ## 8. UI y patrones (`screens/`, `widgets/`)
 
 - **Navegación**: `HomeScreen` con `NavigationBar` + `IndexedStack`. Inicio es
-  la primera pestaña; Lista, Previsión, Turnos y Cuenta son comunes. Admin
-  agrupa Calendario y Productos y solo aparece para `UserRole.admin`.
+  la primera pestaña; Lista, Turnos y Cuenta son comunes. Admin agrupa
+  Calendario, Previsión, Productos e Inventario y solo aparece para
+  `UserRole.admin`. La previsión también se resume en el panel de Inicio del
+  administrador, pero su pantalla completa vive en Admin.
 - **Inicio**: panel contextual por rol. El administrador ve turnos y personal
   de la noche, estado del mes, previsión y avisos, con acciones para
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
@@ -280,6 +286,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |
 | `category_tabs_test.dart` | Widget: añadir/quitar categorías y alternar pantalla sin excepciones. |
+| `admin_tabs_test.dart` | Pestañas internas de Admin (incluye Previsión). |
 | `confirmar_lista_test.dart` | Widget: resumen del pedido y resultado de confirmar/volver. |
 | `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |

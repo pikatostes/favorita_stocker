@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../db.dart';
-import '../models.dart';
-import '../theme.dart';
-import '../widgets/app_logo.dart';
-import '../widgets/product_catalog.dart';
+import '../../db.dart';
+import '../../models.dart';
+import '../../theme.dart';
+import '../../widgets/app_logo.dart';
+import '../../widgets/product_catalog.dart';
 
 /// Datos que devuelve el formulario de alta/edición de un producto.
 typedef _ProductForm = ({Product product, String? groupImage});

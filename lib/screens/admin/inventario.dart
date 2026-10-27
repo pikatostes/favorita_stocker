@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../models.dart';
-import '../product_entries.dart';
-import '../widgets/app_logo.dart';
-import '../widgets/product_catalog.dart';
+import '../../models.dart';
+import '../../product_entries.dart';
+import '../../widgets/app_logo.dart';
+import '../../widgets/product_catalog.dart';
 
 /// Listado de todo el catálogo con el stock disponible.
 ///

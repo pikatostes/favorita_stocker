@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../db.dart';
-import '../models.dart';
-import '../prediction.dart';
-import '../schedule.dart';
-import '../widgets/app_logo.dart';
-import 'plan.dart';
+import '../../db.dart';
+import '../../models.dart';
+import '../../prediction.dart';
+import '../../schedule.dart';
+import '../../widgets/app_logo.dart';
+import '../plan.dart';
 
 class _View {
   final DateTime target;
@@ -16,7 +16,11 @@ class _View {
 }
 
 class PrevisionScreen extends StatefulWidget {
-  const PrevisionScreen({super.key});
+  /// Cuando se muestra dentro de [AdminScreen] no crea AppBar propia.
+  final bool embedded;
+
+  const PrevisionScreen({super.key, this.embedded = false});
+
   @override
   State<PrevisionScreen> createState() => _PrevisionScreenState();
 }
@@ -68,11 +72,13 @@ class _PrevisionScreenState extends State<PrevisionScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const AppLogo()),
+        appBar: widget.embedded ? null : AppBar(title: const AppLogo()),
         body: FutureBuilder<_View>(
           future: _future,
           builder: (_, s) {
-            if (!s.hasData) return const Center(child: CircularProgressIndicator());
+            if (!s.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
             final v = s.data!;
             final r = v.result;
             return ListView(children: [
@@ -98,9 +104,8 @@ class _PrevisionScreenState extends State<PrevisionScreen> {
                       const Text('Ese día normalmente el bar está cerrado.'),
                   actions: [
                     TextButton(
-                        onPressed: () => Db.i.setSpecialDay(SpecialDay(
-                            Schedule.fmt(v.target),
-                            open: true)),
+                        onPressed: () => Db.i.setSpecialDay(
+                            SpecialDay(Schedule.fmt(v.target), open: true)),
                         child: const Text('Marcar abierto')),
                   ],
                 ),
@@ -126,10 +131,11 @@ class _PrevisionScreenState extends State<PrevisionScreen> {
                         context,
                         MaterialPageRoute(
                             builder: (_) => PlanScreen(
-                                title: 'Cajas según previsión',
-                                qty: {
-                                  for (final f in r.items) f.product.id!: f.units
-                                }))),
+                                    title: 'Cajas según previsión',
+                                    qty: {
+                                      for (final f in r.items)
+                                        f.product.id!: f.units
+                                    }))),
                     child: const Text('Montar cajas'),
                   ),
                 ),

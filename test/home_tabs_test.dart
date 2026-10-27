@@ -3,7 +3,7 @@ import 'package:stock_bar/screens/home.dart';
 import 'package:stock_bar/shifts.dart';
 
 void main() {
-  test('los empleados no ven Calendario ni Productos', () {
+  test('los empleados no ven Calendario, Previsión ni Productos', () {
     final tabs = visibleHomeTabs(UserRole.employee);
 
     expect(
@@ -11,13 +11,14 @@ void main() {
       [
         HomeTab.start,
         HomeTab.list,
-        HomeTab.forecast,
         HomeTab.shifts,
         HomeTab.account,
       ],
     );
-    expect(tabs.map((tab) => tab.label), isNot(contains('Calendario')));
-    expect(tabs.map((tab) => tab.label), isNot(contains('Productos')));
+    final labels = tabs.map((tab) => tab.label);
+    expect(labels, isNot(contains('Calendario')));
+    expect(labels, isNot(contains('Previsión')));
+    expect(labels, isNot(contains('Productos')));
   });
 
   test('los administradores ven una única pestaña Admin', () {
@@ -26,7 +27,7 @@ void main() {
     expect(tabs, HomeTab.values);
     expect(
       tabs.map((tab) => tab.label),
-      ['Inicio', 'Lista', 'Previsión', 'Turnos', 'Admin', 'Cuenta'],
+      ['Inicio', 'Lista', 'Turnos', 'Admin', 'Cuenta'],
     );
   });
 }
