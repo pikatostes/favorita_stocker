@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../auth.dart';
@@ -581,15 +583,26 @@ class _DayCard extends StatelessWidget {
                           ),
                         );
                       }
-                      return Column(
-                        children: [
-                          for (final shift in floorShifts)
-                            _ShiftTile(
-                              shift: shift,
-                              onEdit: () => onEdit(shift),
-                              onDelete: () => onDelete(shift),
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _ShiftTimeline(
+                              shifts: floorShifts,
+                              onEdit: onEdit,
+                              onDelete: onDelete,
                             ),
-                        ],
+                            const SizedBox(height: 4),
+                            Text(
+                              'Toca un avatar para editar · mantén pulsado '
+                              'para borrar',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     },
                   ),
@@ -603,80 +616,266 @@ class _DayCard extends StatelessWidget {
   }
 }
 
-class _ShiftTile extends StatelessWidget {
-  final Shift shift;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+/// Línea temporal de los turnos de una planta.
+///
+/// Cada fila agrupa a las personas que comparten el mismo horario. La barra
+/// empieza en la hora de entrada y termina en la de salida (ambas rotuladas) y
+/// los avatares van dentro. No se dibuja el eje con todas las horas ni hay
+/// desplazamiento horizontal: si los avatares no caben en la barra, se reparten
+/// en varias líneas y la fila crece en vertical.
+class _ShiftTimeline extends StatelessWidget {
+  final List<Shift> shifts;
+  final ValueChanged<Shift> onEdit;
+  final ValueChanged<Shift> onDelete;
 
-  const _ShiftTile({
-    required this.shift,
+  const _ShiftTimeline({
+    required this.shifts,
     required this.onEdit,
     required this.onDelete,
   });
 
+  /// Escala de la noche: de las 16:00 a las 04:00 del día siguiente.
+  static const int _axisStart = Schedule.openHour * 60;
+  static const int _axisEnd = 28 * 60;
+  static const int _totalMinutes = _axisEnd - _axisStart;
+
+  static const double _avatarSize = 30;
+  static const double _avatarGap = 4;
+  static const double _barMinHeight = 36;
+  static const double _barPadding = 4;
+  static const double _labelHeight = 16;
+  static const double _labelGap = 2;
+  static const double _rowGap = 10;
+
+  /// Minutos del eje: lo anterior a las 16:00 pertenece a la madrugada.
+  int _axisMinute(int minutes) =>
+      minutes < _axisStart ? minutes + 24 * 60 : minutes;
+
   @override
   Widget build(BuildContext context) {
-    final note = shift.note.trim();
-    final breakText =
-        shift.breakMin > 0 ? ' · ${shift.breakMin} min descanso' : '';
-    return ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.only(left: 22, right: 0),
-      leading: Icon(
-        Icons.person_outline,
-        size: 20,
-        color: Theme.of(context).colorScheme.outline,
-      ),
-      title: Row(
+    final groups = <(int, int), List<Shift>>{};
+    for (final shift in shifts) {
+      groups.putIfAbsent((shift.startMin, shift.endMin), () => []).add(shift);
+    }
+    final rows = groups.entries.toList()
+      ..sort((a, b) {
+        final byStart = _axisMinute(a.key.$1) - _axisMinute(b.key.$1);
+        return byStart != 0 ? byStart : a.key.$2 - b.key.$2;
+      });
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+
+        double xOf(int minutes) {
+          final m = math.min(
+            _axisEnd,
+            math.max(_axisStart, _axisMinute(minutes)),
+          );
+          return (m - _axisStart) / _totalMinutes * width;
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final row in rows)
+              _timelineRow(
+                context,
+                row.key,
+                row.value,
+                width: width,
+                xOf: xOf,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _timelineRow(
+    BuildContext context,
+    (int, int) range,
+    List<Shift> rowShifts, {
+    required double width,
+    required double Function(int) xOf,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final start = range.$1;
+    final end = range.$2;
+    final sorted = [...rowShifts]..sort(
+        (a, b) => a.userName.toLowerCase().compareTo(
+              b.userName.toLowerCase(),
+            ),
+      );
+
+    // La barra necesita un mínimo para que quepa al menos un avatar.
+    const minBarWidth = _avatarSize + _barPadding * 2;
+    var barLeft = xOf(start);
+    var barRight = xOf(end);
+    if (barRight - barLeft < minBarWidth) {
+      barRight = barLeft + minBarWidth;
+      if (barRight > width) {
+        barRight = width;
+        barLeft = math.max(0, width - minBarWidth);
+      }
+    }
+    final barWidth = barRight - barLeft;
+
+    // Si los avatares no caben a lo ancho, se reparten en varias líneas y la
+    // fila crece en vertical (nunca se desplaza horizontalmente).
+    final innerWidth = barWidth - _barPadding * 2;
+    final perLine = math.max(
+      1,
+      ((innerWidth + _avatarGap) / (_avatarSize + _avatarGap)).floor(),
+    );
+    final lines = (sorted.length / perLine).ceil();
+    final avatarsHeight = lines * _avatarSize + (lines - 1) * _avatarGap;
+    final barHeight = math.max(
+      _barMinHeight,
+      avatarsHeight + _barPadding * 2,
+    );
+    final rowHeight = _labelHeight + _labelGap + barHeight + _rowGap;
+
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      color: cs.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+    final separateLabels = barWidth >= 96;
+
+    return SizedBox(
+      height: rowHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Flexible(
-            child: Text(
-              shift.userName,
-              overflow: TextOverflow.ellipsis,
+          if (separateLabels) ...[
+            Positioned(
+              left: barLeft,
+              top: 0,
+              child: Text(formatMinutes(start), style: labelStyle),
+            ),
+            Positioned(
+              right: width - barRight,
+              top: 0,
+              child: Text(formatMinutes(end), style: labelStyle),
+            ),
+          ] else
+            Positioned(
+              left: barLeft,
+              width: barWidth,
+              top: 0,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${formatMinutes(start)}–${formatMinutes(end)}',
+                  style: labelStyle,
+                ),
+              ),
+            ),
+          Positioned(
+            left: barLeft,
+            top: _labelHeight + _labelGap,
+            width: barWidth,
+            height: barHeight,
+            child: Container(
+              padding: const EdgeInsets.all(_barPadding),
+              decoration: BoxDecoration(
+                color: cs.primaryContainer.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: cs.primary.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: _avatarGap,
+                  runSpacing: _avatarGap,
+                  children: [
+                    for (final shift in sorted)
+                      _TimelineAvatar(
+                        shift: shift,
+                        onTap: () => onEdit(shift),
+                        onLongPress: () => onDelete(shift),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 6),
-          _StatusBadge(status: shift.status),
         ],
       ),
-      subtitle: Text(
-        '${shift.roleName} · ${shift.timeLabel} · ${shift.hoursLabel}'
-        '$breakText${note.isEmpty ? '' : '\n$note'}',
-      ),
-      isThreeLine: note.isNotEmpty,
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline, size: 20),
-        onPressed: onDelete,
-      ),
-      onTap: onEdit,
     );
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  final ShiftStatus status;
-  const _StatusBadge({required this.status});
+/// Avatar con la inicial y un punto de color según el estado del turno.
+/// Tocar edita; mantener pulsado borra (con confirmación).
+class _TimelineAvatar extends StatelessWidget {
+  final Shift shift;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _TimelineAvatar({
+    required this.shift,
+    required this.onTap,
+    required this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final color = switch (status) {
+    final name = shift.userName.trim();
+    final initial = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
+    final statusColor = switch (shift.status) {
       ShiftStatus.draft => cs.outline,
       ShiftStatus.published => cs.primary,
       ShiftStatus.confirmed => cs.tertiary,
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        border: Border.all(color: color),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          fontSize: 10,
-          color: color,
-          fontWeight: FontWeight.w600,
+
+    return Semantics(
+      button: true,
+      label: '${name.isEmpty ? 'Sin nombre' : name}, '
+          '${shift.timeLabel}, ${shift.status.label}',
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: SizedBox(
+          width: _ShiftTimeline._avatarSize,
+          height: _ShiftTimeline._avatarSize,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleAvatar(
+                radius: _ShiftTimeline._avatarSize / 2,
+                backgroundColor: cs.primaryContainer,
+                child: Text(
+                  initial,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              Positioned(
+                right: -1,
+                bottom: -1,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: statusColor,
+                    border: Border.all(color: cs.surface, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
