@@ -255,7 +255,12 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **Inicio**: panel contextual por rol. El administrador ve turnos y personal
   de la noche, estado del mes, previsión y avisos, con acciones para
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
-  noche y avisos; los turnos en borrador no se muestran.
+  noche y avisos; los turnos en borrador no se muestran. Quien tiene el puesto
+  de mantenimiento (`AppUser.isMaintenance`) ve además, destacada al principio,
+  una tarjeta con la última lista guardada (`Db.latestNightDate()`): indica si
+  hay lista y, si la hay, resume productos/botellines y abre `PlanScreen` con
+  los sueltos y las cajas completas reconstruidos. Es el sustituto provisional
+  del sistema de notificaciones.
 - **Recarga reactiva**: cada pantalla hace en `initState`
   `Db.i.version.addListener(_reload)` y lo quita en `dispose`. `_reload` vuelve a
   lanzar el `Future` y hace `setState`. **Mantén este patrón.**
@@ -282,6 +287,8 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   "Guardar y montar cajas" en Lista se abre una pantalla intermedia con el
   resumen del pedido (por categoría, cajas/sueltos y totales). Solo si se
   confirma se guarda la noche y se navega a `PlanScreen`; volver no escribe nada.
+  Tras guardar, el usuario recibe un SnackBar de éxito salvo que sea de
+  mantenimiento: ese puesto sigue el estado desde la tarjeta de Inicio.
 - Imágenes por ruta/URI (`Image.asset` con `errorBuilder` → placeholder).
 - Textos de UI, `NumberFormat`/`DateFormat` con locale `'es'` (`intl`, `initializeDateFormatting('es')`).
 
