@@ -802,13 +802,26 @@ void main() {
     expect(product.stockBoxes, 1);
     expect(product.stockLooseUnits, 6);
 
+    expect(await Db.i.latestNightDate(), isNull);
+
     await Db.i.saveNight('2026-10-10', {product.id!: 30});
     expect(await Db.i.nightConsumption('2026-10-10'), {product.id!: 30});
     expect(await Db.i.nightConsumption('2026-10-11'), isEmpty);
+    expect(await Db.i.latestNightDate(), '2026-10-10');
 
     // Volver a guardar esa noche sustituye el consumo anterior.
     await Db.i.saveNight('2026-10-10', {product.id!: 12});
     expect(await Db.i.nightConsumption('2026-10-10'), {product.id!: 12});
+
+    // La última lista es la de fecha más reciente, aunque se guarde después
+    // una noche anterior.
+    await Db.i.saveNight('2026-10-11', {product.id!: 4});
+    await Db.i.saveNight('2026-09-01', {product.id!: 8});
+    expect(await Db.i.latestNightDate(), '2026-10-11');
+
+    // Una noche sin consumo no cuenta como lista.
+    await Db.i.saveNight('2026-10-12', const {});
+    expect(await Db.i.latestNightDate(), '2026-10-11');
   });
 
   test('repara los grupos históricos de variantes (v8 -> v9)', () async {

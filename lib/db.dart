@@ -1260,6 +1260,17 @@ class Db {
     };
   }
 
+  /// Fecha de la lista guardada más reciente, o `null` si no hay ninguna.
+  /// Ignora las noches sin consumo (por ejemplo, una lista vacía sustituida).
+  Future<String?> latestNightDate() async {
+    final rows = await (await db).rawQuery(
+      'SELECT n.date AS date FROM night n '
+      'JOIN consumption c ON c.night_id = n.id '
+      'GROUP BY n.date ORDER BY n.date DESC LIMIT 1',
+    );
+    return rows.isEmpty ? null : rows.first['date'] as String;
+  }
+
   // ---------------------------------------------------------------------------
   // Calendario de excepciones
   // ---------------------------------------------------------------------------

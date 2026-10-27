@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../auth_controller.dart';
 import '../db.dart';
 import '../models.dart';
 import '../product_entries.dart';
@@ -533,6 +534,13 @@ class _RegistroScreenState extends State<RegistroScreen> {
     if (confirmed != true || !mounted) return;
     await Db.i.saveNight(Schedule.fmt(date), qty);
     if (!mounted) return;
+    // Mantenimiento sigue el estado de la lista desde su Inicio; el resto de
+    // usuarios recibe aquí la confirmación de que se guardó correctamente.
+    if (AuthController.i.user?.isMaintenance != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lista guardada correctamente.')),
+      );
+    }
     // Refleja exactamente lo guardado (el total repartido en cajas y sueltos).
     await _loadNight();
     if (!mounted) return;

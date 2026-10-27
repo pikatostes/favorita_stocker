@@ -210,6 +210,13 @@ class AppUser {
   String get initial =>
       fullName.isEmpty ? '?' : fullName.substring(0, 1).toUpperCase();
 
+  /// Puesto de mantenimiento. Se compara con [roleNameKey] para tolerar
+  /// mayúsculas, espacios y acentos («Manteni», «Mantenimiento»...).
+  bool get isMaintenance {
+    final key = roleNameKey(jobRole?.name ?? '');
+    return key == 'manteni' || key == 'mantenimiento';
+  }
+
   /// Días de la semana (1 = lunes .. 7 = domingo) guardados como "5,6".
   /// Un valor vacío o nulo significa "cualquier día".
   static Set<int> parseWorkingDays(Object? raw) {

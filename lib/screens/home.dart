@@ -10,6 +10,7 @@ import '../shifts.dart';
 import '../widgets/app_logo.dart';
 import 'admin/admin.dart';
 import 'cuenta.dart';
+import 'plan.dart';
 import 'registro.dart';
 import 'turnos.dart';
 
@@ -131,6 +132,25 @@ void _snack(BuildContext context, String text) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 }
 
+/// Lista de montaje de la última noche guardada, ya preparada para abrir
+/// [PlanScreen]: [qty] lleva solo los botellines sueltos y [fullBoxes] las
+/// cajas completas, igual que el flujo de Lista → Confirmar → Plan.
+class _NightList {
+  final String date;
+  final Map<int, int> qty;
+  final Map<int, int> fullBoxes;
+  final int totalUnits;
+  final int products;
+
+  const _NightList({
+    required this.date,
+    required this.qty,
+    required this.fullBoxes,
+    required this.totalUnits,
+    required this.products,
+  });
+}
+
 class _HomeData {
   final DateTime now;
   final DateTime serviceDay;
@@ -145,6 +165,7 @@ class _HomeData {
   final List<Shift> myUpcoming;
   final bool mySchedulePending;
   final ForecastResult? forecast;
+  final _NightList? nightList;
 
   const _HomeData({
     required this.now,
@@ -160,6 +181,7 @@ class _HomeData {
     required this.myUpcoming,
     required this.mySchedulePending,
     required this.forecast,
+    required this.nightList,
   });
 
   DateTime get month => DateTime(now.year, now.month);
@@ -213,6 +235,45 @@ class _HomeDashboardState extends State<_HomeDashboard> {
         focusMonthShifts.where((shift) => shift.date == focusKey).toList();
 
     final users = await Db.i.users(includeInactive: isAdmin);
+
+    // El puesto de mantenimiento no tiene notificaciones: en Inicio ve un aviso
+    // con la última lista guardada y, si existe, abre directamente el montaje.
+    _NightList? nightList;
+    if (user?.isMaintenance == true) {
+      final date = await Db.i.latestNightDate();
+      if (date != null) {
+        final saved = await Db.i.nightConsumption(date);
+        final products = await Db.i.products();
+        final byId = <int, Product>{
+          for (final product in products)
+            if (product.id != null) product.id!: product,
+        };
+        final qty = <int, int>{}; // sueltos
+        final fullBoxes = <int, int>{}; // cajas completas
+        var totalUnits = 0;
+        var count = 0;
+        for (final entry in saved.entries) {
+          final product = byId[entry.key];
+          if (product == null || entry.value <= 0) continue;
+          final size = product.unitsPerBox < 1 ? 1 : product.unitsPerBox;
+          final boxes = entry.value ~/ size;
+          final loose = entry.value % size;
+          if (boxes > 0) fullBoxes[entry.key] = boxes;
+          if (loose > 0) qty[entry.key] = loose;
+          totalUnits += entry.value;
+          count++;
+        }
+        if (count > 0) {
+          nightList = _NightList(
+            date: date,
+            qty: qty,
+            fullBoxes: fullBoxes,
+            totalUnits: totalUnits,
+            products: count,
+          );
+        }
+      }
+    }
 
     ForecastResult? forecast;
     if (isAdmin) {
@@ -270,6 +331,7 @@ class _HomeDashboardState extends State<_HomeDashboard> {
       myUpcoming: myUpcoming,
       mySchedulePending: mySchedulePending,
       forecast: forecast,
+      nightList: nightList,
     );
   }
 
@@ -389,6 +451,17 @@ class _HomeDashboardState extends State<_HomeDashboard> {
     }
   }
 
+  Future<void> _openNightPlan(_NightList list) => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PlanScreen(
+            qty: list.qty,
+            fullBoxes: list.fullBoxes,
+            title: 'Montar cajas · ${_shortDate(DateTime.parse(list.date))}',
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -416,6 +489,7 @@ class _HomeDashboardState extends State<_HomeDashboard> {
               padding: const EdgeInsets.all(12),
               children: [
                 _header(data, user),
+                if (user?.isMaintenance == true) _maintenanceListCard(data),
                 if (isAdmin) ...[
                   _adminTonightCard(data),
                   _adminPlanningCard(data),
@@ -614,6 +688,98 @@ class _HomeDashboardState extends State<_HomeDashboard> {
           ),
         ),
       ],
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Mantenimiento
+  // -------------------------------------------------------------------------
+
+  /// Aviso destacado para el puesto de mantenimiento. Sin sistema de
+  /// notificaciones, Inicio muestra si hay lista y abre el plan de montaje.
+  Widget _maintenanceListCard(_HomeData data) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final list = data.nightList;
+    final hasList = list != null;
+    final fg = cs.onPrimaryContainer;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: cs.primaryContainer,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: hasList ? () => _openNightPlan(list) : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: hasList ? cs.primary : cs.surface,
+                foregroundColor: hasList ? cs.onPrimary : cs.onSurfaceVariant,
+                child: Icon(
+                  hasList ? Icons.inventory_2_outlined : Icons.hourglass_empty,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Lista de montaje',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: fg,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasList
+                          ? 'Lista montada · '
+                              '${_shortDate(DateTime.parse(list.date))}'
+                          : 'Todavía no hay lista montada',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: fg,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasList
+                          ? '${list.products} productos · '
+                              '${list.totalUnits} botellines'
+                          : 'Cuando alguien guarde la lista de la noche, '
+                              'aparecerá aquí.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: fg.withValues(alpha: 0.78),
+                      ),
+                    ),
+                    if (hasList) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Text(
+                            'Ver plan de montaje',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: fg,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.arrow_forward, size: 16, color: fg),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (hasList) Icon(Icons.chevron_right, color: fg),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

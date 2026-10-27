@@ -37,6 +37,22 @@ int _atPeak(List<Shift> day) =>
     day.where((s) => s.endMin == ShiftGenerator.closingEnd).length;
 
 void main() {
+  group('puesto de mantenimiento', () {
+    test('reconoce «manteni» y «mantenimiento» sin importar el formato', () {
+      bool maintenance(String role) => _user(
+            1,
+            'Ana',
+            _role(1, role, Floor.plantaBaja),
+          ).isMaintenance;
+
+      expect(maintenance('manteni'), isTrue);
+      expect(maintenance('Mantenimiento'), isTrue);
+      expect(maintenance('  MANTENI  '), isTrue);
+      expect(maintenance('camarero'), isFalse);
+      expect(const AppUser(name: 'Ana').isMaintenance, isFalse);
+    });
+  });
+
   group('duración y descansos', () {
     test('calcula la duración y el cruce de medianoche', () {
       expect(shiftDurationMinutes(16 * 60, 21 * 60), 300);
