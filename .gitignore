@@ -44,4 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Supabase / migración
 env.json
+.env
+.env.*
+!.env.example
+privado/
+.supabase/

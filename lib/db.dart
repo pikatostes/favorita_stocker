@@ -1,1127 +1,238 @@
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'auth.dart';
 import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
 
-/// Acceso a SQLite (esquema v19, tablas en inglés singular).
+/// Convierte un error de la capa de datos en un texto para la UI.
 ///
-/// Normaliza el catálogo: `category`, `product_group`, `subcategory` y `box`
-/// son entidades propias; `product` solo guarda referencias. El consumo vive en
-/// `consumption` (una fila por producto y noche) y `night` marca qué noches
-/// existen. Los productos se borran de forma lógica (`deleted_at`). Los
-/// usuarios (`users`) sustituyen a la antigua tabla `employee` y guardan sus
-/// credenciales de acceso con hash y sal. `users.role` es el permiso de acceso
-/// (`admin` o `employee`); el puesto habitual sigue en `users.role_id`. Los
-/// puestos (`role`) tienen una clave normalizada (`name_key`) para que no se
-/// dupliquen por mayúsculas o espacios.
+/// [Db] ya envuelve los errores de PostgREST en [StateError] con un mensaje en
+/// español; [ArgumentError] conserva el mensaje de validación.
+String describeDbError(Object error) {
+  if (error is StateError) return error.message.toString();
+  if (error is ArgumentError) {
+    return error.message?.toString() ?? 'Los datos no son válidos.';
+  }
+  return error.toString();
+}
+
+/// Acceso a Supabase.
+///
+/// Mantiene la misma API pública que la antigua capa SQLite (`Db.i`), de modo
+/// que las pantallas siguen usando `FutureBuilder` y `Db.i.version` sin
+/// cambios. Las escrituras transaccionales se delegan a funciones RPC y la
+/// lectura usa vistas que reproducen las columnas planas de los modelos.
 class Db {
   Db._();
   static final Db i = Db._();
-  Database? _db;
 
-  /// Apertura en curso. Evita que dos pantallas que piden [db] a la vez abran
-  /// la base de datos dos veces ("single-flight").
-  Future<Database>? _opening;
-
-  /// Versión del esquema. Cualquier cambio estructural sube este número.
-  static const int schemaVersion = 19;
-
-  /// Cuenta que conserva el rol de administrador tras la migración. El resto
-  /// empieza como `employee` y podrá ser ascendido desde Usuarios.
-  static const String _initialAdminName = 'Alejandro';
-  static const String _initialAdminEmail = 'alejandro@favorita.local';
-
-  /// Se incrementa con cada escritura; las pantallas escuchan para refrescarse.
+  /// Se incrementa con cada escritura local o evento de Realtime. Las pantallas
+  /// escuchan para refrescarse, igual que con SQLite.
   final ValueNotifier<int> version = ValueNotifier(0);
   void _changed() => version.value++;
 
-  static int get _nowMs => DateTime.now().millisecondsSinceEpoch;
-  int get _now => _nowMs;
+  SupabaseClient get _client => Supabase.instance.client;
+  RealtimeChannel? _channel;
 
-  Future<Database> get db async {
-    final open = _db;
-    if (open != null) return open;
-    final opening = _opening ??= _open();
+  static const List<String> _watchedTables = [
+    'category',
+    'box_type',
+    'product_group',
+    'subcategory',
+    'product',
+    'night',
+    'consumption',
+    'special_day',
+    'job_role',
+    'profiles',
+    'shift',
+  ];
+
+  /// Se suscribe a los cambios de las tablas que alimentan la UI.
+  Future<void> connectRealtime() async {
+    if (_channel != null) return;
+    final channel = _client.channel('db-changes');
+    for (final table in _watchedTables) {
+      channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (_) => _changed(),
+      );
+    }
+    _channel = channel;
+    channel.subscribe();
+  }
+
+  Future<void> disconnectRealtime() async {
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) await channel.unsubscribe();
+  }
+
+  /// Emite `true` cuando Supabase cierra la sesión (token caducado, cuenta
+  /// bloqueada, cierre desde otro dispositivo…).
+  Stream<bool> get signedOut => _client.auth.onAuthStateChange
+      .map((state) => state.event == AuthChangeEvent.signedOut);
+
+  // ---------------------------------------------------------------------------
+  // Utilidades
+  // ---------------------------------------------------------------------------
+
+  static String _nowIso() => DateTime.now().toUtc().toIso8601String();
+  static String _normalizeEmail(String email) => email.trim().toLowerCase();
+
+  static String _friendly(Object error) {
+    if (error is PostgrestException) {
+      if (error.code == '42501') {
+        return 'No tienes permisos para esta acción.';
+      }
+      if (error.code == '23505') {
+        return 'Ya existe un registro con esos datos.';
+      }
+      if (error.code == '23503') {
+        return 'El registro está en uso y no se puede borrar.';
+      }
+      if (error.code == 'PGRST116') {
+        return 'No se encontró el registro.';
+      }
+      return error.message;
+    }
+    if (error is AuthException) return error.message;
+    if (error is FunctionException) {
+      final details = error.details;
+      if (details is Map && details['error'] != null) {
+        return details['error'].toString();
+      }
+      return error.toString();
+    }
+    return error.toString();
+  }
+
+  Future<Map<String, dynamic>> _invokeAdmin(Map<String, dynamic> body) async {
     try {
-      return _db = await opening;
-    } catch (_) {
-      // Deja reintentar la apertura si falló (p. ej. disco ocupado).
-      if (identical(_opening, opening)) _opening = null;
-      rethrow;
-    }
-  }
-
-  Future<Database> _open() async {
-    final path = join(await getDatabasesPath(), 'stock_bar.db');
-    return openAt(path);
-  }
-
-  /// Abre (creando o migrando) una base de datos en [path] con el esquema actual.
-  /// Expuesto para poder probar la creación y la migración con una BD temporal.
-  @visibleForTesting
-  static Future<Database> openAt(String path) => openDatabase(
-        path,
-        version: schemaVersion,
-        onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
-        onCreate: (d, _) async {
-          await _createV8(d);
-          await _createShiftSchema(d);
-          await _migrateToV16(d);
-          await _migrateToV17(d);
-          await _migrateToV18(d);
-          await _migrateToV19(d);
-        },
-        onUpgrade: _onUpgrade,
-      );
-
-  /// Solo para tests: usa [database] en lugar de abrir `stock_bar.db`.
-  @visibleForTesting
-  void useDatabase(Database? database) => _db = database;
-
-  static Future<void> _onUpgrade(Database d, int oldV, int newV) async {
-    // Migraciones antiguas (esquema desnormalizado)...
-    if (oldV < 2) await _legacyCreateSpecialDays(d);
-    if (oldV < 3) {
-      await d.execute(
-          "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Otros'");
-      await d.execute(
-          'ALTER TABLE products ADD COLUMN size REAL NOT NULL DEFAULT 1');
-      await d.execute(
-          'ALTER TABLE products ADD COLUMN height REAL NOT NULL DEFAULT 1');
-      await d.execute(
-          'ALTER TABLE products ADD COLUMN format INTEGER NOT NULL DEFAULT 1');
-    }
-    if (oldV < 4) {
-      await d.execute(
-          "ALTER TABLE products ADD COLUMN crate_name TEXT NOT NULL DEFAULT ''");
-      await d.execute(
-          'ALTER TABLE products ADD COLUMN trip_capacity INTEGER NOT NULL DEFAULT 5');
-    }
-    if (oldV < 5) {
-      await d.execute('ALTER TABLE products ADD COLUMN group_name TEXT');
-      await d.execute('ALTER TABLE products ADD COLUMN subcategory TEXT');
-    }
-    if (oldV < 6) {
-      await d.execute('''CREATE TABLE app_metadata(
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL)''');
-    }
-    if (oldV < 7) {
-      await d.execute('ALTER TABLE products ADD COLUMN image TEXT');
-      await d.execute('''CREATE TABLE product_groups(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL,
-        name TEXT NOT NULL,
-        image TEXT,
-        UNIQUE(category, name))''');
-    }
-    // ...y por último la normalización a v8.
-    if (oldV < 8) await _migrateToV8(d);
-    // ...y la reparación de grupos históricos de variantes a v9.
-    if (oldV < 9) await _repairLegacyVariantGroups(d);
-    // ...y la agrupación de cervezas por marca a v10.
-    if (oldV < 10) await _regroupBeers(d);
-    // ...y la imagen de los grupos de variantes a v11.
-    if (oldV < 11) await _setGroupImages(d);
-    // ...y las tablas de puestos, empleados y turnos a v12.
-    if (oldV < 12) await _createShiftSchema(d);
-    // ...y la marca de "puede abrir" y los días habituales del empleado a v13.
-    if (oldV < 13) await _addEmployeeColumns(d);
-    // ...y la imagen de los grupos de variantes a v14.
-    if (oldV < 14) await _setGroupImages(d);
-    // ...y las imágenes de Coca-Cola, Nestea, Aquarius y Bliss a v15.
-    if (oldV < 15) await _setGroupImages(d);
-    // ...y la conversión de empleados en usuarios con autenticación a v16.
-    if (oldV < 16) await _migrateToV16(d);
-    // ...y la deduplicación de puestos por nombre normalizado a v17.
-    if (oldV < 17) await _migrateToV17(d);
-    // ...y el rol de acceso admin/employee a v18.
-    if (oldV < 18) await _migrateToV18(d);
-    // ...y las unidades en stock a v19.
-    if (oldV < 19) await _migrateToV19(d);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Esquema
-  // ---------------------------------------------------------------------------
-
-  static Future<void> _createV8(DatabaseExecutor d) async {
-    await d.execute('''CREATE TABLE category(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE)''');
-    await d.execute('''CREATE TABLE box(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL UNIQUE,
-      units_per_box INTEGER NOT NULL DEFAULT 24 CHECK(units_per_box > 0),
-      size REAL NOT NULL DEFAULT 1 CHECK(size > 0),
-      height REAL NOT NULL DEFAULT 1 CHECK(height > 0),
-      width REAL NOT NULL DEFAULT 1 CHECK(width > 0),
-      format INTEGER NOT NULL DEFAULT 1 CHECK(format > 0),
-      trip_capacity INTEGER NOT NULL DEFAULT 5 CHECK(trip_capacity > 0),
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL)''');
-    await d.execute('''CREATE TABLE product_group(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category_id INTEGER NOT NULL REFERENCES category(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      image TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(category_id, name))''');
-    await d.execute('''CREATE TABLE subcategory(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      group_id INTEGER NOT NULL REFERENCES product_group(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      UNIQUE(group_id, name))''');
-    await d.execute('''CREATE TABLE product(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      box_id INTEGER NOT NULL REFERENCES box(id),
-      group_id INTEGER NOT NULL REFERENCES product_group(id),
-      subcategory_id INTEGER REFERENCES subcategory(id),
-      image TEXT,
-      unit_in_stock INTEGER NOT NULL DEFAULT 0 CHECK(unit_in_stock >= 0),
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      deleted_at INTEGER)''');
-    await d.execute('''CREATE TABLE night(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL UNIQUE,
-      note TEXT,
-      created_at INTEGER NOT NULL)''');
-    await d.execute('''CREATE TABLE consumption(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      night_id INTEGER NOT NULL REFERENCES night(id) ON DELETE CASCADE,
-      product_id INTEGER NOT NULL REFERENCES product(id),
-      quantity INTEGER NOT NULL CHECK(quantity >= 0),
-      UNIQUE(night_id, product_id))''');
-    await d.execute('''CREATE TABLE special_day(
-      date TEXT PRIMARY KEY,
-      open INTEGER NOT NULL CHECK(open IN (0, 1)),
-      note TEXT)''');
-    await d.execute('''CREATE TABLE app_metadata(
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL)''');
-
-    await d.execute('CREATE INDEX idx_product_group ON product(group_id)');
-    await d.execute('CREATE INDEX idx_product_box ON product(box_id)');
-    await d.execute(
-        'CREATE INDEX idx_product_subcategory ON product(subcategory_id)');
-    await d.execute('CREATE INDEX idx_product_deleted ON product(deleted_at)');
-    await d.execute(
-        'CREATE INDEX idx_group_category ON product_group(category_id)');
-    await d
-        .execute('CREATE INDEX idx_subcategory_group ON subcategory(group_id)');
-    await d.execute(
-        'CREATE INDEX idx_consumption_product ON consumption(product_id)');
-    await d
-        .execute('CREATE INDEX idx_consumption_night ON consumption(night_id)');
-  }
-
-  /// Tablas de turnos (v12): puestos, empleados y turnos.
-  ///
-  /// El puesto guarda la planta y una nota fija (por ejemplo, un evento en el
-  /// karaoke). El turno guarda una copia del puesto para conservar el histórico
-  /// aunque el empleado cambie de puesto. La fecha es el día de servicio, no la
-  /// fecha real de salida.
-  static Future<void> _createShiftSchema(DatabaseExecutor d) async {
-    await d.execute('''CREATE TABLE IF NOT EXISTS role(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      name_key TEXT,
-      floor TEXT NOT NULL DEFAULT 'planta_baja'
-        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
-      note TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL)''');
-    await d.execute('''CREATE TABLE IF NOT EXISTS employee(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      role_id INTEGER NOT NULL REFERENCES role(id),
-      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
-      opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1)),
-      working_days TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL)''');
-    await d.execute('''CREATE TABLE IF NOT EXISTS shift(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      employee_id INTEGER NOT NULL REFERENCES employee(id) ON DELETE CASCADE,
-      role_id INTEGER NOT NULL REFERENCES role(id),
-      role_name TEXT NOT NULL,
-      floor TEXT NOT NULL
-        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
-      start_min INTEGER NOT NULL CHECK(start_min >= 0 AND start_min < 1440),
-      end_min INTEGER NOT NULL CHECK(end_min >= 0 AND end_min < 1440),
-      break_min INTEGER NOT NULL DEFAULT 0 CHECK(break_min >= 0),
-      status TEXT NOT NULL DEFAULT 'borrador'
-        CHECK(status IN ('borrador', 'publicado', 'confirmado')),
-      note TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(employee_id, date))''');
-    await d.execute(
-        'CREATE INDEX IF NOT EXISTS idx_employee_role ON employee(role_id)');
-    await d.execute('CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
-    await d.execute(
-        'CREATE INDEX IF NOT EXISTS idx_shift_employee ON shift(employee_id)');
-  }
-
-  /// v13: añade a `employee` la marca [opener] y los [working_days].
-  ///
-  /// Es idempotente: comprueba las columnas existentes, porque al migrar desde
-  /// una versión anterior a la 12 la tabla ya se crea con ellas.
-  static Future<void> _addEmployeeColumns(DatabaseExecutor d) async {
-    final columns = (await d.rawQuery('PRAGMA table_info(employee)'))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!columns.contains('opener')) {
-      await d.execute('ALTER TABLE employee ADD COLUMN '
-          'opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1))');
-    }
-    if (!columns.contains('working_days')) {
-      await d.execute('ALTER TABLE employee ADD COLUMN working_days TEXT');
-    }
-  }
-
-  /// v16: convierte `employee` en `users`, añade email/contraseña y renombra
-  /// las referencias de los turnos.
-  ///
-  /// Los antiguos empleados conservan su id para no romper el histórico. Se les
-  /// asigna un email `nombre@favorita.local` y la contraseña temporal
-  /// [kSeedPassword]; podrán cambiarla desde la pestaña Usuarios o su perfil.
-  static Future<void> _migrateToV16(Database d) async {
-    await _createUsersTable(d);
-
-    final tables = (await d
-            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
-        .map((r) => r['name'] as String)
-        .toSet();
-    final hasEmployee = tables.contains('employee');
-    final hasShift = tables.contains('shift');
-
-    if (hasEmployee) {
-      final employees = await d.rawQuery('SELECT * FROM employee');
-      final usedEmails = (await d.query('users', columns: ['email']))
-          .map((r) => (r['email'] as String).toLowerCase())
-          .toSet();
-      for (final e in employees) {
-        final fullName = (e['name'] as String? ?? '').trim();
-        final parts =
-            fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-        final name = parts.isEmpty ? 'Usuario' : parts.first;
-        final surname = parts.length > 1 ? parts.sublist(1).join(' ') : '';
-        final salt = PasswordHasher.newSalt();
-        await d.insert(
-          'users',
-          {
-            'id': e['id'],
-            'name': name,
-            'surname': surname,
-            'email': _uniqueSeedEmail(fullName, usedEmails),
-            'password_hash': PasswordHasher.hash(kSeedPassword, salt),
-            'password_salt': salt,
-            'role_id': e['role_id'],
-            'active': e['active'] ?? 1,
-            'opener': e['opener'] ?? 0,
-            'working_days': e['working_days'] ?? '',
-            'created_at': e['created_at'] ?? _nowMs,
-            'updated_at': e['updated_at'] ?? _nowMs,
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+      final response =
+          await _client.functions.invoke('admin-users', body: body);
+      final data = response.data;
+      if (response.status >= 400) {
+        final message = data is Map && data['error'] != null
+            ? data['error'].toString()
+            : 'No se pudo gestionar el usuario.';
+        throw StateError(message);
       }
+      return data is Map ? Map<String, dynamic>.from(data) : {};
+    } on FunctionException catch (error) {
+      throw StateError(_friendly(error));
     }
-
-    // La tabla shift antigua apuntaba a employee; se reconstruye apuntando a
-    // users. Se conservan los ids de turno y los datos históricos.
-    await _createShiftTableV16(d, 'shift_v16');
-    if (hasShift) {
-      if (hasEmployee) {
-        await d.execute('''
-          INSERT INTO shift_v16 (
-            id, date, user_id, user_name, role_id, role_name, floor,
-            start_min, end_min, break_min, status, note, created_at, updated_at)
-          SELECT s.id, s.date, s.employee_id, COALESCE(e.name, ''), s.role_id,
-                 s.role_name, s.floor, s.start_min, s.end_min, s.break_min,
-                 s.status, s.note, s.created_at, s.updated_at
-          FROM shift s
-          LEFT JOIN employee e ON e.id = s.employee_id''');
-      } else {
-        await d.execute('''
-          INSERT INTO shift_v16 (
-            id, date, user_id, user_name, role_id, role_name, floor,
-            start_min, end_min, break_min, status, note, created_at, updated_at)
-          SELECT s.id, s.date, s.employee_id, '', s.role_id,
-                 s.role_name, s.floor, s.start_min, s.end_min, s.break_min,
-                 s.status, s.note, s.created_at, s.updated_at
-          FROM shift s''');
-      }
-      await d.execute('DROP TABLE shift');
-    }
-    await d.execute('ALTER TABLE shift_v16 RENAME TO shift');
-    await d.execute('CREATE INDEX IF NOT EXISTS idx_shift_date ON shift(date)');
-    await d
-        .execute('CREATE INDEX IF NOT EXISTS idx_shift_user ON shift(user_id)');
-    if (hasEmployee) {
-      await d.execute('DROP TABLE employee');
-      await d.execute('DROP INDEX IF EXISTS idx_employee_role');
-      await d.execute('DROP INDEX IF EXISTS idx_shift_employee');
-    }
-  }
-
-  static Future<void> _createShiftTableV16(
-    DatabaseExecutor d,
-    String name,
-  ) =>
-      d.execute('''CREATE TABLE $name(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      user_name TEXT NOT NULL,
-      role_id INTEGER NOT NULL REFERENCES role(id),
-      role_name TEXT NOT NULL,
-      floor TEXT NOT NULL
-        CHECK(floor IN ('planta_baja', 'karaoke', 'terraza')),
-      start_min INTEGER NOT NULL CHECK(start_min >= 0 AND start_min < 1440),
-      end_min INTEGER NOT NULL CHECK(end_min >= 0 AND end_min < 1440),
-      break_min INTEGER NOT NULL DEFAULT 0 CHECK(break_min >= 0),
-      status TEXT NOT NULL DEFAULT 'borrador'
-        CHECK(status IN ('borrador', 'publicado', 'confirmado')),
-      note TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(user_id, date))''');
-
-  /// v17: unifica puestos que solo difieren en mayúsculas, acentos o espacios
-  /// sobrantes. Los usuarios y turnos que apuntaban a un duplicado pasan a
-  /// apuntar al puesto conservado (el de id más bajo).
-  static Future<void> _migrateToV17(Database d) async {
-    final tables = (await d
-            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!tables.contains('role')) return;
-
-    final columns = (await d.rawQuery('PRAGMA table_info(role)'))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!columns.contains('name_key')) {
-      await d.execute('ALTER TABLE role ADD COLUMN name_key TEXT');
-    }
-
-    final roles = await d.query('role', orderBy: 'id');
-    final canonical = <String, ({int id, String name, String floor})>{};
-    for (final row in roles) {
-      final id = row['id'] as int;
-      final rawName = row['name'] as String;
-      final key = roleNameKey(rawName);
-      final keep = canonical[key];
-      if (keep == null) {
-        canonical[key] = (
-          id: id,
-          name: normalizeRoleName(rawName),
-          floor: row['floor'] as String,
-        );
-        continue;
-      }
-
-      if (tables.contains('users')) {
-        await d.update(
-          'users',
-          {'role_id': keep.id, 'updated_at': _nowMs},
-          where: 'role_id = ?',
-          whereArgs: [id],
-        );
-      }
-      if (tables.contains('shift')) {
-        await d.update(
-          'shift',
-          {
-            'role_id': keep.id,
-            'role_name': keep.name,
-            'floor': keep.floor,
-            'updated_at': _nowMs,
-          },
-          where: 'role_id = ?',
-          whereArgs: [id],
-        );
-      }
-      await d.delete('role', where: 'id = ?', whereArgs: [id]);
-    }
-
-    // Renombrar una sola vez, cuando los duplicados ya no existen, evita
-    // chocar con la restricción UNIQUE(name).
-    for (final keep in canonical.values) {
-      await d.update(
-        'role',
-        {'name': keep.name, 'name_key': roleNameKey(keep.name)},
-        where: 'id = ?',
-        whereArgs: [keep.id],
-      );
-      if (tables.contains('shift')) {
-        await d.update(
-          'shift',
-          {'role_name': keep.name, 'floor': keep.floor},
-          where: 'role_id = ?',
-          whereArgs: [keep.id],
-        );
-      }
-    }
-    await d.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_role_name_key ON role(name_key)',
-    );
-  }
-
-  /// v18: añade el rol de acceso (`admin`/`employee`). Las cuentas existentes
-  /// pasan a `employee` salvo Alejandro, que queda como único administrador
-  /// inicial. Los nuevos registros nacen como `employee`.
-  static Future<void> _migrateToV18(Database d) async {
-    final tables = (await d
-            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!tables.contains('users')) return;
-
-    final columns = (await d.rawQuery('PRAGMA table_info(users)'))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!columns.contains('role')) {
-      await d.execute('''
-        ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'
-          CHECK(role IN ('admin', 'employee'))''');
-    }
-
-    // Solo Alejandro conserva el acceso de administrador en esta migración.
-    await d.execute("UPDATE users SET role = 'employee'");
-    final select = ['id', 'name'];
-    if (columns.contains('surname')) select.add('surname');
-    if (columns.contains('email')) select.add('email');
-    final rows = await d.query('users', columns: select, orderBy: 'id');
-    int? adminId;
-    for (final row in rows) {
-      final email = ((row['email'] as String?) ?? '').trim().toLowerCase();
-      final name = ((row['name'] as String?) ?? '').trim();
-      final firstName = name.isEmpty ? '' : name.split(RegExp(r'\s+')).first;
-      if (email == _initialAdminEmail ||
-          roleNameKey(firstName) == roleNameKey(_initialAdminName)) {
-        adminId = row['id'] as int;
-        break;
-      }
-    }
-    if (adminId != null) {
-      await d.update(
-        'users',
-        {'role': UserRole.admin.db},
-        where: 'id = ?',
-        whereArgs: [adminId],
-      );
-    }
-  }
-
-  static Future<void> _migrateToV19(Database d) async {
-    final tables = (await d
-            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!tables.contains('product')) return;
-
-    final columns = (await d.rawQuery('PRAGMA table_info(product)'))
-        .map((r) => r['name'] as String)
-        .toSet();
-    if (!columns.contains('unit_in_stock')) {
-      await d.execute('ALTER TABLE product ADD COLUMN '
-          'unit_in_stock INTEGER NOT NULL DEFAULT 0 '
-          'CHECK(unit_in_stock >= 0)');
-    }
-  }
-
-  static Future<void> _createUsersTable(DatabaseExecutor d) => d.execute('''
-    CREATE TABLE IF NOT EXISTS users(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      surname TEXT NOT NULL DEFAULT '',
-      email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'employee'
-        CHECK(role IN ('admin', 'employee')),
-      role_id INTEGER REFERENCES role(id),
-      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
-      opener INTEGER NOT NULL DEFAULT 0 CHECK(opener IN (0, 1)),
-      working_days TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL)''');
-
-  /// Email `nombre.apellido@favorita.local`, con sufijo numérico si ya existe.
-  static String _uniqueSeedEmail(String fullName, Set<String> used) {
-    final base = _slug(fullName);
-    var email = '$base@favorita.local';
-    var suffix = 2;
-    while (used.contains(email)) {
-      email = '$base$suffix@favorita.local';
-      suffix++;
-    }
-    used.add(email);
-    return email;
-  }
-
-  static String _slug(String value) {
-    var text = value.toLowerCase();
-    kAccentFolding.forEach((from, to) => text = text.replaceAll(from, to));
-    text = text
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '.')
-        .replaceAll(RegExp(r'^\.+|\.+$'), '');
-    return text.isEmpty ? 'usuario' : text;
-  }
-
-  static Future<void> _legacyCreateSpecialDays(DatabaseExecutor d) =>
-      d.execute('''CREATE TABLE special_days(
-        date TEXT PRIMARY KEY,
-        open INTEGER NOT NULL,
-        note TEXT)''');
-
-  /// Reconstruye la BD pasando del esquema desnormalizado (v7) al normalizado.
-  ///
-  /// Se leen los datos antiguos, se recrean las tablas y se vuelcan mapeando el
-  /// texto a claves foráneas. Los productos sin grupo reciben un grupo propio
-  /// con su nombre (el grupo es obligatorio) y los productos sin tipo de caja
-  /// pasan a llamarse "Caja".
-  static Future<void> _migrateToV8(Database d) async {
-    final oldProducts = await d.rawQuery('SELECT * FROM products');
-    final oldGroups = await d.rawQuery('SELECT * FROM product_groups');
-    final oldConsumption = await d.rawQuery('SELECT * FROM consumption');
-    final oldSpecial = await d.rawQuery('SELECT * FROM special_days');
-    final oldMeta = await d.rawQuery('SELECT * FROM app_metadata');
-
-    // Borrar tablas antiguas (de hijo a padre para respetar las FK).
-    for (final table in [
-      'consumption',
-      'night',
-      'product',
-      'subcategory',
-      'product_group',
-      'box',
-      'category',
-      'special_days',
-      'product_groups',
-      'app_metadata',
-      'products',
-    ]) {
-      await d.execute('DROP TABLE IF EXISTS $table');
-    }
-
-    await _createV8(d);
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final catIds = <String, int>{};
-    final groupIds = <String, int>{};
-    final subIds = <String, int>{};
-    final boxIds = <String, int>{}; // firma de atributos -> id
-    final boxNameCount = <String, int>{};
-    final productIds = <int, int>{}; // id antiguo -> id nuevo
-
-    String norm(String? s, String fallback) {
-      final t = s?.trim() ?? '';
-      return t.isEmpty ? fallback : t;
-    }
-
-    Future<int> ensureCategory(String name) async {
-      final n = norm(name, 'Otros');
-      final existing = catIds[n];
-      if (existing != null) return existing;
-      final id = await d.insert('category', {'name': n});
-      catIds[n] = id;
-      return id;
-    }
-
-    Future<int> ensureGroup(int categoryId, String name,
-        {String? image}) async {
-      final n = norm(name, 'General');
-      final key = '$categoryId\u0000$n';
-      final existing = groupIds[key];
-      final img = image?.trim();
-      if (existing != null) {
-        if (img != null && img.isNotEmpty) {
-          await d.update('product_group', {'image': img, 'updated_at': now},
-              where: 'id = ?', whereArgs: [existing]);
-        }
-        return existing;
-      }
-      final id = await d.insert('product_group', {
-        'category_id': categoryId,
-        'name': n,
-        'image': (img == null || img.isEmpty) ? null : img,
-        'created_at': now,
-        'updated_at': now,
-      });
-      groupIds[key] = id;
-      return id;
-    }
-
-    Future<int?> ensureSub(int groupId, String? name) async {
-      final n = name?.trim() ?? '';
-      if (n.isEmpty) return null;
-      final key = '$groupId\u0000$n';
-      final existing = subIds[key];
-      if (existing != null) return existing;
-      final id =
-          await d.insert('subcategory', {'group_id': groupId, 'name': n});
-      subIds[key] = id;
-      return id;
-    }
-
-    Future<int> ensureBox(String type, int units, double size, double height,
-        double width, int format, int trip) async {
-      final name = norm(type, 'Caja');
-      final u = units < 1 ? 1 : units;
-      final s = size.isFinite && size > 0 ? size : 1.0;
-      final h = height.isFinite && height > 0 ? height : 1.0;
-      final w = width.isFinite && width > 0 ? width : 1.0;
-      final f = format < 1 ? 1 : format;
-      final t = trip < 1 ? 1 : trip;
-      final signature = '$name|$u|$s|$h|$w|$f|$t';
-      final existing = boxIds[signature];
-      if (existing != null) return existing;
-      // Un mismo tipo con atributos distintos no puede repetirse (UNIQUE type):
-      // se le añade un sufijo para no perder los datos.
-      var finalName = name;
-      final count = boxNameCount[name] ?? 0;
-      if (count > 0) finalName = '$name (${count + 1})';
-      boxNameCount[name] = count + 1;
-      final id = await d.insert('box', {
-        'type': finalName,
-        'units_per_box': u,
-        'size': s,
-        'height': h,
-        'width': w,
-        'format': f,
-        'trip_capacity': t,
-        'created_at': now,
-        'updated_at': now,
-      });
-      boxIds[signature] = id;
-      return id;
-    }
-
-    // Grupos (y sus imágenes) primero.
-    for (final g in oldGroups) {
-      final catId = await ensureCategory((g['category'] as String?) ?? 'Otros');
-      await ensureGroup(catId, (g['name'] as String?) ?? '',
-          image: g['image'] as String?);
-    }
-
-    for (final p in oldProducts) {
-      final oldId = p['id'] as int;
-      final catId = await ensureCategory((p['category'] as String?) ?? 'Otros');
-      final groupName = norm(
-          p['group_name'] as String?, norm(p['name'] as String?, 'General'));
-      final groupId = await ensureGroup(catId, groupName);
-      final subId = await ensureSub(groupId, p['subcategory'] as String?);
-      final boxId = await ensureBox(
-        (p['crate_name'] as String?) ?? '',
-        (p['units_per_box'] as int?) ?? 24,
-        ((p['size'] as num?) ?? 1).toDouble(),
-        ((p['height'] as num?) ?? 1).toDouble(),
-        1.0,
-        (p['format'] as int?) ?? 1,
-        (p['trip_capacity'] as int?) ?? 5,
-      );
-      final newId = await d.insert('product', {
-        'name': (p['name'] as String?) ?? '',
-        'box_id': boxId,
-        'group_id': groupId,
-        'subcategory_id': subId,
-        'image': p['image'] as String?,
-        'created_at': now,
-        'updated_at': now,
-      });
-      productIds[oldId] = newId;
-    }
-
-    // Noches (una por fecha) y consumo.
-    final nightIds = <String, int>{};
-    for (final c in oldConsumption) {
-      nightIds[c['date'] as String] = 0;
-    }
-    for (final date in nightIds.keys.toList()) {
-      nightIds[date] =
-          await d.insert('night', {'date': date, 'created_at': now});
-    }
-    for (final c in oldConsumption) {
-      final oldPid = c['product_id'] as int;
-      if (oldPid == 0) continue; // fila marcador antigua
-      final newPid = productIds[oldPid];
-      if (newPid == null) continue; // producto ya inexistente
-      await d.insert('consumption', {
-        'night_id': nightIds[c['date'] as String]!,
-        'product_id': newPid,
-        'quantity': (c['quantity'] as int?) ?? 0,
-      });
-    }
-
-    for (final s in oldSpecial) {
-      await d.insert(
-          'special_day',
-          {
-            'date': s['date'] as String,
-            'open': (s['open'] as int?) ?? 0,
-            'note': s['note'] as String?,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-
-    for (final m in oldMeta) {
-      await d.insert('app_metadata',
-          {'key': m['key'] as String, 'value': (m['value'] as String?) ?? ''},
-          conflictAlgorithm: ConflictAlgorithm.ignore);
-    }
-  }
-
-  /// Nombres históricos de variantes que quedaron con un grupo propio.
-  ///
-  /// En versiones antiguas algunos productos se llamaban distinto que en el
-  /// catálogo actual (p. ej. "Aquarius Naranja", "Tónica Bliss", "Ginger Ale").
-  /// Como no tenían grupo, la normalización a v8 les creó uno con su propio
-  /// nombre y nunca se juntaron con sus variantes.
-  static const Map<String, ({String group, String subcategory})>
-      _legacyVariantGroups = {
-    'Aquarius Naranja': (group: 'Aquarius', subcategory: 'Naranja'),
-    'Tónica Bliss': (group: 'Bliss', subcategory: 'Tónica'),
-    'Ginger Ale': (group: 'Bliss', subcategory: 'Ginger Ale'),
-  };
-
-  /// Reasigna esos productos a su grupo de variantes y borra los grupos huérfanos.
-  /// Es idempotente: si ya están bien, no hace nada.
-  static Future<void> _repairLegacyVariantGroups(Database d) async {
-    final now = _nowMs;
-    for (final entry in _legacyVariantGroups.entries) {
-      final rows = await d.rawQuery('''
-        SELECT p.id AS id, p.group_id AS old_group_id,
-               g.category_id AS category_id
-        FROM product p
-        JOIN product_group g ON g.id = p.group_id
-        WHERE p.name = ? AND p.deleted_at IS NULL''', [entry.key]);
-      for (final row in rows) {
-        final groupId = await _ensureGroup(
-          d,
-          categoryId: row['category_id'] as int,
-          name: entry.value.group,
-        );
-        final subId = await _ensureSubcategory(
-          d,
-          groupId: groupId,
-          name: entry.value.subcategory,
-        );
-        await d.update(
-          'product',
-          {'group_id': groupId, 'subcategory_id': subId, 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [row['id']],
-        );
-        final oldGroupId = row['old_group_id'] as int;
-        if (oldGroupId != groupId) {
-          final remaining = Sqflite.firstIntValue(await d.rawQuery(
-              'SELECT COUNT(*) FROM product WHERE group_id = ?', [oldGroupId]));
-          if (remaining == 0) {
-            await d.delete('product_group',
-                where: 'id = ?', whereArgs: [oldGroupId]);
-          }
-        }
-      }
-    }
-  }
-
-  /// Marca y subcategoría de las cervezas que no van a "Otros".
-  static const Map<String, ({String group, String subcategory})> _beerGroups = {
-    'Cruzcampo': (group: 'Cruzcampo', subcategory: 'Pilsen'),
-    '1904': (group: 'Cruzcampo', subcategory: '1904'),
-    'Cruzcampo Gran Reserva': (group: 'Cruzcampo', subcategory: 'Gran Reserva'),
-    'Cruzcampo Radler': (group: 'Cruzcampo', subcategory: 'Radler'),
-    'Heineken': (group: 'Heineken', subcategory: 'Normal'),
-    'Heineken 0,0': (group: 'Heineken', subcategory: '0,0'),
-  };
-
-  /// Reagrupa las cervezas por marca (v10).
-  ///
-  /// Antes cada cerveza tenía su propio grupo (su nombre). Ahora se juntan bajo
-  /// Cruzcampo, Heineken u "Otros"; el resto de cervezas de la categoría caen en
-  /// "Otros" con su nombre como subcategoría. Borra los grupos que quedan vacíos.
-  static Future<void> _regroupBeers(Database d) async {
-    final now = _nowMs;
-    final rows = await d.rawQuery('''
-      SELECT p.id AS id, p.name AS name, g.category_id AS category_id
-      FROM product p
-      JOIN product_group g ON g.id = p.group_id
-      JOIN category c ON c.id = g.category_id
-      WHERE p.deleted_at IS NULL AND c.name = 'Cervezas y similares' ''');
-    if (rows.isEmpty) return;
-
-    final groupIds = <String, int>{};
-    for (final row in rows) {
-      final categoryId = row['category_id'] as int;
-      final name = row['name'] as String;
-      final spec = _beerGroups[name];
-      final groupName = spec?.group ?? 'Otros';
-      final subName = spec?.subcategory ?? name;
-      final key = '$categoryId\u0000$groupName';
-      final groupId = groupIds[key] ??= await _ensureGroup(
-        d,
-        categoryId: categoryId,
-        name: groupName,
-      );
-      final subId = await _ensureSubcategory(
-        d,
-        groupId: groupId,
-        name: subName,
-      );
-      await d.update(
-        'product',
-        {'group_id': groupId, 'subcategory_id': subId, 'updated_at': now},
-        where: 'id = ?',
-        whereArgs: [row['id']],
-      );
-    }
-
-    // Borra los grupos de cerveza que han quedado vacíos (p. ej. "Sol").
-    await d.delete(
-      'product_group',
-      where: 'category_id IN (SELECT id FROM category WHERE name = ?) '
-          'AND id NOT IN (SELECT group_id FROM product)',
-      whereArgs: ['Cervezas y similares'],
-    );
-  }
-
-  /// Asigna la imagen de los grupos de variantes conocidos (v11, v14 y v15).
-  ///
-  /// Solo rellena los grupos que aún no tienen imagen, para no pisar la que el
-  /// usuario haya puesto desde la pestaña Productos.
-  static Future<void> _setGroupImages(Database d) async {
-    final now = _nowMs;
-    for (final entry in kGroupImages.entries) {
-      await d.update(
-        'product_group',
-        {'image': entry.value, 'updated_at': now},
-        where: "name = ? AND (image IS NULL OR image = '')",
-        whereArgs: [entry.key],
-      );
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers de catálogo (resuelven/crean entidades por nombre)
-  // ---------------------------------------------------------------------------
-
-  static Future<int> _ensureCategory(DatabaseExecutor t, String name) async {
-    final n = name.trim().isEmpty ? 'Otros' : name.trim();
-    final rows = await t.query('category',
-        columns: ['id'], where: 'name = ?', whereArgs: [n], limit: 1);
-    if (rows.isNotEmpty) return rows.single['id'] as int;
-    return t.insert('category', {'name': n});
-  }
-
-  static Future<int> _ensureGroup(
-    DatabaseExecutor t, {
-    required int categoryId,
-    required String name,
-  }) async {
-    final n = name.trim();
-    final rows = await t.query('product_group',
-        columns: ['id'],
-        where: 'category_id = ? AND name = ?',
-        whereArgs: [categoryId, n],
-        limit: 1);
-    if (rows.isNotEmpty) return rows.single['id'] as int;
-    final now = _nowMs;
-    return t.insert('product_group', {
-      'category_id': categoryId,
-      'name': n,
-      'created_at': now,
-      'updated_at': now,
-    });
-  }
-
-  static Future<int?> _ensureSubcategory(
-    DatabaseExecutor t, {
-    required int groupId,
-    String? name,
-  }) async {
-    final n = name?.trim() ?? '';
-    if (n.isEmpty) return null;
-    final rows = await t.query('subcategory',
-        columns: ['id'],
-        where: 'group_id = ? AND name = ?',
-        whereArgs: [groupId, n],
-        limit: 1);
-    if (rows.isNotEmpty) return rows.single['id'] as int;
-    return t.insert('subcategory', {'group_id': groupId, 'name': n});
-  }
-
-  static Future<int> _upsertBox(DatabaseExecutor t, CrateType box) async {
-    final type = box.name.trim().isEmpty ? 'Caja' : box.name.trim();
-    final now = _nowMs;
-    final columns = {
-      'units_per_box': box.units < 1 ? 1 : box.units,
-      'size': box.size.isFinite && box.size > 0 ? box.size : 1.0,
-      'height': box.height.isFinite && box.height > 0 ? box.height : 1.0,
-      'width': box.width.isFinite && box.width > 0 ? box.width : 1.0,
-      'format': box.format < 1 ? 1 : box.format,
-      'trip_capacity': box.trip < 1 ? 1 : box.trip,
-      'updated_at': now,
-    };
-    final rows = await t.query('box',
-        columns: ['id'], where: 'type = ?', whereArgs: [type], limit: 1);
-    if (rows.isNotEmpty) {
-      final id = rows.single['id'] as int;
-      await t.update('box', columns, where: 'id = ?', whereArgs: [id]);
-      return id;
-    }
-    return t.insert('box', {'type': type, 'created_at': now, ...columns});
-  }
-
-  Future<void> _saveGroupImage(
-      DatabaseExecutor t, int groupId, String? image) async {
-    final n = image?.trim();
-    await t.update(
-      'product_group',
-      {'image': (n == null || n.isEmpty) ? null : n, 'updated_at': _now},
-      where: 'id = ?',
-      whereArgs: [groupId],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Histórico de 2 años (ventana móvil)
-  // ---------------------------------------------------------------------------
-
-  /// Borra lo anterior a hoy menos 2 años. Se llama al arrancar la app.
-  Future<void> purgeOld() async {
-    final cutoff = Schedule.fmt(Schedule.retentionLimit());
-    final d = await db;
-    await d.transaction((t) async {
-      await t.delete('consumption',
-          where: 'night_id IN (SELECT id FROM night WHERE date < ?)',
-          whereArgs: [cutoff]);
-      await t.delete('night', where: 'date < ?', whereArgs: [cutoff]);
-      await t.delete('special_day', where: 'date < ?', whereArgs: [cutoff]);
-      await t.delete('shift', where: 'date < ?', whereArgs: [cutoff]);
-    });
-    _changed();
   }
 
   // ---------------------------------------------------------------------------
   // Productos
   // ---------------------------------------------------------------------------
 
-  static const String _productSelect = '''
-    SELECT p.id, p.name, p.image, p.unit_in_stock, p.deleted_at,
-           g.image AS group_image,
-           c.name AS category,
-           g.name AS group_name,
-           s.name AS subcategory,
-           b.type AS box_name, b.units_per_box, b.size, b.height, b.width,
-           b.format, b.trip_capacity
-    FROM product p
-    JOIN product_group g ON g.id = p.group_id
-    JOIN category c ON c.id = g.category_id
-    LEFT JOIN subcategory s ON s.id = p.subcategory_id
-    JOIN box b ON b.id = p.box_id''';
-
   /// Productos vivos (o todos, con [includeDeleted]) con su grupo y caja.
   Future<List<Product>> products({bool includeDeleted = false}) async {
-    final rows = await (await db).rawQuery(
-      '$_productSelect ${includeDeleted ? '' : 'WHERE p.deleted_at IS NULL'} '
-      'ORDER BY c.name, p.name',
-    );
-    return rows.map(Product.fromRow).toList();
+    var query = _client.from('product_view').select();
+    if (!includeDeleted) {
+      query = query.isFilter('deleted_at', null);
+    }
+    final rows = await query.order('category').order('name');
+    return [
+      for (final row in rows) Product.fromRow(Map<String, Object?>.from(row)),
+    ];
   }
 
   /// Categorías existentes.
   Future<List<String>> categories() async {
-    final rows =
-        await (await db).query('category', columns: ['name'], orderBy: 'name');
-    return [for (final r in rows) r['name'] as String];
+    final rows = await _client.from('category').select('name').order('name');
+    return [for (final row in rows) row['name'] as String];
   }
 
-  /// Tipos de caja existentes (tabla `box`).
+  /// Tipos de caja existentes (tabla `box_type`).
   Future<List<CrateType>> boxTypes() async {
-    final rows = await (await db).query('box', orderBy: 'type');
+    final rows = await _client.from('box_type').select().order('type');
     return [
-      for (final r in rows)
+      for (final row in rows)
         CrateType(
-          r['type'] as String,
-          r['units_per_box'] as int,
-          ((r['size'] as num?) ?? 1).toDouble(),
-          ((r['height'] as num?) ?? 1).toDouble(),
-          (r['format'] as int?) ?? 1,
-          (r['trip_capacity'] as int?) ?? 5,
-          width: ((r['width'] as num?) ?? 1).toDouble(),
-          id: r['id'] as int,
+          row['type'] as String,
+          row['units_per_box'] as int,
+          (row['size'] as num).toDouble(),
+          (row['height'] as num).toDouble(),
+          row['format'] as int,
+          row['trip_capacity'] as int,
+          width: (row['width'] as num).toDouble(),
+          id: row['id'] as int,
         ),
     ];
   }
 
   /// Grupos de variantes (categoría y nombre) existentes en la BD.
   Future<List<({String category, String name})>> productGroups() async {
-    final rows = await (await db).rawQuery('''
-      SELECT c.name AS category, g.name AS name
-      FROM product_group g
-      JOIN category c ON c.id = g.category_id
-      ORDER BY c.name, g.name''');
+    final rows = await _client
+        .from('product_group_view')
+        .select('category, name')
+        .order('category')
+        .order('name');
     return [
-      for (final r in rows)
-        (category: r['category'] as String, name: r['name'] as String),
+      for (final row in rows)
+        (
+          category: row['category'] as String,
+          name: row['name'] as String,
+        ),
     ];
   }
 
   /// Subcategorías con su categoría y grupo.
   Future<List<({String category, String group, String name})>>
       subcategories() async {
-    final rows = await (await db).rawQuery('''
-      SELECT c.name AS category, g.name AS grp, s.name AS name
-      FROM subcategory s
-      JOIN product_group g ON g.id = s.group_id
-      JOIN category c ON c.id = g.category_id
-      ORDER BY c.name, g.name, s.name''');
+    final rows = await _client
+        .from('subcategory_view')
+        .select('category, grp, name')
+        .order('category')
+        .order('grp')
+        .order('name');
     return [
-      for (final r in rows)
+      for (final row in rows)
         (
-          category: r['category'] as String,
-          group: r['grp'] as String,
-          name: r['name'] as String,
+          category: row['category'] as String,
+          group: row['grp'] as String,
+          name: row['name'] as String,
         ),
     ];
   }
+
+  Map<String, dynamic> _productParams(Product p, String? groupImage) => {
+        'p_id': p.id,
+        'p_name': p.name.trim(),
+        'p_category': p.category.trim(),
+        'p_group': p.groupName!.trim(),
+        'p_subcategory': p.subcategory?.trim(),
+        'p_box': {
+          'type': p.box.name.trim(),
+          'units': p.box.units,
+          'size': p.box.size,
+          'height': p.box.height,
+          'width': p.box.width,
+          'format': p.box.format,
+          'trip': p.box.trip,
+        },
+        'p_image': p.image,
+        'p_group_image': groupImage,
+        'p_unit_in_stock': p.unitInStock,
+      };
 
   Future<void> addProduct(Product p, {required String? groupImage}) async {
     final validationError = p.validationError;
     if (validationError != null) {
       throw ArgumentError.value(p, 'product', validationError);
     }
-    final database = await db;
-    await database.transaction((t) async {
-      final now = _now;
-      final categoryId = await _ensureCategory(t, p.category);
-      final groupId =
-          await _ensureGroup(t, categoryId: categoryId, name: p.groupName!);
-      final subcategoryId =
-          await _ensureSubcategory(t, groupId: groupId, name: p.subcategory);
-      final boxId = await _upsertBox(t, p.box);
-      await t.insert('product', {
-        'name': p.name.trim(),
-        'box_id': boxId,
-        'group_id': groupId,
-        'subcategory_id': subcategoryId,
-        'image': p.image,
-        'unit_in_stock': p.unitInStock,
-        'created_at': now,
-        'updated_at': now,
-      });
-      if (groupImage != null) await _saveGroupImage(t, groupId, groupImage);
-    });
+    try {
+      await _client.rpc('save_product', params: _productParams(p, groupImage));
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
@@ -1133,30 +244,11 @@ class Db {
     if (validationError != null) {
       throw ArgumentError.value(p, 'product', validationError);
     }
-    final database = await db;
-    await database.transaction((t) async {
-      final categoryId = await _ensureCategory(t, p.category);
-      final groupId =
-          await _ensureGroup(t, categoryId: categoryId, name: p.groupName!);
-      final subcategoryId =
-          await _ensureSubcategory(t, groupId: groupId, name: p.subcategory);
-      final boxId = await _upsertBox(t, p.box);
-      await t.update(
-        'product',
-        {
-          'name': p.name.trim(),
-          'box_id': boxId,
-          'group_id': groupId,
-          'subcategory_id': subcategoryId,
-          'image': p.image,
-          'unit_in_stock': p.unitInStock,
-          'updated_at': _now,
-        },
-        where: 'id = ?',
-        whereArgs: [p.id],
-      );
-      if (groupImage != null) await _saveGroupImage(t, groupId, groupImage);
-    });
+    try {
+      await _client.rpc('save_product', params: _productParams(p, groupImage));
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
@@ -1164,13 +256,13 @@ class Db {
     required String category,
     required String name,
   }) async {
-    final rows = await (await db).rawQuery('''
-      SELECT g.image
-      FROM product_group g
-      JOIN category c ON c.id = g.category_id
-      WHERE c.name = ? AND g.name = ?
-      LIMIT 1''', [category.trim(), name.trim()]);
-    return rows.isEmpty ? null : rows.single['image'] as String?;
+    final row = await _client
+        .from('product_group_view')
+        .select('image')
+        .eq('category', category.trim())
+        .eq('name', name.trim())
+        .maybeSingle();
+    return row == null ? null : row['image'] as String?;
   }
 
   Future<void> setProductGroupImage({
@@ -1182,24 +274,29 @@ class Db {
       throw ArgumentError(
           'La categoría y el nombre del grupo son obligatorios.');
     }
-    final database = await db;
-    await database.transaction((t) async {
-      final categoryId = await _ensureCategory(t, category);
-      final groupId = await _ensureGroup(t, categoryId: categoryId, name: name);
-      await _saveGroupImage(t, groupId, image);
-    });
+    try {
+      await _client.rpc('set_group_image', params: {
+        'p_category': category.trim(),
+        'p_group': name.trim(),
+        'p_image': image,
+      });
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   /// Borrado lógico: el producto deja de mostrarse pero se conserva el histórico.
   Future<void> deleteProduct(int id) async {
-    final now = _now;
-    await (await db).update(
-      'product',
-      {'deleted_at': now, 'updated_at': now},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final now = _nowIso();
+    try {
+      await _client.from('product').update({
+        'deleted_at': now,
+        'updated_at': now,
+      }).eq('id', id);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
@@ -1210,64 +307,58 @@ class Db {
   /// Guarda la lista de una noche (sustituye la que hubiera de esa fecha).
   /// Los productos no incluidos cuentan como consumo 0.
   Future<void> saveNight(String date, Map<int, int> qty) async {
-    final d = await db;
-    await d.transaction((t) async {
-      final existing = await t.query('night',
-          columns: ['id'], where: 'date = ?', whereArgs: [date], limit: 1);
-      final nightId = existing.isNotEmpty
-          ? existing.single['id'] as int
-          : await t.insert('night', {'date': date, 'created_at': _now});
-      await t
-          .delete('consumption', where: 'night_id = ?', whereArgs: [nightId]);
-      for (final e in qty.entries.where((e) => e.value > 0)) {
-        await t.insert('consumption', {
-          'night_id': nightId,
-          'product_id': e.key,
-          'quantity': e.value,
-        });
-      }
-    });
+    try {
+      await _client.rpc('save_night', params: {
+        'p_date': date,
+        'p_items': [
+          for (final entry in qty.entries.where((e) => e.value > 0))
+            {'product_id': entry.key, 'quantity': entry.value},
+        ],
+      });
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   /// date -> (productId -> cantidad). Por defecto, todo el histórico.
   Future<Map<String, Map<int, int>>> nights([String? since]) async {
-    final rows = await (await db).rawQuery(
-      'SELECT n.date AS date, c.product_id AS product_id, c.quantity AS quantity '
-      'FROM consumption c JOIN night n ON n.id = c.night_id '
-      '${since == null ? '' : 'WHERE n.date >= ?'}',
-      since == null ? null : [since],
-    );
+    var query = _client
+        .from('consumption')
+        .select('quantity, product_id, night!inner(date)');
+    if (since != null) {
+      query = query.gte('night.date', since);
+    }
+    final rows = await query;
+
     final out = <String, Map<int, int>>{};
-    for (final r in rows) {
-      out.putIfAbsent(r['date'] as String, () => {})[r['product_id'] as int] =
-          r['quantity'] as int;
+    for (final row in rows) {
+      final night = row['night'];
+      final date = night is Map ? night['date'] as String : night as String;
+      out.putIfAbsent(date, () => {})[row['product_id'] as int] =
+          row['quantity'] as int;
     }
     return out;
   }
 
   /// Botellines guardados de una noche concreta (productId -> cantidad).
-  /// Devuelve un mapa vacío si esa fecha no tiene lista.
   Future<Map<int, int>> nightConsumption(String date) async {
-    final rows = await (await db).rawQuery(
-      'SELECT c.product_id AS product_id, c.quantity AS quantity '
-      'FROM consumption c JOIN night n ON n.id = c.night_id '
-      'WHERE n.date = ?',
-      [date],
-    );
+    final rows = await _client
+        .from('consumption')
+        .select('product_id, quantity, night!inner(date)')
+        .eq('night.date', date);
     return {
-      for (final r in rows) r['product_id'] as int: r['quantity'] as int,
+      for (final row in rows) row['product_id'] as int: row['quantity'] as int,
     };
   }
 
   /// Fecha de la lista guardada más reciente, o `null` si no hay ninguna.
-  /// Ignora las noches sin consumo (por ejemplo, una lista vacía sustituida).
   Future<String?> latestNightDate() async {
-    final rows = await (await db).rawQuery(
-      'SELECT n.date AS date FROM night n '
-      'JOIN consumption c ON c.night_id = n.id '
-      'GROUP BY n.date ORDER BY n.date DESC LIMIT 1',
-    );
+    final rows = await _client
+        .from('night')
+        .select('date, consumption!inner(id)')
+        .order('date', ascending: false)
+        .limit(1);
     return rows.isEmpty ? null : rows.first['date'] as String;
   }
 
@@ -1276,24 +367,33 @@ class Db {
   // ---------------------------------------------------------------------------
 
   Future<Map<String, SpecialDay>> specialDays() async {
-    final rows = await (await db).query('special_day');
+    final rows = await _client.from('special_day').select();
     return {
-      for (final r in rows) r['date'] as String: SpecialDay.fromMap(r),
+      for (final row in rows)
+        row['date'] as String:
+            SpecialDay.fromMap(Map<String, Object?>.from(row)),
     };
   }
 
   Future<void> setSpecialDay(SpecialDay s) async {
-    await (await db).insert(
-      'special_day',
-      {'date': s.date, 'open': s.open ? 1 : 0, 'note': s.note},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    try {
+      await _client.from('special_day').upsert({
+        'date': s.date,
+        'open': s.open,
+        'note': s.note,
+      });
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   Future<void> deleteSpecialDay(String date) async {
-    await (await db)
-        .delete('special_day', where: 'date = ?', whereArgs: [date]);
+    try {
+      await _client.from('special_day').delete().eq('date', date);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
@@ -1303,13 +403,16 @@ class Db {
 
   /// Puestos configurados, ordenados por planta y nombre.
   Future<List<JobRole>> roles() async {
-    final rows = await (await db).rawQuery('''
-      SELECT * FROM role
-      ORDER BY CASE floor
-        WHEN 'planta_baja' THEN 0
-        WHEN 'karaoke' THEN 1
-        ELSE 2 END, name''');
-    return rows.map(JobRole.fromRow).toList();
+    final rows = await _client.from('job_role').select();
+    final list = [
+      for (final row in rows) JobRole.fromRow(Map<String, Object?>.from(row)),
+    ];
+    const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
+    list.sort((a, b) {
+      final floor = (order[a.floor.db] ?? 2).compareTo(order[b.floor.db] ?? 2);
+      return floor != 0 ? floor : a.name.compareTo(b.name);
+    });
+    return list;
   }
 
   Future<void> addRole(JobRole role) async {
@@ -1317,27 +420,19 @@ class Db {
     if (name.isEmpty) {
       throw ArgumentError('El nombre del puesto es obligatorio.');
     }
-    final d = await db;
-    final key = roleNameKey(name);
-    final duplicate = await d.query(
-      'role',
-      columns: ['id'],
-      where: 'name_key = ?',
-      whereArgs: [key],
-      limit: 1,
-    );
-    if (duplicate.isNotEmpty) {
-      throw StateError('Ya existe un puesto con ese nombre.');
+    try {
+      await _client.from('job_role').insert({
+        'name': name,
+        'name_key': roleNameKey(name),
+        'floor': role.floor.db,
+        'note': role.note.trim(),
+      });
+    } on PostgrestException catch (error) {
+      if (error.code == '23505') {
+        throw StateError('Ya existe un puesto con ese nombre.');
+      }
+      throw StateError(_friendly(error));
     }
-    final now = _now;
-    await d.insert('role', {
-      'name': name,
-      'name_key': key,
-      'floor': role.floor.db,
-      'note': role.note.trim(),
-      'created_at': now,
-      'updated_at': now,
-    });
     _changed();
   }
 
@@ -1349,120 +444,118 @@ class Db {
     if (name.isEmpty) {
       throw ArgumentError('El nombre del puesto es obligatorio.');
     }
-    final d = await db;
-    final key = roleNameKey(name);
-    final duplicate = await d.query(
-      'role',
-      columns: ['id'],
-      where: 'name_key = ? AND id <> ?',
-      whereArgs: [key, role.id],
-      limit: 1,
-    );
-    if (duplicate.isNotEmpty) {
-      throw StateError('Ya existe un puesto con ese nombre.');
-    }
-    await d.update(
-      'role',
-      {
+    try {
+      await _client.from('job_role').update({
         'name': name,
-        'name_key': key,
+        'name_key': roleNameKey(name),
         'floor': role.floor.db,
         'note': role.note.trim(),
-        'updated_at': _now,
-      },
-      where: 'id = ?',
-      whereArgs: [role.id],
-    );
+      }).eq('id', role.id!);
+    } on PostgrestException catch (error) {
+      if (error.code == '23505') {
+        throw StateError('Ya existe un puesto con ese nombre.');
+      }
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
-  /// Borra un puesto solo si no tiene usuarios asignados.
+  /// Borra un puesto solo si no tiene usuarios ni turnos asignados.
   Future<void> deleteRole(int id) async {
-    final d = await db;
-    final count = Sqflite.firstIntValue(await d.rawQuery(
-          'SELECT COUNT(*) FROM users WHERE role_id = ?',
-          [id],
-        )) ??
-        0;
-    if (count > 0) {
+    final users = await _client
+        .from('profiles')
+        .select('id')
+        .eq('job_role_id', id)
+        .limit(1);
+    if (users.isNotEmpty) {
       throw StateError('No se puede borrar un puesto con usuarios asignados.');
     }
-    final shiftCount = Sqflite.firstIntValue(await d.rawQuery(
-          'SELECT COUNT(*) FROM shift WHERE role_id = ?',
-          [id],
-        )) ??
-        0;
-    if (shiftCount > 0) {
+    final shifts =
+        await _client.from('shift').select('id').eq('role_id', id).limit(1);
+    if (shifts.isNotEmpty) {
       throw StateError('No se puede borrar un puesto con turnos históricos.');
     }
-    await d.delete('role', where: 'id = ?', whereArgs: [id]);
+    await _client.from('job_role').delete().eq('id', id);
     _changed();
   }
-
-  static const String _userSelect = '''
-    SELECT u.id, u.name, u.surname, u.email, u.role, u.active, u.opener,
-           u.working_days, r.id AS role_id, r.name AS role_name, r.floor,
-           r.note AS role_note
-    FROM users u
-    LEFT JOIN role r ON r.id = u.role_id''';
 
   /// Usuarios (solo activos salvo [includeInactive]), con su puesto habitual.
   Future<List<AppUser>> users({bool includeInactive = false}) async {
-    final rows = await (await db).rawQuery(
-      '$_userSelect ${includeInactive ? '' : 'WHERE u.active = 1'} '
-      "ORDER BY CASE r.floor WHEN 'planta_baja' THEN 0 "
-      "WHEN 'karaoke' THEN 1 ELSE 2 END, r.name, u.name, u.surname",
-    );
-    return rows.map(AppUser.fromRow).toList();
+    var query = _client.from('user_view').select();
+    if (!includeInactive) {
+      query = query.eq('active', 1);
+    }
+    final rows = await query;
+    final list = [
+      for (final row in rows) AppUser.fromRow(Map<String, Object?>.from(row)),
+    ];
+    const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
+    list.sort((a, b) {
+      final floor = (order[a.jobRole?.floor.db] ?? 2)
+          .compareTo(order[b.jobRole?.floor.db] ?? 2);
+      if (floor != 0) return floor;
+      final role = (a.jobRole?.name ?? '').compareTo(b.jobRole?.name ?? '');
+      if (role != 0) return role;
+      final name = a.name.compareTo(b.name);
+      return name != 0 ? name : a.surname.compareTo(b.surname);
+    });
+    return list;
   }
 
   Future<AppUser?> userById(int id) async {
-    final rows = await (await db).rawQuery(
-      '$_userSelect WHERE u.id = ? LIMIT 1',
-      [id],
-    );
-    return rows.isEmpty ? null : AppUser.fromRow(rows.single);
+    final row =
+        await _client.from('user_view').select().eq('id', id).maybeSingle();
+    return row == null ? null : AppUser.fromRow(Map<String, Object?>.from(row));
+  }
+
+  Future<AppUser?> _profileByAuthId(String authId) async {
+    final row = await _client
+        .from('user_view')
+        .select()
+        .eq('auth_id', authId)
+        .maybeSingle();
+    return row == null ? null : AppUser.fromRow(Map<String, Object?>.from(row));
   }
 
   Future<bool> emailExists(String email, {int? exceptId}) async {
-    final rows = await (await db).query(
-      'users',
-      columns: ['id'],
-      where: exceptId == null ? 'email = ?' : 'email = ? AND id <> ?',
-      whereArgs: exceptId == null
-          ? [_normalizeEmail(email)]
-          : [_normalizeEmail(email), exceptId],
-      limit: 1,
-    );
+    var query = _client
+        .from('profiles')
+        .select('id')
+        .eq('email', _normalizeEmail(email));
+    if (exceptId != null) {
+      query = query.neq('id', exceptId);
+    }
+    final rows = await query;
     return rows.isNotEmpty;
   }
 
-  /// Crea una cuenta. [password] no se guarda en claro: se almacena su hash
-  /// con una sal aleatoria.
+  /// Crea una cuenta. La contraseña real la gestiona Supabase Auth; la Edge
+  /// Function `admin-users` es la única que puede crear usuarios con clave
+  /// temporal, porque necesita la clave secreta.
   Future<int> addUser(AppUser user, {required String password}) async {
     _validateUser(user);
     _validatePassword(password);
     if (await emailExists(user.email)) {
       throw StateError('Ya existe una cuenta con ese email.');
     }
-    final salt = PasswordHasher.newSalt();
-    final now = _now;
-    final id = await (await db).insert('users', {
+    final data = await _invokeAdmin({
+      'action': 'create',
+      'email': _normalizeEmail(user.email),
       'name': user.name.trim(),
       'surname': user.surname.trim(),
-      'email': _normalizeEmail(user.email),
-      'password_hash': PasswordHasher.hash(password, salt),
-      'password_salt': salt,
+      'password': password,
       'role': user.role.db,
-      'role_id': user.jobRole?.id,
-      'active': user.active ? 1 : 0,
-      'opener': user.opener ? 1 : 0,
+      'job_role_id': user.jobRole?.id,
+      'active': user.active,
+      'opener': user.opener,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
-      'created_at': now,
-      'updated_at': now,
     });
+    final id = data['id'];
+    if (id is! num) {
+      throw StateError('No se pudo crear la cuenta.');
+    }
     _changed();
-    return id;
+    return id.toInt();
   }
 
   /// Actualiza los datos del usuario. Si [password] no es nulo ni vacío,
@@ -1474,35 +567,29 @@ class Db {
     if (await emailExists(user.email, exceptId: id)) {
       throw StateError('Ya existe una cuenta con ese email.');
     }
-    final values = <String, Object?>{
+    await _invokeAdmin({
+      'action': 'update',
+      'id': id,
+      'email': _normalizeEmail(user.email),
       'name': user.name.trim(),
       'surname': user.surname.trim(),
-      'email': _normalizeEmail(user.email),
+      if (password != null && password.isNotEmpty) 'password': password,
       'role': user.role.db,
-      'role_id': user.jobRole?.id,
-      'active': user.active ? 1 : 0,
-      'opener': user.opener ? 1 : 0,
+      'job_role_id': user.jobRole?.id,
+      'active': user.active,
+      'opener': user.opener,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
-      'updated_at': _now,
-    };
-    if (password != null && password.isNotEmpty) {
-      _validatePassword(password);
-      final salt = PasswordHasher.newSalt();
-      values['password_hash'] = PasswordHasher.hash(password, salt);
-      values['password_salt'] = salt;
-    }
-    await (await db).update('users', values, where: 'id = ?', whereArgs: [id]);
+    });
     _changed();
   }
 
   /// Baja lógica: conserva los turnos históricos.
   Future<void> setUserActive(int id, bool active) async {
-    await (await db).update(
-      'users',
-      {'active': active ? 1 : 0, 'updated_at': _now},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _invokeAdmin({
+      'action': 'setActive',
+      'id': id,
+      'active': active,
+    });
     _changed();
   }
 
@@ -1510,34 +597,37 @@ class Db {
   // Autenticación y sesión
   // ---------------------------------------------------------------------------
 
-  static const String _sessionKey = 'session_user_id';
-
   /// Comprueba email y contraseña y, si son correctos, abre la sesión.
   ///
   /// Devuelve `null` si las credenciales no coinciden. Lanza [StateError] si
   /// la cuenta existe pero está desactivada.
   Future<AppUser?> authenticate(String email, String password) async {
-    final rows = await (await db).query(
-      'users',
-      where: 'email = ?',
-      whereArgs: [_normalizeEmail(email)],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final row = rows.single;
-    final valid = PasswordHasher.verify(
-      password,
-      row['password_salt'] as String,
-      row['password_hash'] as String,
-    );
-    if (!valid) return null;
-    if ((row['active'] as int) != 1) {
-      throw StateError('La cuenta está desactivada.');
+    try {
+      final response = await _client.auth.signInWithPassword(
+        email: _normalizeEmail(email),
+        password: password,
+      );
+      final authUser = response.user;
+      if (authUser == null) return null;
+      final user = await _profileByAuthId(authUser.id);
+      if (user == null) {
+        await _client.auth.signOut();
+        return null;
+      }
+      if (!user.active) {
+        await _client.auth.signOut();
+        throw StateError('La cuenta está desactivada.');
+      }
+      return user;
+    } on AuthException catch (error) {
+      if (error.code == 'email_not_confirmed') {
+        throw StateError('La cuenta todavía no está confirmada.');
+      }
+      if (error.code == 'user_banned') {
+        throw StateError('La cuenta está desactivada.');
+      }
+      return null;
     }
-    final user = await userById(row['id'] as int);
-    if (user == null) return null;
-    await _saveSession(user.id!);
-    return user;
   }
 
   /// Crea una cuenta desde el registro y la deja con la sesión iniciada.
@@ -1547,55 +637,53 @@ class Db {
     required String email,
     required String password,
   }) async {
-    final id = await addUser(
-      AppUser(
-        name: name.trim(),
-        surname: surname.trim(),
-        email: _normalizeEmail(email),
-      ),
+    _validatePassword(password);
+    final normalized = _normalizeEmail(email);
+    if (!isValidEmail(normalized)) {
+      throw ArgumentError('El email no es válido.');
+    }
+    final response = await _client.auth.signUp(
+      email: normalized,
       password: password,
+      data: {'name': name.trim(), 'surname': surname.trim()},
     );
-    await _saveSession(id);
-    return (await userById(id))!;
+    final authUser = response.user;
+    if (authUser == null) {
+      throw StateError('No se pudo crear la cuenta.');
+    }
+    if (response.session == null) {
+      throw StateError(
+        'Revisa tu correo para confirmar la cuenta antes de entrar.',
+      );
+    }
+    final user = await _profileByAuthId(authUser.id);
+    if (user == null) {
+      throw StateError('No se pudo crear el perfil.');
+    }
+    // El usuario acaba de elegir su contraseña: no hay que forzar el cambio.
+    try {
+      await _client.rpc('mark_password_changed');
+    } catch (_) {
+      // No es crítico: si falla, el usuario podrá cambiarla desde Cuenta.
+    }
+    return user;
   }
 
   /// Usuario de la sesión actual, o `null` si no hay sesión válida.
   Future<AppUser?> currentUser() async {
-    final rows = await (await db).query(
-      'app_metadata',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: [_sessionKey],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final id = int.tryParse((rows.single['value'] as String?) ?? '');
-    if (id == null) {
-      await logout();
-      return null;
-    }
-    final user = await userById(id);
+    final session = _client.auth.currentSession;
+    if (session == null) return null;
+    final user = await _profileByAuthId(session.user.id);
     if (user == null || !user.active) {
-      await logout();
+      await _client.auth.signOut();
       return null;
     }
     return user;
   }
 
   Future<void> logout() async {
-    await (await db).delete(
-      'app_metadata',
-      where: 'key = ?',
-      whereArgs: [_sessionKey],
-    );
-  }
-
-  Future<void> _saveSession(int userId) async {
-    await (await db).insert(
-      'app_metadata',
-      {'key': _sessionKey, 'value': '$userId'},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _client.auth.signOut();
+    await disconnectRealtime();
   }
 
   /// Cambia la contraseña verificando antes la actual.
@@ -1605,37 +693,49 @@ class Db {
     String newPassword,
   ) async {
     _validatePassword(newPassword);
-    final rows = await (await db).query(
-      'users',
-      columns: ['password_hash', 'password_salt'],
-      where: 'id = ?',
-      whereArgs: [userId],
-      limit: 1,
-    );
-    if (rows.isEmpty) throw StateError('El usuario no existe.');
-    final row = rows.single;
-    if (!PasswordHasher.verify(
-      currentPassword,
-      row['password_salt'] as String,
-      row['password_hash'] as String,
-    )) {
+    final session = _client.auth.currentSession;
+    if (session == null) {
+      throw StateError('No hay una sesión iniciada.');
+    }
+    final email = session.user.email;
+    if (email == null || email.isEmpty) {
+      throw StateError('La cuenta no tiene un email asociado.');
+    }
+
+    try {
+      await _client.auth.signInWithPassword(
+        email: email,
+        password: currentPassword,
+      );
+    } on AuthException {
       throw StateError('La contraseña actual no es correcta.');
     }
-    final salt = PasswordHasher.newSalt();
-    await (await db).update(
-      'users',
-      {
-        'password_hash': PasswordHasher.hash(newPassword, salt),
-        'password_salt': salt,
-        'updated_at': _now,
-      },
-      where: 'id = ?',
-      whereArgs: [userId],
-    );
+
+    try {
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
+      await _client.rpc('mark_password_changed');
+    } on AuthException catch (error) {
+      throw StateError(error.message);
+    }
     _changed();
   }
 
-  static String _normalizeEmail(String email) => email.trim().toLowerCase();
+  /// Cambia la contraseña sin pedir la actual. Solo se usa en el cambio
+  /// obligatorio tras entrar con la contraseña temporal, cuando la sesión ya
+  /// está abierta con esas credenciales.
+  Future<void> setPassword(String newPassword) async {
+    _validatePassword(newPassword);
+    if (_client.auth.currentSession == null) {
+      throw StateError('No hay una sesión iniciada.');
+    }
+    try {
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
+      await _client.rpc('mark_password_changed');
+    } on AuthException catch (error) {
+      throw StateError(error.message);
+    }
+    _changed();
+  }
 
   static void _validateUser(AppUser user) {
     if (user.name.trim().isEmpty) {
@@ -1652,29 +752,33 @@ class Db {
     }
   }
 
-  static const String _shiftSelect = '''
-    SELECT s.id, s.date, s.user_id, s.user_name,
-           s.role_id, s.role_name, s.floor,
-           s.start_min, s.end_min, s.break_min, s.status, s.note
-    FROM shift s''';
+  // ---------------------------------------------------------------------------
+  // Turnos
+  // ---------------------------------------------------------------------------
 
   /// Turnos de un mes completo, ordenados por fecha y planta.
   Future<List<Shift>> shiftsForMonth(DateTime month) async {
     final first = Schedule.fmt(DateTime(month.year, month.month, 1));
     final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
-    final rows = await (await db).rawQuery(
-      '$_shiftSelect WHERE s.date >= ? AND s.date <= ? '
-      'ORDER BY s.date, s.floor, s.role_name, s.user_name',
-      [first, last],
-    );
-    return rows.map(Shift.fromRow).toList();
+    final rows = await _client
+        .from('shift')
+        .select()
+        .gte('date', first)
+        .lte('date', last)
+        .order('date')
+        .order('floor')
+        .order('role_name')
+        .order('user_name');
+    return [
+      for (final row in rows) Shift.fromRow(Map<String, Object?>.from(row)),
+    ];
   }
 
   /// Genera y guarda el horario de [month] a partir de los usuarios activos
   /// con puesto. Devuelve cuántos turnos se han creado.
   Future<int> generateMonthShifts(DateTime month) async {
     final users = (await this.users())
-        .where((u) => u.jobRole != null)
+        .where((user) => user.jobRole != null)
         .toList(growable: false);
     final special = await specialDays();
     final generated = ShiftGenerator.generateMonth(
@@ -1687,39 +791,32 @@ class Db {
   }
 
   /// Sustituye todos los turnos del mes por [shifts].
-  ///
-  /// El generador siempre parte de cero, así que regenerar un mes descarta los
-  /// cambios manuales de ese mes. La UI avisa antes de hacerlo.
   Future<void> replaceMonthShifts(DateTime month, List<Shift> shifts) async {
     final first = Schedule.fmt(DateTime(month.year, month.month, 1));
-    final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
-    final d = await db;
-    await d.transaction((t) async {
-      await t.delete(
-        'shift',
-        where: 'date >= ? AND date <= ?',
-        whereArgs: [first, last],
-      );
-      final now = _now;
-      for (final s in shifts) {
-        final note = s.note.trim();
-        await t.insert('shift', {
-          'date': s.date,
-          'user_id': s.userId,
-          'user_name': s.userName,
-          'role_id': s.roleId,
-          'role_name': s.roleName,
-          'floor': s.floor.db,
-          'start_min': s.startMin,
-          'end_min': s.endMin,
-          'break_min': s.breakMin,
-          'status': s.status.db,
-          'note': note.isEmpty ? null : note,
-          'created_at': now,
-          'updated_at': now,
-        });
-      }
-    });
+    final payload = [
+      for (final shift in shifts)
+        {
+          'date': shift.date,
+          'user_id': shift.userId,
+          'user_name': shift.userName,
+          'role_id': shift.roleId,
+          'role_name': shift.roleName,
+          'floor': shift.floor.db,
+          'start_min': shift.startMin,
+          'end_min': shift.endMin,
+          'break_min': shift.breakMin,
+          'status': shift.status.db,
+          'note': shift.note.trim().isEmpty ? null : shift.note.trim(),
+        },
+    ];
+    try {
+      await _client.rpc('replace_month_shifts', params: {
+        'p_month': first,
+        'p_shifts': payload,
+      });
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
@@ -1729,149 +826,46 @@ class Db {
       throw ArgumentError('El turno debe tener un id.');
     }
     final note = shift.note.trim();
-    await (await db).update(
-      'shift',
-      {
+    try {
+      await _client.from('shift').update({
         'start_min': shift.startMin,
         'end_min': shift.endMin,
         'break_min': shift.breakMin,
         'status': shift.status.db,
         'note': note.isEmpty ? null : note,
-        'updated_at': _now,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+      }).eq('id', id);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   Future<void> deleteShift(int id) async {
-    await (await db).delete('shift', where: 'id = ?', whereArgs: [id]);
+    try {
+      await _client.from('shift').delete().eq('id', id);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   /// Pasa a publicado todos los borradores del mes.
   Future<void> publishMonth(DateTime month) async {
     final first = Schedule.fmt(DateTime(month.year, month.month, 1));
-    final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
-    await (await db).update(
-      'shift',
-      {'status': ShiftStatus.published.db, 'updated_at': _now},
-      where: 'date >= ? AND date <= ? AND status = ?',
-      whereArgs: [first, last, ShiftStatus.draft.db],
-    );
+    try {
+      await _client.rpc('publish_month', params: {'p_month': first});
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 
   Future<void> confirmShift(int id) async {
-    await (await db).update(
-      'shift',
-      {'status': ShiftStatus.confirmed.db, 'updated_at': _now},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    _changed();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Semilla
-  // ---------------------------------------------------------------------------
-
-  /// Inserta el catálogo inicial si la tabla `product` está vacía.
-  Future<void> seedCatalog(List<Product> products) async {
-    final database = await db;
-    await database.transaction((t) async {
-      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM product'))
-          .single['c'] as int;
-      if (count > 0) return;
-      final now = _now;
-      for (final p in products) {
-        final categoryId = await _ensureCategory(t, p.category);
-        final groupId = await _ensureGroup(t,
-            categoryId: categoryId, name: p.groupName ?? p.name);
-        final subcategoryId =
-            await _ensureSubcategory(t, groupId: groupId, name: p.subcategory);
-        final boxId = await _upsertBox(t, p.box);
-        if (p.groupImage != null) {
-          await _saveGroupImage(t, groupId, p.groupImage);
-        }
-        await t.insert('product', {
-          'name': p.name.trim(),
-          'box_id': boxId,
-          'group_id': groupId,
-          'subcategory_id': subcategoryId,
-          'image': p.image,
-          'unit_in_stock': p.unitInStock,
-          'created_at': now,
-          'updated_at': now,
-        });
-      }
-    });
-    _changed();
-  }
-
-  /// Inserta los puestos y usuarios iniciales si la tabla `users` está vacía.
-  /// Los puestos que ya existan se reutilizan por nombre, así que la semilla no
-  /// falla si el usuario creó alguno antes. Las cuentas usan la contraseña
-  /// temporal [kSeedPassword].
-  Future<void> seedStaff(
-    List<JobRole> roles,
-    List<
-            ({
-              String name,
-              String surname,
-              String email,
-              JobRole jobRole,
-              UserRole role,
-            })>
-        users,
-  ) async {
-    final database = await db;
-    await database.transaction((t) async {
-      final count = (await t.rawQuery('SELECT COUNT(*) AS c FROM users'))
-          .single['c'] as int;
-      if (count > 0) return;
-      final now = _now;
-      final roleIds = <String, int>{};
-      for (final role in roles) {
-        final name = normalizeRoleName(role.name);
-        final key = roleNameKey(name);
-        final existing = await t.query(
-          'role',
-          columns: ['id'],
-          where: 'name_key = ?',
-          whereArgs: [key],
-          limit: 1,
-        );
-        roleIds[key] = existing.isNotEmpty
-            ? existing.single['id'] as int
-            : await t.insert('role', {
-                'name': name,
-                'name_key': key,
-                'floor': role.floor.db,
-                'note': role.note.trim(),
-                'created_at': now,
-                'updated_at': now,
-              });
-      }
-      for (final user in users) {
-        final salt = PasswordHasher.newSalt();
-        await t.insert('users', {
-          'name': user.name.trim(),
-          'surname': user.surname.trim(),
-          'email': _normalizeEmail(user.email),
-          'password_hash': PasswordHasher.hash(kSeedPassword, salt),
-          'password_salt': salt,
-          'role': user.role.db,
-          'role_id': roleIds[roleNameKey(user.jobRole.name)],
-          'active': 1,
-          'opener': 0,
-          'working_days': '',
-          'created_at': now,
-          'updated_at': now,
-        });
-      }
-    });
+    try {
+      await _client.rpc('confirm_my_shift', params: {'p_shift_id': id});
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
     _changed();
   }
 }

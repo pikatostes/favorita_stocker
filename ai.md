@@ -24,8 +24,8 @@ registrar el consumo de cada noche, **prever** qué reponer y **montar cajas/via
 | Framework | Flutter 3.35.7 (stable), Dart 3.9.2 |
 | SDK | `>=3.0.0 <4.0.0` |
 | Versión app | 0.2.0 (`pubspec.yaml`) |
-| Dependencias | `sqflite`, `path`, `intl` |
-| Dev deps | `flutter_test`, `flutter_lints ^3.0.2`, `sqflite_common_ffi` |
+| Dependencias | `supabase_flutter`, `intl`, `flutter_localizations` |
+| Dev deps | `flutter_test`, `flutter_lints ^3.0.2` |
 | Lint | `analysis_options.yaml` → `package:flutter_lints/flutter.yaml` (sin reglas propias) |
 | Plataformas generadas | android, ios, linux, macos, web, windows (app de escritorio/móvil; sin lógica nativa propia) |
 
@@ -35,27 +35,37 @@ registrar el consumo de cada noche, **prever** qué reponer y **montar cajas/via
 flutter pub get
 flutter analyze          # debe quedar limpio (flutter_lints)
 flutter test             # toda la suite en test/
-flutter run -d windows   # o -d chrome / dispositivo
+flutter run -d windows --dart-define-from-file=env.json
 ```
+
+`env.json` (ignorado por Git) contiene `SUPABASE_URL` y
+`SUPABASE_PUBLISHABLE_KEY`. En producción se pasan con `--dart-define` o
+`--dart-define-from-file`. **Nunca** se usa la clave secreta en el cliente.
+
+**Despliegue web:** `vercel.json` usa `scripts/vercel_build.sh`, que compila con
+`--dart-define` a partir de las variables del proyecto. Los detalles (variables,
+protección de despliegues y errores típicos) están en `DESPLIEGUE.md`. Si la
+compilación no trae las claves, la app muestra una pantalla de aviso en vez de
+quedarse en blanco.
 
 **Regla de oro:** antes de dar por bueno un cambio, ejecuta `flutter analyze` y
 `flutter test`. Si tocas lógica de dominio, **añade o ajusta tests** (ver §9).
 
-La BD en runtime es SQLite local (`stock_bar.db`) vía `sqflite`; en tests se usa
-`sqflite_common_ffi` con BD temporales reales.
+La BD es **Supabase/Postgres** (online-first, sin caché local). Las migraciones
+SQL viven en `supabase/migrations/` y se aplican desde el SQL Editor del
+dashboard o con `supabase db push`. La app no crea tablas al arrancar.
 
 ## 4. Mapa de archivos
 
 ```
 lib/
-  main.dart              Arranque: locale es, seed, purgeOld, MaterialApp (temas claro/oscuro).
+  main.dart              Arranque: Supabase.initialize, locale es y MaterialApp (temas claro/oscuro).
   theme.dart             Paleta de marca (AppColors), propuestas de tema (AppPalettes) y selector.
   models.dart            Dominio: formatMeasure, kGroupImages, CrateType, Product, SpecialDay, Forecast(Result).
   schedule.dart          Calendario/horario del bar (apertura, día de servicio, retención).
   shifts.dart            Turnos: Floor, ShiftStatus, JobRole, AppUser, Shift y ShiftGenerator.
-  db.dart                Acceso a SQLite. Singleton Db.i, esquema + migraciones, CRUD. (archivo grande, ~1.100 líneas)
-  seed.dart              Catálogo inicial (initialProducts) en código.
-  seed_runner.dart       initializeSeedData() -> Db.seedCatalog(initialProducts).
+  db.dart                Acceso a Supabase: singleton Db.i, vistas, RPC, Realtime y Auth.
+  seed.dart              Catálogo inicial (initialProducts) en código (referencia histórica).
   prediction.dart        Predictor.forecast(): previsión en 2 pasos (base + temporada + margen).
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
   product_entries.dart   buildProductEntries(): agrupa variantes para las listas de UI.
@@ -66,6 +76,7 @@ lib/
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
     plan.dart            Pantalla "Montar cajas" (compartida por Lista y Calendario).
     cuenta.dart          "Cuenta": datos del usuario y cambio de contraseña.
+    forced_password.dart Bloqueo hasta cambiar la contraseña temporal.
     admin/
       admin.dart         "Admin": pestañas Calendario, Productos e Inventario.
       calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día y previsión.
@@ -74,7 +85,17 @@ lib/
   widgets/
     category_tabs.dart   Pestañas por categoría (reutilizado en Lista y Productos).
   img/                   Imágenes de productos/grupos referenciadas por ruta (assets).
-test/                    Tests por módulo: db, models, planner, schedule, shifts, product_entries, category_tabs, etc.
+supabase/
+  config.toml            Configuración de Supabase CLI (auth local sin confirmación).
+  migrations/            Esquema, RLS/grants y RPC, en orden de timestamp.
+  seed_catalog.sql       Catálogo inicial de ejemplo (productos y stock), idempotente.
+  functions/admin-users/ Edge Function que crea/edita cuentas con la clave secreta.
+scripts/
+  migrate_sqlite.py      Exporta la SQLite antigua e importa en Supabase (export/push/verify).
+  vercel_build.sh        Compila web pasando SUPABASE_URL y la clave publicable.
+vercel.json              Build de Vercel → scripts/vercel_build.sh, salida build/web.
+DESPLIEGUE.md            Puesta en marcha web (Vercel), variables y errores típicos.
+test/                    Tests por módulo: models, planner, schedule, shifts, product_entries, etc.
 ```
 
 ## 5. Modelo de dominio (`models.dart`)
@@ -100,9 +121,10 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 - **`Floor`** = planta del local: `planta_baja`, `karaoke`, `terraza`.
 - **`JobRole`** = puesto configurable: nombre, planta y nota fija (p. ej. evento
   privado en el karaoke).
-- **`Employee`** = nombre, un único `role`, `active` (baja lógica), `opener`
-  (puede abrir el bar o su planta) y `workingDays` (días de la semana en que
-  puede trabajar; vacío = cualquiera, solo se usa al generar el horario).
+- **`AppUser`** = nombre, un único `role`, `active` (baja lógica), `opener`
+  (puede abrir el bar o su planta), `mustChangePassword` (contraseña temporal) y
+  `workingDays` (días de la semana en que puede trabajar; vacío = cualquiera,
+  solo se usa al generar el horario).
   `AppUser.isMaintenance` reconoce el puesto `manteni`/`mantenimiento` (sin
   distinguir mayúsculas ni acentos) para el aviso de lista en Inicio.
 - **`Shift`** = turno de una noche: `date` (día de servicio `yyyy-MM-dd`),
@@ -114,58 +136,85 @@ test/                    Tests por módulo: db, models, planner, schedule, shift
 - `ShiftGenerator.generateMonth(month, employees, specialDays)` reparte los
   turnos (ver §7).
 
-## 6. Base de datos (`db.dart`)
+## 6. Base de datos (`db.dart` + `supabase/`)
 
 ### 6.1 Acceso
-- **Singleton `Db.i`**. Nunca instancies `Db`.
+- **Singleton `Db.i`**. Nunca instancies `Db`. La API pública imita la antigua
+  capa SQLite para no tocar las pantallas.
 - `Db.i.version` es un `ValueNotifier<int>` que se incrementa en **cada escritura**
-  (`_changed()`). Las pantallas se suscriben para recargar (§8).
-- `schemaVersion = 13`. Abrir con `Db.openAt(path)` (expuesto `@visibleForTesting`).
-  En tests se puede inyectar una BD temporal con `Db.i.useDatabase(db)`.
+  y en cada evento de **Realtime** (`_changed()`). Las pantallas se suscriben
+  para recargar (§8).
+- `Db.i.connectRealtime()` se llama al restaurar/iniciar sesión y abre un canal
+  con `postgres_changes` sobre las tablas de la UI; `logout()` lo cierra.
+- Errores de PostgREST se traducen a mensajes en español con `_friendly`
+  (permisos, duplicados, clave foránea, etc.).
 
-### 6.2 Esquema normalizado (v8+), tablas en inglés singular
-`category`, `box`, `product_group`, `subcategory`, `product`, `night`,
-`consumption`, `special_day`, `app_metadata`, `role`, `employee`, `shift`.
+### 6.2 Esquema (Postgres, `supabase/migrations`)
+Tablas en inglés singular: `category`, `box_type`, `product_group`,
+`subcategory`, `product`, `night`, `consumption`, `special_day`, `job_role`,
+`profiles`, `shift`.
 
-- `product` guarda **referencias**: `box_id`, `group_id`, `subcategory_id`, `image`, `deleted_at`.
-- `product_group` es UNIQUE(`category_id`, `name`) y guarda `image` (imagen del grupo).
-- `consumption` = una fila por (noche, producto); `night` marca qué noches existen.
-  UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
-- `PRAGMA foreign_keys = ON` en `onConfigure`.
-- `role` es UNIQUE por `name` y guarda `floor` + `note`; `employee` referencia
-  `role` y guarda `opener` (marca de "puede abrir") y `working_days` (días 1–7
-  como texto `"5,6"`; `NULL`/vacío = cualquiera); `shift` referencia `employee` y
-  `role`, guarda copia de `role_name`,
-  `floor` y `note` (histórico) y tiene UNIQUE(`employee_id`, `date`) (no hay
-  turnos partidos). Estados: `borrador`, `publicado`, `confirmado`.
-- Helpers internos `_ensureCategory/_ensureGroup/_ensureSubcategory/_upsertBox`
-  resuelven o crean entidades por nombre. `_upsertBox` es **UPSERT por `type`**
-  (mismo nombre de caja = mismos atributos; los últimos datos pisan a los anteriores).
+- Los ids siguen siendo `bigint` (`generated by default as identity`) para no
+  cambiar los modelos de Dart. `profiles` añade `auth_id uuid` → `auth.users`.
+- **Vistas planas** (`security_invoker = true`) que reproducen las columnas que
+  esperan los `fromRow`: `product_view`, `product_group_view`,
+  `subcategory_view`, `user_view`.
+- `product` guarda referencias: `box_id`, `group_id`, `subcategory_id`, `image`,
+  `deleted_at` (borrado lógico).
+- `consumption` = una fila por (noche, producto); `night` marca qué noches
+  existen. UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
+- `job_role` es UNIQUE por `name` (más `name_key` normalizado) y guarda
+  `floor` + `note`; `profiles` referencia `job_role_id` y guarda `opener`,
+  `working_days` (`"5,6"`; vacío = cualquiera), `must_change_password`;
+  `shift` referencia `profiles`/`job_role`, guarda copia de `role_name`,
+  `floor` y `note`, y UNIQUE(`user_id`, `date`). Estados: `borrador`,
+  `publicado`, `confirmado`.
+- El alta de un usuario en `auth.users` crea su fila en `profiles` con el
+  trigger `handle_new_user`.
 
-### 6.3 Migraciones (histórico)
-`onUpgrade` aplica por versiones: v2 special_days, v3–v5 columnas desnormalizadas,
-v6 app_metadata, v7 product_groups+image, v8 normalización, v9 reparación de grupos
-de variantes históricos, v10 reagrupación de cervezas por marca, v11 imágenes de
-grupo, v12 role+employee+shift, v13 `opener` + `working_days` en `employee`
-(migración idempotente: comprueba `PRAGMA table_info`), v14–v15 imágenes de los
-grupos Cruzcampo, Coca-Cola, Nestea, Aquarius y Bliss (solo rellena grupos sin
-imagen).
+### 6.3 Seguridad (RLS + grants)
+- `anon` no tiene permisos; todo exige sesión `authenticated`. No basta con
+  RLS: también hay `GRANT` explícitos (Postgres comprueba privilegios antes).
+- Lectura: todo el equipo. Escritura directa de catálogo, puestos, perfiles,
+  excepciones y turnos: solo `is_admin()`.
+- `night` y `consumption` solo se escriben por RPC (`save_night`).
+- `current_profile_id()` e `is_admin()` son `security definer` con
+  `search_path = public`.
+- Turnos: el empleado solo ve `publicado`/`confirmado`; el admin ve borradores.
 
-**Para cambiar el esquema:** sube `schemaVersion`, añade el bloque `if (oldV < N) ...`
-en `_onUpgrade`, y **añade un test de migración** en `test/db_test.dart`.
-Nunca edites `_createV8` sin actualizar también las migraciones (los tests crean v7
-y comprueban que sube al esquema actual).
+### 6.4 RPC y Edge Function
+- `save_product`, `set_group_image`: catálogo + upsert de categoría/grupo/
+  subcategoría/caja en una transacción.
+- `save_night(date, items)`: sustituye la lista de esa noche.
+- `replace_month_shifts`, `publish_month`, `confirm_my_shift`: turnos.
+- `update_own_profile`, `mark_password_changed`: perfil propio.
+- `reset_sequences`, `purge_old_data`: solo `service_role` (importación y
+  mantenimiento).
+- **`admin-users`** (Edge Function): crear/editar/desactivar cuentas. Comprueba
+  que quien llama es admin activo y usa la clave secreta, que nunca sale del
+  servidor. Contraseña temporal por defecto: `favorita`.
 
-### 6.4 API pública habitual
-`products({includeDeleted})`, `categories()`, `boxTypes()`, `productGroups()`,
-`subcategories()`, `addProduct/updateProduct/deleteProduct`, `productGroupImage`,
-`setProductGroupImage`, `saveNight(date, Map<int,int>)`, `nights([since])`,
-`nightConsumption(date)`, `latestNightDate()`,
-`specialDays/setSpecialDay/deleteSpecialDay`, `roles/addRole/updateRole/deleteRole`,
-`employees/addEmployee/updateEmployee/setEmployeeActive`,
-`shiftsForMonth/replaceMonthShifts/updateShift/deleteShift`,
-`publishMonth/confirmShift`, `seedCatalog`, `purgeOld`.
-`_productSelect` es el JOIN canónico producto↔grupo↔categoría↔subcategoría↔caja.
+### 6.5 Autenticación
+- `authenticate()` = `signInWithPassword` + perfil por `auth_id`; si el perfil
+  no existe o está inactivo, cierra la sesión.
+- `registerUser()` = `signUp`; requiere que la confirmación por email esté
+  desactivada (los correos `@favorita.local` no reciben nada).
+- `AppUser.mustChangePassword` bloquea la app con `ForcedPasswordScreen` hasta
+  llamar a `setPassword()` + `mark_password_changed`.
+- `changePassword()` desde Cuenta reautentica con la contraseña actual.
+
+### 6.6 Importación desde SQLite
+`scripts/migrate_sqlite.py`:
+1. `export --db privado/stock_bar.db` → JSON (sin red).
+2. `push` con `SUPABASE_URL` + `SUPABASE_SECRET_KEY` en el entorno: crea las
+   cuentas de Auth, actualiza `profiles`, inserta el resto y reajusta secuencias.
+3. `verify` → conteos por tabla.
+
+La clave secreta **nunca** se escribe en el repo ni se pasa por el chat.
+
+Si no hay base antigua, `supabase/seed_catalog.sql` carga el catálogo de ejemplo
+(35 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
+existentes.
 
 ## 7. Reglas de negocio
 
@@ -275,9 +324,11 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   de 16:00 a 04:00: cada fila es un horario exacto y reúne a todas las personas
   que lo comparten. La barra rotula solo su entrada y su salida (sin eje horario
   completo ni columna lateral) y lleva los avatares dentro; si no caben, pasan a
-  otra línea y la fila crece en vertical. Tocar un avatar lo edita; mantenerlo
-  pulsado lo borra, con confirmación. Permite generar/publicar el mes. Los formularios de empleado y puesto son diálogos con
-  sus propios controllers (mismo patrón que Productos).
+  otra línea y la fila crece en vertical. El admin toca un avatar para editarlo y
+  lo mantiene pulsado para borrarlo (con confirmación); el empleado toca su
+  turno publicado para **confirmarlo** y no puede editar los de nadie. El admin
+  puede generar/publicar el mes. Los formularios de empleado y puesto son
+  diálogos con sus propios controllers (mismo patrón que Productos).
 - **Formulario de producto** (`_ProductDialog`): categoría, grupo, subcategoría y tipo
   de caja son **desplegables estrictos** (solo valores existentes en BD). Los números
   describen la caja seleccionada, **compartida** por todos los productos de ese tipo.
@@ -298,8 +349,8 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 
 | Archivo | Cubre |
 |---|---|
-| `db_test.dart` | Creación esquema, migraciones v7→actual, reparaciones v9/v10/v11 y CRUD de turnos. Usa `sqflite_common_ffi` + BD temporal. |
 | `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, `Forecast.boxes`, `SpecialDay`. |
+| `inventario_test.dart` | Stock en cajas completas + unidades sueltas, agrupación de variantes y `SpecialDay` boolean/entero. |
 | `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes. |
 | `schedule_test.dart` | Formato, `serviceDay`, apertura y excepciones, `nextOpen`, retención. |
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
@@ -311,7 +362,9 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
 
 Convención: helpers `_p(...)`/`_product(...)` para construir objetos de prueba.
-Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
+Al cambiar dominio o esquema, actualiza/crea el test correspondiente. La capa de
+datos ya no se testea con SQLite: los tests cubren lógica pura y widgets; las
+migraciones se validan con `pglast`/el SQL Editor y el script de importación.
 
 ## 10. Convenciones de código
 
@@ -326,7 +379,8 @@ Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
 
 ## 11. Checklist antes de terminar un cambio
 
-1. ¿Cambié el esquema? → subir `schemaVersion`, migración en `_onUpgrade`, test de migración.
+1. ¿Cambié el esquema? → nueva migración en `supabase/migrations/` con timestamp
+   posterior, aplicar en local/remoto y ajustar vistas/RPC/RLS.
 2. ¿Cambié dominio/schedule/planner/predicción? → actualizar/añadir test.
 3. ¿Nueva escritura en BD? → llamar a `_changed()` (ya lo hacen los métodos de `Db`).
 4. ¿Cambié UI con datos de BD? → respetar el patrón `version.addListener(_reload)`.
@@ -342,8 +396,16 @@ Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
   `Calendario` lista productos con `includeDeleted: true` para mostrarlo.
 - **`serviceDay`**: no uses `DateTime.now().date` para la "noche"; antes de las 16:00
   pertenece al día anterior.
-- **Migraciones**: los tests crean una BD v7 real; cualquier cambio de esquema debe
-  seguir pasando esas migraciones.
+- **Migraciones**: cada cambio de esquema es un archivo nuevo en
+  `supabase/migrations/`; no edites uno ya aplicado. Mantén las vistas y los
+  `fromRow` sincronizados.
+- **RLS + grants**: añadir una política no basta; sin `grant` al rol
+  `authenticated` PostgREST sigue devolviendo permiso denegado.
+- **Clave secreta**: `service_role`/`sb_secret_…` solo en la Edge Function o en
+  el script de importación (variable de entorno). Nunca en Flutter ni en Git.
+- **Web/Vercel**: `String.fromEnvironment` se resuelve al compilar. Sin
+  `--dart-define` la app no ve las claves (muestra la pantalla «Falta configurar
+  Supabase»); el build de Vercel está en `vercel.json` + `scripts/vercel_build.sh`.
 - **Controllers en diálogos**: crea y destruye junto al diálogo (ver §8).
 - **Assets**: las imágenes se referencian por ruta `lib/img/...` y están declaradas
   en `pubspec.yaml`; un archivo inexistente cae al placeholder, no rompe.
@@ -357,5 +419,6 @@ Al cambiar dominio o esquema, actualiza/crea el test correspondiente.
 - **Mínimo de terraza**: con pocos openers no se pueden cubrir las dos personas
   desde la apertura; el generador programa a todos los disponibles y el hueco
   queda visible, pero no inventa personal.
-- **Confirmación multidispositivo**: el estado `confirmado` es local. Que cada
-  empleado confirme desde su móvil requiere backend; SQLite no sincroniza.
+- **Confirmación multidispositivo**: el estado `confirmado` ya se guarda en
+  Supabase y se sincroniza por Realtime. Requiere que la publicación
+  `supabase_realtime` incluya la tabla `shift` (lo hace la migración 0002).

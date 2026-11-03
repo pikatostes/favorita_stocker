@@ -1,0 +1,47 @@
+# Configuración local de Supabase CLI.
+# El proyecto remoto se enlaza con: supabase link --project-ref <ref>
+project_id = "favorita_stocker"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = false
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_signup = true
+
+# Los correos @favorita.local no reciben mensajes: la confirmación por email
+# debe estar desactivada. Las cuentas se crean con contraseña temporal.
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[functions.admin-users]
+verify_jwt = true
