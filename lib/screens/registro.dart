@@ -50,27 +50,35 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// que la BD solo guarda el total de botellines.
   Future<void> _loadNight() async {
     final date = _date;
-    final products = await _future;
-    final saved = await Db.i.nightConsumption(Schedule.fmt(date));
-    // Si mientras cargaba cambió la fecha, no se pisa la nueva selección.
-    if (!mounted || date != _date) return;
-    final boxes = <int, int>{};
-    final loose = <int, int>{};
-    for (final p in products) {
-      final total = saved[p.id] ?? 0;
-      if (total <= 0) continue;
-      final size = _boxSize(p);
-      boxes[p.id!] = total ~/ size;
-      loose[p.id!] = total % size;
+    try {
+      final products = await _future;
+      final saved = await Db.i.nightConsumption(Schedule.fmt(date));
+      // Si mientras cargaba cambió la fecha, no se pisa la nueva selección.
+      if (!mounted || date != _date) return;
+      final boxes = <int, int>{};
+      final loose = <int, int>{};
+      for (final p in products) {
+        final total = saved[p.id] ?? 0;
+        if (total <= 0) continue;
+        final size = _boxSize(p);
+        boxes[p.id!] = total ~/ size;
+        loose[p.id!] = total % size;
+      }
+      setState(() {
+        _boxes
+          ..clear()
+          ..addAll(boxes);
+        _loose
+          ..clear()
+          ..addAll(loose);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No se pudo cargar la lista guardada: '
+            '${describeDbError(error)}'),
+      ));
     }
-    setState(() {
-      _boxes
-        ..clear()
-        ..addAll(boxes);
-      _loose
-        ..clear()
-        ..addAll(loose);
-    });
   }
 
   @override
@@ -532,7 +540,16 @@ class _RegistroScreenState extends State<RegistroScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await Db.i.saveNight(Schedule.fmt(date), qty);
+    try {
+      await Db.i.saveNight(Schedule.fmt(date), qty);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No se pudo guardar la lista: '
+            '${describeDbError(error)}'),
+      ));
+      return;
+    }
     if (!mounted) return;
     // Mantenimiento sigue el estado de la lista desde su Inicio; el resto de
     // usuarios recibe aquí la confirmación de que se guardó correctamente.

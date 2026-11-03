@@ -130,10 +130,25 @@ class _ProductosScreenState extends State<ProductosScreen> {
     if (!mounted || form == null) return;
 
     if (p == null) {
-      await Db.i.addProduct(form.product, groupImage: form.groupImage);
+      try {
+        await Db.i.addProduct(form.product, groupImage: form.groupImage);
+      } catch (error) {
+        if (!mounted) return;
+        _snack('No se pudo guardar el producto: ${describeDbError(error)}');
+      }
     } else {
-      await Db.i.updateProduct(form.product, groupImage: form.groupImage);
+      try {
+        await Db.i.updateProduct(form.product, groupImage: form.groupImage);
+      } catch (error) {
+        if (!mounted) return;
+        _snack('No se pudo guardar el producto: ${describeDbError(error)}');
+      }
     }
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _delete(Product p) async {
@@ -154,7 +169,14 @@ class _ProductosScreenState extends State<ProductosScreen> {
       ),
     );
     if (!mounted) return;
-    if (ok == true) await Db.i.deleteProduct(p.id!);
+    if (ok == true) {
+      try {
+        await Db.i.deleteProduct(p.id!);
+      } catch (error) {
+        if (!mounted) return;
+        _snack('No se pudo borrar el producto: ${describeDbError(error)}');
+      }
+    }
   }
 
   /// Selector temporal para comparar las propuestas de color. Al elegir una,

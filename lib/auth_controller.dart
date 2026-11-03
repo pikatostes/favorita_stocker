@@ -1,21 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'db.dart';
 import 'shifts.dart';
 
 /// Estado global de la sesión. La pantalla raíz escucha este controlador para
-/// mostrar el login o la aplicación.
+/// mostrar el login, el cambio de contraseña obligatorio o la aplicación.
 class AuthController extends ChangeNotifier {
   AuthController._();
   static final AuthController i = AuthController._();
 
   AppUser? _user;
+  StreamSubscription<bool>? _authSubscription;
+
   AppUser? get user => _user;
   bool get isSignedIn => _user != null;
 
-  /// Recupera la sesión guardada en `app_metadata` al arrancar.
+  /// `true` mientras la cuenta siga usando la contraseña temporal.
+  bool get mustChangePassword => _user?.mustChangePassword ?? false;
+
+  /// Recupera la sesión guardada por Supabase Auth al arrancar.
   Future<void> restore() async {
+    _authSubscription ??= Db.i.signedOut.listen((signedOut) {
+      if (!signedOut || _user == null) return;
+      _user = null;
+      unawaited(Db.i.disconnectRealtime());
+      notifyListeners();
+    });
+
     _user = await Db.i.currentUser();
+    if (_user != null) {
+      await Db.i.connectRealtime();
+    }
     notifyListeners();
   }
 
@@ -25,6 +42,7 @@ class AuthController extends ChangeNotifier {
       final user = await Db.i.authenticate(email, password);
       if (user == null) return 'Email o contraseña incorrectos.';
       _user = user;
+      await Db.i.connectRealtime();
       notifyListeners();
       return null;
     } on StateError catch (e) {
@@ -48,6 +66,7 @@ class AuthController extends ChangeNotifier {
         email: email,
         password: password,
       );
+      await Db.i.connectRealtime();
       notifyListeners();
       return null;
     } on StateError catch (e) {
@@ -80,6 +99,24 @@ class AuthController extends ChangeNotifier {
     if (id == null) return 'No hay una sesión iniciada.';
     try {
       await Db.i.changePassword(id, currentPassword, newPassword);
+      await refresh();
+      return null;
+    } on StateError catch (e) {
+      return e.message;
+    } on ArgumentError catch (e) {
+      return e.message?.toString() ?? 'La contraseña no es válida.';
+    } catch (e) {
+      return 'No se pudo cambiar la contraseña: $e';
+    }
+  }
+
+  /// Sustituye la contraseña temporal. El usuario ya tiene sesión iniciada, así
+  /// que no se le pide la contraseña actual.
+  Future<String?> setInitialPassword(String newPassword) async {
+    if (_user == null) return 'No hay una sesión iniciada.';
+    try {
+      await Db.i.setPassword(newPassword);
+      await refresh();
       return null;
     } on StateError catch (e) {
       return e.message;

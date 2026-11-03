@@ -212,7 +212,17 @@ class _ScheduleTabState extends State<_ScheduleTab> {
   }
 
   Future<void> _generate() async {
-    final data = await _load();
+    _ScheduleData data;
+    try {
+      data = await _load();
+    } catch (error) {
+      if (!mounted) return;
+      _snack(
+          context,
+          'No se pudieron cargar los turnos: '
+          '${describeDbError(error)}');
+      return;
+    }
     if (!mounted) return;
     if (data.users.isEmpty) {
       _snack(context,
@@ -249,15 +259,94 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     if (generated.isNotEmpty && mounted) {
       setState(() => _selected = DateTime.parse(generated.first.date));
     }
-    await Db.i.replaceMonthShifts(_month, generated);
+    try {
+      await Db.i.replaceMonthShifts(_month, generated);
+    } catch (error) {
+      if (!mounted) return;
+      _snack(
+          context,
+          'No se pudieron generar los turnos: '
+          '${describeDbError(error)}');
+      return;
+    }
     if (!mounted) return;
     _snack(context, 'Generados ${generated.length} turnos.');
   }
 
   Future<void> _publish() async {
-    await Db.i.publishMonth(_month);
+    try {
+      await Db.i.publishMonth(_month);
+    } catch (error) {
+      if (!mounted) return;
+      _snack(
+          context,
+          'No se pudieron publicar los turnos: '
+          '${describeDbError(error)}');
+      return;
+    }
     if (!mounted) return;
     _snack(context, 'Turnos publicados.');
+  }
+
+  /// Tocar un turno: el admin lo edita; el empleado confirma el suyo.
+  Future<void> _onShiftTap(Shift shift) async {
+    if (widget.isAdmin) {
+      await _editShift(shift);
+      return;
+    }
+    final me = AuthController.i.user;
+    if (me == null) return;
+    if (shift.userId != me.id) {
+      _snack(context, 'Solo puedes confirmar tus propios turnos.');
+      return;
+    }
+    if (shift.status == ShiftStatus.confirmed) {
+      _snack(context, 'Este turno ya está confirmado.');
+      return;
+    }
+    if (shift.status != ShiftStatus.published) {
+      _snack(context, 'El turno todavía no está publicado.');
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar turno'),
+        content: Text(
+          '${_dateLabel(shift.date)} · ${shift.timeLabel}\n'
+          '${shift.roleName} (${shift.floor.label})',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await Db.i.confirmShift(shift.id!);
+    } catch (error) {
+      if (!mounted) return;
+      _snack(
+          context,
+          'No se pudo confirmar el turno: '
+          '${describeDbError(error)}');
+      return;
+    }
+    if (!mounted) return;
+    _snack(context, 'Turno confirmado.');
+  }
+
+  void _onShiftLongPress(Shift shift) {
+    if (widget.isAdmin) _deleteShift(shift);
   }
 
   Future<void> _editShift(Shift shift) async {
@@ -270,7 +359,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       await Db.i.updateShift(updated);
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el turno: $e');
+      _snack(context, 'No se pudo guardar el turno: ${describeDbError(e)}');
     }
   }
 
@@ -291,7 +380,15 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       ),
     );
     if (ok != true) return;
-    await Db.i.deleteShift(shift.id!);
+    try {
+      await Db.i.deleteShift(shift.id!);
+    } catch (error) {
+      if (!mounted) return;
+      _snack(
+          context,
+          'No se pudo borrar el turno: '
+          '${describeDbError(error)}');
+    }
   }
 
   CalendarDayStyle _dayStyle(
@@ -397,8 +494,9 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       return _DayCard(
         date: key,
         shifts: shifts,
-        onEdit: _editShift,
-        onDelete: _deleteShift,
+        isAdmin: widget.isAdmin,
+        onEdit: _onShiftTap,
+        onDelete: _onShiftLongPress,
       );
     }
 
@@ -518,12 +616,14 @@ class _ScheduleTabState extends State<_ScheduleTab> {
 class _DayCard extends StatelessWidget {
   final String date;
   final List<Shift> shifts;
+  final bool isAdmin;
   final ValueChanged<Shift> onEdit;
   final ValueChanged<Shift> onDelete;
 
   const _DayCard({
     required this.date,
     required this.shifts,
+    required this.isAdmin,
     required this.onEdit,
     required this.onDelete,
   });
@@ -595,8 +695,10 @@ class _DayCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Toca un avatar para editar · mantén pulsado '
-                              'para borrar',
+                              isAdmin
+                                  ? 'Toca un avatar para editar · mantén '
+                                      'pulsado para borrar'
+                                  : 'Toca tu turno publicado para confirmarlo',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
@@ -1076,7 +1178,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el usuario: $e');
+      _snack(context, 'No se pudo guardar el usuario: ${describeDbError(e)}');
     }
   }
 
@@ -1087,7 +1189,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
       await AuthController.i.refresh();
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo cambiar el estado: $e');
+      _snack(context, 'No se pudo cambiar el estado: ${describeDbError(e)}');
     }
   }
 

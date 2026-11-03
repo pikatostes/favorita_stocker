@@ -103,8 +103,28 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
       ),
     );
     if (ok == true) {
-      await Db.i.setSpecialDay(
-          SpecialDay(Schedule.fmt(date), open: open, note: note.text.trim()));
+      try {
+        await Db.i.setSpecialDay(
+            SpecialDay(Schedule.fmt(date), open: open, note: note.text.trim()));
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo guardar la excepción: '
+              '${describeDbError(error)}'),
+        ));
+      }
+    }
+  }
+
+  Future<void> _deleteSpecial(String date) async {
+    try {
+      await Db.i.deleteSpecialDay(date);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No se pudo quitar la excepción: '
+            '${describeDbError(error)}'),
+      ));
     }
   }
 
@@ -267,7 +287,7 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
             ),
             if (sp != null)
               TextButton(
-                  onPressed: () => Db.i.deleteSpecialDay(key),
+                  onPressed: () => _deleteSpecial(key),
                   child: const Text('Quitar excepción')),
           ]),
         ]),

@@ -171,7 +171,7 @@ class SpecialDay {
 
   factory SpecialDay.fromMap(Map<String, Object?> m) => SpecialDay(
         m['date'] as String,
-        open: (m['open'] as int) == 1,
+        open: m['open'] == true || m['open'] == 1,
         note: (m['note'] as String?) ?? '',
       );
 }

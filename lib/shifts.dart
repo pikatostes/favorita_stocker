@@ -163,6 +163,9 @@ class AppUser {
   /// Capacidad de abrir el bar o su planta.
   final bool opener;
 
+  /// Si debe cambiar la contraseña temporal antes de entrar.
+  final bool mustChangePassword;
+
   /// Días de la semana en que puede trabajar habitualmente (1 = lunes,
   /// 7 = domingo). El conjunto vacío significa "cualquier día". Solo se usa
   /// para generar el horario automático.
@@ -177,6 +180,7 @@ class AppUser {
     this.role = UserRole.employee,
     this.active = true,
     this.opener = false,
+    this.mustChangePassword = false,
     this.workingDays = const {},
   });
 
@@ -187,8 +191,10 @@ class AppUser {
       name: m['name'] as String,
       surname: (m['surname'] as String?) ?? '',
       email: (m['email'] as String?) ?? '',
-      active: (m['active'] as int) == 1,
-      opener: (m['opener'] as int?) == 1,
+      active: m['active'] == true || m['active'] == 1,
+      opener: m['opener'] == true || m['opener'] == 1,
+      mustChangePassword: m['must_change_password'] == true ||
+          m['must_change_password'] == 1,
       workingDays: parseWorkingDays(m['working_days']),
       role: UserRole.fromDb(m['role'] as String?),
       jobRole: roleId == null
@@ -263,6 +269,7 @@ class AppUser {
     UserRole? role,
     bool? active,
     bool? opener,
+    bool? mustChangePassword,
     Set<int>? workingDays,
   }) =>
       AppUser(
@@ -274,6 +281,7 @@ class AppUser {
         role: role ?? this.role,
         active: active ?? this.active,
         opener: opener ?? this.opener,
+        mustChangePassword: mustChangePassword ?? this.mustChangePassword,
         workingDays: workingDays ?? this.workingDays,
       );
 }
