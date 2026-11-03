@@ -42,6 +42,12 @@ flutter run -d windows --dart-define-from-file=env.json
 `SUPABASE_PUBLISHABLE_KEY`. En producción se pasan con `--dart-define` o
 `--dart-define-from-file`. **Nunca** se usa la clave secreta en el cliente.
 
+**Despliegue web:** `vercel.json` usa `scripts/vercel_build.sh`, que compila con
+`--dart-define` a partir de las variables del proyecto. Los detalles (variables,
+protección de despliegues y errores típicos) están en `DESPLIEGUE.md`. Si la
+compilación no trae las claves, la app muestra una pantalla de aviso en vez de
+quedarse en blanco.
+
 **Regla de oro:** antes de dar por bueno un cambio, ejecuta `flutter analyze` y
 `flutter test`. Si tocas lógica de dominio, **añade o ajusta tests** (ver §9).
 
@@ -85,6 +91,9 @@ supabase/
   functions/admin-users/ Edge Function que crea/edita cuentas con la clave secreta.
 scripts/
   migrate_sqlite.py      Exporta la SQLite antigua e importa en Supabase (export/push/verify).
+  vercel_build.sh        Compila web pasando SUPABASE_URL y la clave publicable.
+vercel.json              Build de Vercel → scripts/vercel_build.sh, salida build/web.
+DESPLIEGUE.md            Puesta en marcha web (Vercel), variables y errores típicos.
 test/                    Tests por módulo: models, planner, schedule, shifts, product_entries, etc.
 ```
 
@@ -389,6 +398,9 @@ migraciones se validan con `pglast`/el SQL Editor y el script de importación.
   `authenticated` PostgREST sigue devolviendo permiso denegado.
 - **Clave secreta**: `service_role`/`sb_secret_…` solo en la Edge Function o en
   el script de importación (variable de entorno). Nunca en Flutter ni en Git.
+- **Web/Vercel**: `String.fromEnvironment` se resuelve al compilar. Sin
+  `--dart-define` la app no ve las claves (muestra la pantalla «Falta configurar
+  Supabase»); el build de Vercel está en `vercel.json` + `scripts/vercel_build.sh`.
 - **Controllers en diálogos**: crea y destruye junto al diálogo (ver §8).
 - **Assets**: las imágenes se referencian por ruta `lib/img/...` y están declaradas
   en `pubspec.yaml`; un archivo inexistente cae al placeholder, no rompe.
