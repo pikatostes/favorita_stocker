@@ -88,6 +88,7 @@ lib/
 supabase/
   config.toml            Configuración de Supabase CLI (auth local sin confirmación).
   migrations/            Esquema, RLS/grants y RPC, en orden de timestamp.
+  seed_catalog.sql       Catálogo inicial de ejemplo (productos y stock), idempotente.
   functions/admin-users/ Edge Function que crea/edita cuentas con la clave secreta.
 scripts/
   migrate_sqlite.py      Exporta la SQLite antigua e importa en Supabase (export/push/verify).
@@ -210,6 +211,10 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 3. `verify` → conteos por tabla.
 
 La clave secreta **nunca** se escribe en el repo ni se pasa por el chat.
+
+Si no hay base antigua, `supabase/seed_catalog.sql` carga el catálogo de ejemplo
+(35 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
+existentes.
 
 ## 7. Reglas de negocio
 

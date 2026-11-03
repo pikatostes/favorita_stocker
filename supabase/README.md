@@ -40,6 +40,21 @@ Deben aparecer `category`, `box_type`, `product_group`, `subcategory`,
 `product`, `night`, `consumption`, `special_day`, `job_role`, `profiles` y
 `shift` (además de las cuatro vistas `*_view`).
 
+### Catálogo inicial (opcional)
+
+Si **no** vas a importar la base antigua, puedes cargar el catálogo de ejemplo
+con stock:
+
+`supabase/seed_catalog.sql` (SQL Editor → pegar → ejecutar).
+
+Crea 5 tipos de caja, 2 categorías, 10 grupos de variantes, 33 variantes y 35
+productos con stock de ejemplo. Es idempotente: se puede repetir sin duplicar y
+sin pisar el stock de productos que ya existan. Las cantidades son de
+demostración; ajústalas desde **Admin → Inventario** o con `update`.
+
+Si vas a importar `stock_bar.db`, sáltate este paso: el script de importación ya
+trae el catálogo y el stock reales.
+
 ## 3. Desplegar la Edge Function `admin-users`
 
 Solo ella puede crear/editar cuentas, porque necesita la clave secreta.
