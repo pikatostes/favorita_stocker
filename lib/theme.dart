@@ -103,7 +103,13 @@ abstract final class AppPalettes {
   );
 
   /// Todas las propuestas, en el orden en que se muestran.
-  static final List<AppPalette> all = [favorita, petroleo, madera, carbon, ambar];
+  static final List<AppPalette> all = [
+    favorita,
+    petroleo,
+    madera,
+    carbon,
+    ambar
+  ];
 
   static AppPalette byId(String id) =>
       all.firstWhere((p) => p.id == id, orElse: () => favorita);
@@ -165,8 +171,9 @@ ColorScheme _scheme({
   Color onContainer(Color c) => isDark ? _lighten(c, 0.75) : _darken(c, 0.55);
 
   final rampColor = isDark ? Colors.white : ink;
-  final rampAmounts =
-      isDark ? const [0.045, 0.075, 0.11, 0.15, 0.2] : const [0.0, 0.03, 0.06, 0.09, 0.12];
+  final rampAmounts = isDark
+      ? const [0.045, 0.075, 0.11, 0.15, 0.2]
+      : const [0.0, 0.03, 0.06, 0.09, 0.12];
 
   return base.copyWith(
     primary: primary,
@@ -217,6 +224,19 @@ ThemeData _themeFrom(ColorScheme scheme) => ThemeData(
         indicatorColor: scheme.secondaryContainer,
         labelTextStyle: WidgetStatePropertyAll(
           TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w600),
+        ),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: scheme.surfaceContainer,
+        indicatorColor: scheme.secondaryContainer,
+        selectedIconTheme: IconThemeData(color: scheme.onSecondaryContainer),
+        unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+        selectedLabelTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          color: scheme.onSurfaceVariant,
         ),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: scheme.primary),

@@ -70,7 +70,7 @@ lib/
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
   product_entries.dart   buildProductEntries(): agrupa variantes para las listas de UI.
   screens/
-    home.dart            NavigationBar + IndexedStack; Inicio (panel admin/empleado) y pestañas.
+    home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack; Inicio (panel admin/empleado) y pestañas.
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
@@ -295,9 +295,13 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 
 ## 8. UI y patrones (`screens/`, `widgets/`)
 
-- **Navegación**: `HomeScreen` con `NavigationBar` + `IndexedStack`. Inicio es
-  la primera pestaña; Lista, Turnos y Cuenta son comunes. Admin agrupa
-  Calendario, Productos e Inventario y solo aparece para `UserRole.admin`.
+- **Navegación**: `HomeScreen` con `IndexedStack` y una navegación adaptativa
+  (`homeNavigationMode`): en **web** siempre es un **menú lateral a la izquierda**
+  (`NavigationRail`), compacto en ventanas estrechas y extendido a partir de
+  1080 px; en el resto de plataformas se usa `NavigationBar` en móvil y menú
+  lateral cuando el ancho supera 840 px. Inicio es la primera pestaña; Lista,
+  Turnos y Cuenta son comunes. Admin agrupa Calendario, Productos e Inventario
+  y solo aparece para `UserRole.admin`.
   La previsión está integrada en el detalle del día del Calendario: se muestra
   en días abiertos sin lista guardada y desde hoy en adelante. También se
   resume en el panel de Inicio del administrador.

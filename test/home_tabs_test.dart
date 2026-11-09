@@ -30,4 +30,43 @@ void main() {
       ['Inicio', 'Lista', 'Turnos', 'Admin', 'Cuenta'],
     );
   });
+
+  group('navegación adaptativa', () {
+    test('en web siempre es un menú lateral', () {
+      expect(
+        homeNavigationMode(isWeb: true, width: 400),
+        HomeNavigationMode.compactRail,
+      );
+      expect(
+        homeNavigationMode(isWeb: true, width: 800),
+        HomeNavigationMode.rail,
+      );
+      expect(
+        homeNavigationMode(isWeb: true, width: 1400),
+        HomeNavigationMode.extendedRail,
+      );
+    });
+
+    test('en móvil nativo se mantiene la barra inferior', () {
+      expect(
+        homeNavigationMode(isWeb: false, width: 400),
+        HomeNavigationMode.bottomBar,
+      );
+      expect(
+        homeNavigationMode(isWeb: false, width: 800),
+        HomeNavigationMode.bottomBar,
+      );
+    });
+
+    test('en pantallas nativas anchas se usa el menú lateral', () {
+      expect(
+        homeNavigationMode(isWeb: false, width: kHomeRailBreakpoint),
+        HomeNavigationMode.rail,
+      );
+      expect(
+        homeNavigationMode(isWeb: false, width: 1400),
+        HomeNavigationMode.extendedRail,
+      );
+    });
+  });
 }
