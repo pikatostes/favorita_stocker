@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../app_design.dart';
 import '../db.dart';
 import '../models.dart';
 import '../planner.dart';
+import '../widgets/app_ui.dart';
 
 /// Resultado ya calculado del plan: evita volver a montar cajas y viajes en
 /// cada reconstrucción de la pantalla.
@@ -96,72 +98,99 @@ class _PlanScreenState extends State<PlanScreen> {
           future: _future,
           builder: (_, s) {
             if (s.hasError) {
-              return Center(
-                  child: Text('No se pudo montar el plan: ${s.error}'));
+              return AppErrorState(
+                title: 'No se pudo montar el plan.',
+                error: s.error!,
+                onRetry: _reload,
+              );
             }
             if (!s.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const AppLoadingState(label: 'Montando cajas…');
             }
             final plan = s.data!.plan;
             final byType = s.data!.byType;
             final theme = Theme.of(context);
             final crates = plan.crates;
-            return ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                if (plan.trips.isEmpty)
-                  const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('No hay nada que montar.'))
-                else
-                  Card(
-                    color: theme.colorScheme.primaryContainer,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                '${plan.trips.length} viaje(s) · ${crates.length} cajas · ${plan.bottles} botellines',
-                                style: theme.textTheme.titleMedium),
-                            const SizedBox(height: 4),
-                            Text(byType.entries
-                                .map((e) => '${e.key} ×${e.value}')
-                                .join('  ·  ')),
-                          ]),
-                    ),
-                  ),
-                Card(
-                  child: SwitchListTile(
-                    title: const Text('Cajas completas de un mismo producto'),
-                    subtitle: const Text(
-                        'Si de un producto hay una caja entera o más, se prepara aparte sin mezclar.'),
-                    value: _preferFull,
-                    onChanged: _setPreferFull,
-                  ),
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: AppBreakpoints.twoColumnContent,
                 ),
-                for (var i = 0; i < plan.trips.length; i++) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 16, 4, 4),
-                    child: Text(
-                        'Viaje ${i + 1} · carro al ${plan.trips[i].percent}%',
-                        style: theme.textTheme.titleSmall),
-                  ),
-                  for (final c in plan.trips[i].crates)
+                child: ListView(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  children: [
+                    if (plan.trips.isEmpty)
+                      const AppEmptyState(
+                        icon: Icons.inventory_2_outlined,
+                        title: 'No hay nada que montar',
+                        message: 'La lista no tiene botellines pendientes de '
+                            'montaje.',
+                      )
+                    else
+                      AppSectionCard(
+                        icon: Icons.route_outlined,
+                        title:
+                            '${plan.trips.length} viaje(s) · ${crates.length} cajas',
+                        trailing: StatusPill(
+                          label: '${plan.bottles} botellines',
+                          tone: AppTone.info,
+                          dense: true,
+                        ),
+                        children: [
+                          Text(
+                            byType.entries
+                                .map((e) => '${e.key} ×${e.value}')
+                                .join('  ·  '),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: AppSpacing.md),
                     Card(
-                      child: ListTile(
-                        leading: Icon(
-                            c.dedicated ? Icons.inventory_2 : Icons.shuffle),
-                        title: Text(
-                            'Caja ${c.name} · ${c.filled}/${c.capacity}${c.dedicated ? " · completa" : ""}'),
-                        subtitle: Text(c.lines
-                            .map((l) => '${l.qty} × ${l.product.name}')
-                            .join('\n')),
-                        isThreeLine: c.lines.length > 1,
+                      child: SwitchListTile(
+                        title:
+                            const Text('Cajas completas de un mismo producto'),
+                        subtitle: const Text(
+                            'Si de un producto hay una caja entera o más, se prepara aparte sin mezclar.'),
+                        value: _preferFull,
+                        onChanged: _setPreferFull,
                       ),
                     ),
-                ],
-              ],
+                    for (var i = 0; i < plan.trips.length; i++) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.xs,
+                          AppSpacing.lg,
+                          AppSpacing.xs,
+                          AppSpacing.sm,
+                        ),
+                        child: Text(
+                            'Viaje ${i + 1} · carro al ${plan.trips[i].percent}%',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            )),
+                      ),
+                      for (final c in plan.trips[i].crates)
+                        Card(
+                          child: ListTile(
+                            leading: Icon(c.dedicated
+                                ? Icons.inventory_2
+                                : Icons.shuffle),
+                            title: Text(
+                                'Caja ${c.name} · ${c.filled}/${c.capacity}${c.dedicated ? " · completa" : ""}'),
+                            subtitle: Text(c.lines
+                                .map((l) => '${l.qty} × ${l.product.name}')
+                                .join('\n')),
+                            isThreeLine: c.lines.length > 1,
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: AppSpacing.xl),
+                  ],
+                ),
+              ),
             );
           },
         ),

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../app_design.dart';
 import '../../db.dart';
 import '../../formats.dart';
 import '../../models.dart';
 import '../../prediction.dart';
 import '../../schedule.dart';
 import '../../widgets/app_logo.dart';
+import '../../widgets/app_ui.dart';
 import '../../widgets/month_calendar.dart';
 import '../plan.dart';
 
@@ -310,36 +312,58 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   Widget _body(BuildContext context) => FutureBuilder<_CalData>(
         future: _future,
         builder: (_, s) {
+          if (s.hasError) {
+            return AppErrorState(
+              title: 'No se pudo cargar el calendario.',
+              error: s.error!,
+              onRetry: _reload,
+            );
+          }
           if (!s.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const AppLoadingState(label: 'Cargando calendario…');
           }
           final d = s.data!;
-          return ListView(padding: const EdgeInsets.all(12), children: [
-            MonthCalendar(
-              month: _month,
-              selected: _selected,
-              onSelect: (day) => setState(() => _selected = day),
-              onMonthChanged: (month) => setState(() => _month = month),
-              styleFor: (day) => _dayStyle(d, day),
-              footerFor: (day) => _dayFooter(d, day),
-              headerTrailing: widget.embedded
-                  ? IconButton(
-                      tooltip: 'Hoy',
-                      icon: const Icon(Icons.today),
-                      onPressed: _goToday,
-                    )
-                  : null,
-            ),
-            const SizedBox(height: 8),
-            _legend(),
-            _details(d),
-            if (_showForecast(d))
-              _ForecastCard(
-                day: _selected,
-                revision: Db.i.version.value,
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: AppBreakpoints.contentMaxWidth,
               ),
-            const SizedBox(height: 24),
-          ]);
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.xl,
+                ),
+                children: [
+                  MonthCalendar(
+                    month: _month,
+                    selected: _selected,
+                    onSelect: (day) => setState(() => _selected = day),
+                    onMonthChanged: (month) => setState(() => _month = month),
+                    styleFor: (day) => _dayStyle(d, day),
+                    footerFor: (day) => _dayFooter(d, day),
+                    headerTrailing: widget.embedded
+                        ? IconButton(
+                            tooltip: 'Hoy',
+                            icon: const Icon(Icons.today),
+                            onPressed: _goToday,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  _legend(),
+                  _details(d),
+                  if (_showForecast(d))
+                    _ForecastCard(
+                      day: _selected,
+                      revision: Db.i.version.value,
+                    ),
+                  const SizedBox(height: AppSpacing.xl),
+                ],
+              ),
+            ),
+          );
         },
       );
 

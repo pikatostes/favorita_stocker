@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:stock_bar/app_design.dart';
 import 'package:stock_bar/screens/home.dart';
 import 'package:stock_bar/shifts.dart';
 
@@ -31,41 +32,45 @@ void main() {
     );
   });
 
-  group('navegación adaptativa', () {
-    test('en web siempre es un menú lateral', () {
+  group('navegación adaptativa por ancho', () {
+    test('móvil usa barra inferior, también en web', () {
       expect(
-        homeNavigationMode(isWeb: true, width: 400),
-        HomeNavigationMode.compactRail,
-      );
-      expect(
-        homeNavigationMode(isWeb: true, width: 800),
-        HomeNavigationMode.rail,
-      );
-      expect(
-        homeNavigationMode(isWeb: true, width: 1400),
-        HomeNavigationMode.extendedRail,
-      );
-    });
-
-    test('en móvil nativo se mantiene la barra inferior', () {
-      expect(
-        homeNavigationMode(isWeb: false, width: 400),
+        homeNavigationMode(isWeb: false, width: 375),
         HomeNavigationMode.bottomBar,
       );
       expect(
-        homeNavigationMode(isWeb: false, width: 800),
+        homeNavigationMode(isWeb: true, width: 390),
+        HomeNavigationMode.bottomBar,
+      );
+      expect(
+        homeNavigationMode(isWeb: true, width: AppBreakpoints.mobileMax - 1),
         HomeNavigationMode.bottomBar,
       );
     });
 
-    test('en pantallas nativas anchas se usa el menú lateral', () {
+    test('tablet usa el rail lateral', () {
       expect(
-        homeNavigationMode(isWeb: false, width: kHomeRailBreakpoint),
+        homeNavigationMode(isWeb: true, width: AppBreakpoints.tabletMin),
         HomeNavigationMode.rail,
       );
       expect(
-        homeNavigationMode(isWeb: false, width: 1400),
-        HomeNavigationMode.extendedRail,
+        homeNavigationMode(isWeb: false, width: 768),
+        HomeNavigationMode.rail,
+      );
+      expect(
+        homeNavigationMode(isWeb: true, width: AppBreakpoints.desktopMin - 1),
+        HomeNavigationMode.rail,
+      );
+    });
+
+    test('escritorio usa el sidebar', () {
+      expect(
+        homeNavigationMode(isWeb: true, width: AppBreakpoints.desktopMin),
+        HomeNavigationMode.sidebar,
+      );
+      expect(
+        homeNavigationMode(isWeb: false, width: 1440),
+        HomeNavigationMode.sidebar,
       );
     });
   });

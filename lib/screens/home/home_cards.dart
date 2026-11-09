@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../app_design.dart';
 import '../../formats.dart';
 import '../../models.dart';
 import '../../schedule.dart';
 import '../../shifts.dart';
+import '../../widgets/app_logo.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/shift_ui.dart';
 import 'home_data.dart';
 
 /// Cabecera del Inicio con el saludo, el estado del bar y la próxima excepción
-/// del calendario.
+/// del calendario. Mantiene el logotipo reconocible sin que domine la pantalla.
 class HomeHeader extends StatelessWidget {
   final HomeData data;
   final AppUser? user;
@@ -20,77 +22,162 @@ class HomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isAdmin = user?.role == UserRole.admin;
-    final name =
+    final rawName =
         user?.name.trim().isNotEmpty == true ? user!.name.trim() : 'equipo';
-    final statusText = data.openNow
-        ? 'Abierto ahora · servicio ${formatShortDate(data.serviceDay)}'
-        : data.opensLaterToday
-            ? 'Abre esta noche · ${formatShortDate(data.nextOpen)}'
-            : 'Cerrado · próxima apertura ${formatShortDate(data.nextOpen)}';
-    final statusColor = data.openNow || data.opensLaterToday
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurfaceVariant;
-    final statusIcon = data.openNow || data.opensLaterToday
-        ? Icons.nightlife
-        : Icons.nightlight_round;
+    final name = rawName.split(RegExp(r'\s+')).first;
+    final status = _statusFor(data);
+
+    final greeting = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Hola, $name',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: theme.colorScheme.onSurface,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        Text(
+          formatLongDate(data.now),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+
+    final avatar = Tooltip(
+      message: user?.fullName ?? 'Cuenta',
+      child: CircleAvatar(
+        radius: 20,
+        backgroundColor: theme.colorScheme.surfaceContainerHigh,
+        foregroundColor: theme.colorScheme.onSurface,
+        child: Text(
+          user?.initial ?? '?',
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                child: Text(
-                  user?.initial ?? '?',
-                  style: theme.textTheme.titleSmall,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 700;
+              if (compact) {
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Hola, $name',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        const AppLogo(height: 26),
+                        const Spacer(),
+                        avatar,
+                      ],
                     ),
-                    Text(
-                      formatLongDate(data.now),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    const SizedBox(height: AppSpacing.md),
+                    greeting,
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        StatusPill(
+                          label: status.label,
+                          icon: status.icon,
+                          tone: status.tone,
+                        ),
+                        Text(
+                          status.detail,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(statusIcon, size: 18, color: statusColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  statusText,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: statusColor,
-                    fontWeight: FontWeight.w600,
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const AppLogo(height: 30),
+                  const SizedBox(width: AppSpacing.lg),
+                  Expanded(child: greeting),
+                  const SizedBox(width: AppSpacing.lg),
+                  StatusPill(
+                    label: status.label,
+                    icon: status.icon,
+                    tone: status.tone,
                   ),
-                ),
-              ),
-            ],
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    status.detail,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.lg),
+                  avatar,
+                ],
+              );
+            },
           ),
           if (isAdmin) _NextSpecialLine(data: data),
         ],
       ),
     );
   }
+}
+
+class _HomeStatus {
+  final String label;
+  final String detail;
+  final IconData icon;
+  final AppTone tone;
+
+  const _HomeStatus({
+    required this.label,
+    required this.detail,
+    required this.icon,
+    required this.tone,
+  });
+}
+
+_HomeStatus _statusFor(HomeData data) {
+  if (data.openNow) {
+    return _HomeStatus(
+      label: 'Abierto ahora',
+      detail: 'Servicio ${formatShortDate(data.serviceDay)}',
+      icon: Icons.nightlife,
+      tone: AppTone.success,
+    );
+  }
+  if (data.opensLaterToday) {
+    return _HomeStatus(
+      label: 'Abre esta noche',
+      detail: formatShortDate(data.nextOpen),
+      icon: Icons.schedule,
+      tone: AppTone.warning,
+    );
+  }
+  return _HomeStatus(
+    label: 'Cerrado',
+    detail: 'Próxima apertura ${formatShortDate(data.nextOpen)}',
+    icon: Icons.nightlight_round,
+    tone: AppTone.neutral,
+  );
 }
 
 class _NextSpecialLine extends StatelessWidget {
@@ -104,18 +191,19 @@ class _NextSpecialLine extends StatelessWidget {
     if (label == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Row(
         children: [
           Icon(
             Icons.event_outlined,
-            size: 16,
+            size: 15,
             color: theme.colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               label,
+              maxLines: 2,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -159,86 +247,155 @@ class MaintenanceListCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final list = data.nightList;
     final hasList = list != null;
-    final fg = cs.onPrimaryContainer;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
       color: cs.primaryContainer,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: hasList ? () => onOpen(list) : null,
+        onTap: list == null ? null : () => onOpen(list),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
-          child: Row(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: hasList ? cs.primary : cs.surface,
-                foregroundColor: hasList ? cs.onPrimary : cs.onSurfaceVariant,
-                child: Icon(
-                  hasList ? Icons.inventory_2_outlined : Icons.hourglass_empty,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Lista de montaje',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: fg,
-                        fontWeight: FontWeight.bold,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: cs.primary,
+                      borderRadius: BorderRadius.circular(AppRadii.md),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
+                    child: Icon(
                       hasList
-                          ? 'Lista montada · '
-                              '${formatShortDateIso(list.date)}'
-                          : 'Todavía no hay lista montada',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: fg,
-                        fontWeight: FontWeight.w600,
-                      ),
+                          ? Icons.inventory_2_outlined
+                          : Icons.hourglass_empty,
+                      color: cs.onPrimary,
+                      size: 22,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      hasList
-                          ? '${list.products} productos · '
-                              '${list.totalUnits} botellines'
-                          : 'Cuando alguien guarde la lista de la noche, '
-                              'aparecerá aquí.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: fg.withValues(alpha: 0.78),
-                      ),
-                    ),
-                    if (hasList) ...[
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Text(
-                            'Ver plan de montaje',
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: fg,
-                              fontWeight: FontWeight.bold,
-                            ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Lista de montaje',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: cs.onPrimaryContainer,
+                            fontWeight: FontWeight.w800,
                           ),
-                          const SizedBox(width: 4),
-                          Icon(Icons.arrow_forward, size: 16, color: fg),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          hasList
+                              ? 'Guardada el ${formatLongDateIso(list.date)}'
+                              : 'Todavía no hay lista montada',
+                          maxLines: 2,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color:
+                                cs.onPrimaryContainer.withValues(alpha: 0.82),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  StatusPill(
+                    label: hasList ? 'Lista guardada' : 'Sin lista',
+                    icon: hasList ? Icons.check_circle_outline : Icons.schedule,
+                    tone: hasList ? AppTone.success : AppTone.neutral,
+                    dense: true,
+                  ),
+                ],
+              ),
+              if (list != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    _InfoChip(
+                      icon: Icons.event_outlined,
+                      label: formatShortDateIso(list.date),
+                      foreground: cs.onPrimaryContainer,
+                    ),
+                    _InfoChip(
+                      icon: Icons.category_outlined,
+                      label:
+                          '${list.products} producto${list.products == 1 ? '' : 's'}',
+                      foreground: cs.onPrimaryContainer,
+                    ),
+                    _InfoChip(
+                      icon: Icons.local_drink_outlined,
+                      label:
+                          '${list.totalUnits} uds · ${list.fullBoxes.values.fold<int>(0, (a, b) => a + b)} cajas',
+                      foreground: cs.onPrimaryContainer,
+                    ),
                   ],
                 ),
-              ),
-              if (hasList) Icon(Icons.chevron_right, color: fg),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Text(
+                      'Ver plan de montaje',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: cs.onPrimaryContainer,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 17,
+                      color: cs.onPrimaryContainer,
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color foreground;
+
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+    required this.foreground,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: foreground.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: foreground.withValues(alpha: 0.85)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
+      );
 }
 
 /// Turnos de la noche de foco, con los avisos de plantas sin opener.
@@ -250,20 +407,65 @@ class AdminTonightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final drafts = data.countShifts(ShiftStatus.draft);
-    final title = [
-      data.focusIsTonight ? 'Esta noche' : 'Próxima noche',
-      formatShortDate(data.focusDay),
-      if (drafts > 0) drafts == 1 ? '1 borrador' : '$drafts borradores',
-    ].join(' · ');
+    final areas = data.focusShifts.map((shift) => shift.floor).toSet().length;
+    final title =
+        '${data.focusIsTonight ? 'Esta noche' : 'Próxima noche'} · ${formatShortDate(data.focusDay)}';
 
     return AppSectionCard(
       icon: Icons.nightlife,
       title: title,
+      trailing: StatusPill(
+        label: drafts == 0
+            ? 'Sin borradores'
+            : '$drafts borrador${drafts == 1 ? '' : 'es'}',
+        tone: drafts == 0 ? AppTone.neutral : AppTone.warning,
+        dense: true,
+      ),
       children: [
+        _TeamSummary(
+          people: data.focusShifts.length,
+          areas: areas,
+        ),
+        const SizedBox(height: AppSpacing.md),
         FloorShiftTabs(
           shifts: data.focusShifts,
           noOpener: data.floorsWithoutOpener,
           emptyLabel: 'Sin turnos generados en esta planta.',
+        ),
+      ],
+    );
+  }
+}
+
+/// Resumen de equipo de una noche: personas y áreas con actividad.
+class _TeamSummary extends StatelessWidget {
+  final int people;
+  final int areas;
+
+  const _TeamSummary({required this.people, required this.areas});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: AppStatTile(
+            value: '$people',
+            label: 'Personas',
+            icon: Icons.groups_outlined,
+            tone: AppTone.info,
+            dense: true,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: AppStatTile(
+            value: '$areas/${Floor.values.length}',
+            label: 'Áreas',
+            icon: Icons.storefront_outlined,
+            tone: AppTone.neutral,
+            dense: true,
+          ),
         ),
       ],
     );
@@ -299,63 +501,89 @@ class AdminPlanningCard extends StatelessWidget {
       icon: Icons.event_note,
       title: 'Planificación · ${formatMonthLabel(data.month)}',
       children: [
-        AppStatsRow(
-          stats: [
-            AppStat(
-              value: '$draft',
-              label: 'Borradores',
-              color: theme.colorScheme.onSurfaceVariant,
+        Row(
+          children: [
+            Expanded(
+              child: AppStatTile(
+                value: '$draft',
+                label: 'Borradores',
+                icon: Icons.edit_note,
+                tone: draft == 0 ? AppTone.neutral : AppTone.warning,
+                dense: true,
+              ),
             ),
-            AppStat(
-              value: '$published',
-              label: 'Publicados',
-              color: theme.colorScheme.primary,
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: AppStatTile(
+                value: '$published',
+                label: 'Publicados',
+                icon: Icons.publish,
+                tone: AppTone.info,
+                dense: true,
+              ),
             ),
-            AppStat(
-              value: '$confirmed',
-              label: 'Confirmados',
-              color: theme.colorScheme.tertiary,
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: AppStatTile(
+                value: '$confirmed',
+                label: 'Confirmados',
+                icon: Icons.verified_outlined,
+                tone: AppTone.success,
+                dense: true,
+              ),
             ),
           ],
         ),
-        if (warnings.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: WarningLine(warnings.join(' · ')),
+        if (warnings.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          AlertBanner(
+            title: 'Revisar planificación',
+            message: warnings.join('\n'),
+            tone: AppTone.warning,
+            dense: true,
           ),
-        const SizedBox(height: 10),
+        ],
+        const SizedBox(height: AppSpacing.md),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
           children: [
             FilledButton.icon(
               onPressed: working || !data.hasEligibleUsers ? null : onGenerate,
-              icon: const Icon(Icons.auto_awesome),
+              icon: const Icon(Icons.auto_awesome, size: 18),
               label: const Text('Generar mes'),
             ),
             OutlinedButton.icon(
               onPressed: working || draft == 0 ? null : onPublish,
-              icon: const Icon(Icons.publish),
+              icon: const Icon(Icons.publish, size: 18),
               label: const Text('Publicar'),
             ),
           ],
         ),
-        const Divider(height: 22),
+        const SizedBox(height: AppSpacing.lg),
+        const Divider(),
+        const SizedBox(height: AppSpacing.md),
         Row(
           children: [
-            Icon(Icons.insights, size: 18, color: theme.colorScheme.primary),
+            Icon(Icons.insights, size: 17, color: theme.colorScheme.primary),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
                 'Previsión · ${formatShortDate(data.nextOpen)}',
                 style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
+            if (result != null)
+              StatusPill(
+                label: '${result.recentNights} noches base',
+                tone: AppTone.neutral,
+                dense: true,
+              ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpacing.sm),
         if (items.isEmpty)
           MutedText(
             result == null || result.recentNights == 0
@@ -365,26 +593,33 @@ class AdminPlanningCard extends StatelessWidget {
         else
           for (final item in items)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       item.product.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium,
                     ),
                   ),
+                  const SizedBox(width: AppSpacing.sm),
                   Text(
                     '${item.units} uds',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${item.boxes} cajas',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox(
+                    width: 58,
+                    child: Text(
+                      '${item.boxes} cajas',
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ],
@@ -422,32 +657,29 @@ class MyDayCard extends StatelessWidget {
     return AppSectionCard(
       icon: Icons.event_available,
       title: 'Mi turno',
+      trailing: next == null ? null : ShiftStatusChip(status: next.status),
       children: [
         if (next == null)
-          MutedText(
-            data.mySchedulePending
-                ? 'Tu horario está pendiente de publicación.'
-                : 'No tienes turnos publicados.',
-          )
+          data.mySchedulePending
+              ? const AlertBanner(
+                  message: 'Tu horario está pendiente de publicación.',
+                  tone: AppTone.info,
+                  dense: true,
+                )
+              : const MutedText('No tienes turnos publicados.')
         else ...[
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  formatLongDateIso(next.date),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              ShiftStatusChip(status: next.status),
-            ],
+          Text(
+            formatLongDateIso(next.date),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             next.timeLabel,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.6,
             ),
           ),
           Text(
@@ -462,18 +694,21 @@ class MyDayCard extends StatelessWidget {
               child: Text(
                 '+${data.myUpcoming.length - 1} turnos más publicados',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
         ],
         if (next != null || myShifts.isNotEmpty) ...[
-          const Divider(height: 18),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
               Icon(
                 Icons.schedule,
-                size: 18,
+                size: 17,
                 color: theme.colorScheme.primary,
               ),
               const SizedBox(width: 6),
@@ -501,14 +736,18 @@ class EmployeeTonightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = [
-      data.focusIsTonight ? 'Esta noche' : 'Próxima noche',
-      formatShortDate(data.focusDay),
-    ].join(' · ');
+    final areas = data.publishedFocusShifts.map((s) => s.floor).toSet().length;
+    final title =
+        '${data.focusIsTonight ? 'Esta noche' : 'Próxima noche'} · ${formatShortDate(data.focusDay)}';
     return AppSectionCard(
       icon: Icons.groups,
       title: title,
       children: [
+        _TeamSummary(
+          people: data.publishedFocusShifts.length,
+          areas: areas,
+        ),
+        const SizedBox(height: AppSpacing.md),
         FloorShiftTabs(
           shifts: data.publishedFocusShifts,
           emptyLabel: 'Sin turnos publicados en esta planta.',

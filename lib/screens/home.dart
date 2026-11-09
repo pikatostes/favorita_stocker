@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../auth_controller.dart';
 import '../shifts.dart';
-import '../widgets/app_logo.dart';
+import '../widgets/app_navigation.dart';
+import '../widgets/app_ui.dart';
 import 'admin/admin.dart';
 import 'cuenta.dart';
 import 'home/home_dashboard.dart';
@@ -13,17 +13,51 @@ import 'turnos.dart';
 /// Pestañas de la aplicación. Las marcadas como [adminOnly] solo se muestran
 /// cuando el usuario tiene el rol [UserRole.admin].
 enum HomeTab {
-  start('Inicio', Icons.home_outlined),
-  list('Lista', Icons.edit_note),
-  shifts('Turnos', Icons.groups),
-  admin('Admin', Icons.admin_panel_settings, adminOnly: true),
-  account('Cuenta', Icons.account_circle_outlined);
+  start(
+    'Inicio',
+    Icons.home_outlined,
+    selectedIcon: Icons.home_rounded,
+    group: AppNavGroup.operation,
+  ),
+  list(
+    'Lista',
+    Icons.edit_note_outlined,
+    selectedIcon: Icons.edit_note,
+    group: AppNavGroup.operation,
+  ),
+  shifts(
+    'Turnos',
+    Icons.groups_outlined,
+    selectedIcon: Icons.groups,
+    group: AppNavGroup.operation,
+  ),
+  admin(
+    'Admin',
+    Icons.admin_panel_settings_outlined,
+    selectedIcon: Icons.admin_panel_settings,
+    group: AppNavGroup.management,
+    adminOnly: true,
+  ),
+  account(
+    'Cuenta',
+    Icons.account_circle_outlined,
+    selectedIcon: Icons.account_circle,
+    group: AppNavGroup.account,
+  );
 
   final String label;
   final IconData icon;
+  final IconData selectedIcon;
+  final AppNavGroup group;
   final bool adminOnly;
 
-  const HomeTab(this.label, this.icon, {this.adminOnly = false});
+  const HomeTab(
+    this.label,
+    this.icon, {
+    required this.selectedIcon,
+    required this.group,
+    this.adminOnly = false,
+  });
 }
 
 /// Pestañas visibles para [role]. Los empleados no ven la zona de Admin.
@@ -32,54 +66,20 @@ List<HomeTab> visibleHomeTabs(UserRole role) => [
         if (!tab.adminOnly || role == UserRole.admin) tab,
     ];
 
-/// Forma de la navegación principal según la plataforma y el ancho disponible.
-enum HomeNavigationMode {
-  /// Barra inferior: móvil nativo en vertical, donde una barra lateral
-  /// robaría demasiado ancho al contenido.
-  bottomBar,
+/// Distribución de la navegación principal. Se conserva este punto de entrada
+/// para las pruebas y para documentar el comportamiento, pero la decisión real
+/// depende solo del ancho disponible (nunca de la plataforma).
+enum HomeNavigationMode { bottomBar, rail, sidebar }
 
-  /// Menú lateral compacto, solo con iconos: web en ventanas estrechas.
-  compactRail,
-
-  /// Menú lateral con la etiqueta debajo del icono.
-  rail,
-
-  /// Menú lateral extendido, con icono y etiqueta en la misma línea.
-  extendedRail,
-}
-
-/// Ancho a partir del cual una app nativa deja la barra inferior y usa el menú
-/// lateral (tabletas y escritorio).
-const double kHomeRailBreakpoint = 840;
-
-/// Ancho a partir del cual la web muestra el menú lateral completo en lugar
-/// del compacto.
-const double kHomeRailLabelsBreakpoint = 600;
-
-/// Ancho a partir del cual el menú lateral enseña las etiquetas al lado del
-/// icono en lugar de debajo.
-const double kHomeExtendedRailBreakpoint = 1080;
-
-/// Decide la navegación a partir de la plataforma y del ancho de la ventana.
-///
-/// En web siempre se usa un menú lateral a la izquierda (compacto si la
-/// ventana es estrecha). En el resto de plataformas se mantiene la barra
-/// inferior mientras no haya ancho suficiente para el menú lateral.
 HomeNavigationMode homeNavigationMode({
-  required bool isWeb,
+  bool isWeb = false,
   required double width,
-}) {
-  if (!isWeb && width < kHomeRailBreakpoint) {
-    return HomeNavigationMode.bottomBar;
-  }
-  if (width >= kHomeExtendedRailBreakpoint) {
-    return HomeNavigationMode.extendedRail;
-  }
-  if (isWeb && width < kHomeRailLabelsBreakpoint) {
-    return HomeNavigationMode.compactRail;
-  }
-  return HomeNavigationMode.rail;
-}
+}) =>
+    switch (appNavigationModeForWidth(width)) {
+      AppNavigationMode.bottomBar => HomeNavigationMode.bottomBar,
+      AppNavigationMode.rail => HomeNavigationMode.rail,
+      AppNavigationMode.sidebar => HomeNavigationMode.sidebar,
+    };
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -120,6 +120,16 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _tab = tab);
   }
 
+  Future<void> _logout() async {
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Cerrar sesión',
+      message: '¿Quieres salir de tu cuenta?',
+      confirmLabel: 'Cerrar sesión',
+    );
+    if (ok) await AuthController.i.logout();
+  }
+
   Widget _pageFor(HomeTab tab) => switch (tab) {
         HomeTab.start => const HomeDashboard(),
         HomeTab.list => const RegistroScreen(),
@@ -133,106 +143,28 @@ class _HomeScreenState extends State<HomeScreen> {
     final role = AuthController.i.user?.role ?? UserRole.employee;
     final tabs = visibleHomeTabs(role);
     final selected = tabs.contains(_tab) ? tabs.indexOf(_tab) : 0;
-    final mode = homeNavigationMode(
-      isWeb: kIsWeb,
-      width: MediaQuery.sizeOf(context).width,
-    );
     final pages = IndexedStack(
       index: selected,
       children: [for (final tab in tabs) _pageFor(tab)],
     );
 
-    // En web (y en ventanas anchas) el menú vive a la izquierda; en móvil se
-    // conserva la barra inferior habitual.
-    if (mode == HomeNavigationMode.bottomBar) {
-      return Scaffold(
-        body: SafeArea(child: pages),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: selected,
-          onDestinationSelected: (i) => _goTo(tabs[i]),
-          destinations: [
-            for (final tab in tabs)
-              NavigationDestination(icon: Icon(tab.icon), label: tab.label),
-          ],
-        ),
-      );
-    }
-
-    return Scaffold(
-      body: Row(
-        children: [
-          SafeArea(
-            right: false,
-            child: _SideNavigation(
-              mode: mode,
-              tabs: tabs,
-              selectedIndex: selected,
-              onSelected: (i) => _goTo(tabs[i]),
-            ),
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(child: SafeArea(child: pages)),
-        ],
-      ),
-    );
-  }
-}
-
-/// Menú lateral de la navegación principal.
-///
-/// Se adapta al ancho: en ventanas estrechas solo muestra iconos, luego las
-/// etiquetas debajo y, cuando hay sitio, el formato extendido con la etiqueta
-/// al lado del icono.
-class _SideNavigation extends StatelessWidget {
-  final HomeNavigationMode mode;
-  final List<HomeTab> tabs;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-
-  const _SideNavigation({
-    required this.mode,
-    required this.tabs,
-    required this.selectedIndex,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final extended = mode == HomeNavigationMode.extendedRail;
-    final compact = mode == HomeNavigationMode.compactRail;
-
-    return NavigationRail(
-      selectedIndex: selectedIndex,
-      onDestinationSelected: onSelected,
-      extended: extended,
-      minWidth: compact ? 64 : 80,
-      labelType: extended || compact
-          ? NavigationRailLabelType.none
-          : NavigationRailLabelType.all,
-      leading: Padding(
-        padding:
-            EdgeInsets.fromLTRB(extended ? 16 : 8, 16, extended ? 16 : 8, 8),
-        child: extended
-            ? const AppLogo(height: 32)
-            : CircleAvatar(
-                radius: 18,
-                backgroundColor: theme.colorScheme.primaryContainer,
-                foregroundColor: theme.colorScheme.onPrimaryContainer,
-                child: const Icon(Icons.local_bar, size: 20),
-              ),
-      ),
+    return AppNavigationShell(
+      selectedIndex: selected,
+      onSelected: (index) => _goTo(tabs[index]),
       destinations: [
         for (final tab in tabs)
-          NavigationRailDestination(
-            icon: Icon(tab.icon),
-            selectedIcon: Icon(tab.icon, color: theme.colorScheme.primary),
-            label: Text(tab.label),
-            padding: compact
-                ? const EdgeInsets.symmetric(vertical: 6)
-                : const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          AppDestination(
+            id: tab.name,
+            label: tab.label,
+            icon: tab.icon,
+            selectedIcon: tab.selectedIcon,
+            group: tab.group,
           ),
       ],
+      user: AuthController.i.user,
+      onAccount: () => _goTo(HomeTab.account),
+      onLogout: _logout,
+      child: pages,
     );
   }
 }

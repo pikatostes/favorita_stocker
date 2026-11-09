@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../app_design.dart';
 import '../auth_controller.dart';
 import '../db.dart';
 import '../formats.dart';
@@ -6,7 +8,9 @@ import '../models.dart';
 import '../product_entries.dart';
 import '../schedule.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/app_ui.dart';
 import '../widgets/category_tabs.dart';
+import '../widgets/quantity_stepper.dart';
 import 'confirmar_lista.dart';
 import 'plan.dart';
 
@@ -97,94 +101,38 @@ class _RegistroScreenState extends State<RegistroScreen> {
     refreshOverlay?.call(() {});
   }
 
-  /// Botón compacto del contador (− / +).
-  Widget _qtyButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback? onPressed,
-  }) =>
-      IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-        iconSize: 20,
-        icon: Icon(icon),
-        onPressed: onPressed,
-      );
-
-  /// Una fila de contador: etiqueta, −, valor y +.
-  Widget _counter({
-    required String label,
-    required int value,
-    required VoidCallback? onMinus,
-    required VoidCallback onPlus,
-  }) =>
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        SizedBox(
-          width: 62,
-          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        ),
-        _qtyButton(
-          icon: Icons.remove_circle_outline,
-          tooltip: 'Quitar $label',
-          onPressed: onMinus,
-        ),
-        SizedBox(
-          width: 34,
-          child: Text(
-            '$value',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        _qtyButton(
-          icon: Icons.add_circle_outline,
-          tooltip: 'Añadir $label',
-          onPressed: onPlus,
-        ),
-      ]);
-
-  /// Opción B: dos contadores separados (cajas completas y botellines sueltos)
-  /// con el total en botellines debajo.
+  /// Controles de cantidad de un producto (cajas completas y sueltos).
   Widget _quantityControls(Product product, {StateSetter? refreshOverlay}) {
     final unit = _boxSize(product);
     final boxes = _boxes[product.id] ?? 0;
     final loose = _loose[product.id] ?? 0;
-    final total = boxes * unit + loose;
-    final rows = <Widget>[];
-    if (unit > 1) {
-      rows.add(_counter(
-        label: 'Cajas',
-        value: boxes,
-        onMinus: boxes > 0
-            ? () =>
-                _setBoxes(product, boxes - 1, refreshOverlay: refreshOverlay)
-            : null,
-        onPlus: () =>
-            _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
-      ));
-    }
-    rows.add(_counter(
-      label: unit > 1 ? 'Sueltos' : 'Botellines',
-      value: loose,
-      onMinus: loose > 0
-          ? () => _setLoose(product, loose - 1, refreshOverlay: refreshOverlay)
-          : null,
-      onPlus: () =>
-          _setLoose(product, loose + 1, refreshOverlay: refreshOverlay),
-    ));
-    rows.add(Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Text(
-        unit > 1 ? 'Caja = $unit uds · Total $total' : 'Total $total',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-    ));
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: rows,
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.end,
+      children: [
+        if (unit > 1)
+          QuantityStepper(
+            label: 'Cajas',
+            value: boxes,
+            onDecrement: boxes > 0
+                ? () => _setBoxes(product, boxes - 1,
+                    refreshOverlay: refreshOverlay)
+                : null,
+            onIncrement: () =>
+                _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
+          ),
+        QuantityStepper(
+          label: unit > 1 ? 'Sueltos' : 'Unidades',
+          value: loose,
+          onDecrement: loose > 0
+              ? () =>
+                  _setLoose(product, loose - 1, refreshOverlay: refreshOverlay)
+              : null,
+          onIncrement: () =>
+              _setLoose(product, loose + 1, refreshOverlay: refreshOverlay),
+        ),
+      ],
     );
   }
 
@@ -197,24 +145,68 @@ class _RegistroScreenState extends State<RegistroScreen> {
     return group != null && group.isNotEmpty ? group : null;
   }
 
-  /// Miniatura para las filas de la lista (productos y variantes de un grupo).
-  Widget _listThumb(String? path, IconData placeholder) {
+  String _boxHint(Product product) {
+    final unit = _boxSize(product);
+    if (unit <= 1) return 'Unidad suelta';
+    return '${product.crateName} · $unit uds/caja';
+  }
+
+  /// Miniatura unificada de las filas y tarjetas.
+  Widget _thumb(String? path, IconData placeholder, {double size = 48}) {
     final cleaned = path?.trim();
     final theme = Theme.of(context);
-    return SizedBox(
-      width: 44,
-      height: 44,
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.1),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
       child: cleaned == null || cleaned.isEmpty
-          ? Icon(placeholder, size: 26, color: theme.colorScheme.outline)
+          ? Icon(
+              placeholder,
+              size: size * 0.52,
+              color: theme.colorScheme.onSurfaceVariant,
+            )
           : Image.asset(
               cleaned,
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => Icon(
                 Icons.broken_image_outlined,
-                size: 26,
+                size: size * 0.52,
                 color: theme.colorScheme.error,
               ),
             ),
+    );
+  }
+
+  Widget _totalBadge(int total) {
+    final theme = Theme.of(context);
+    final hasValue = total > 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: hasValue
+            ? theme.colorScheme.primaryContainer
+            : theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(
+          color: hasValue
+              ? theme.colorScheme.primary.withValues(alpha: 0.28)
+              : theme.colorScheme.outlineVariant,
+        ),
+      ),
+      child: Text(
+        hasValue ? '$total uds' : 'Sin añadir',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: hasValue
+              ? theme.colorScheme.onPrimaryContainer
+              : theme.colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 
@@ -222,62 +214,169 @@ class _RegistroScreenState extends State<RegistroScreen> {
     Product product, {
     String? title,
     StateSetter? refreshOverlay,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
+  }) {
+    final total = _totalFor(product);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+        final identity = Row(
           children: [
-            _listThumb(_productImage(product), Icons.local_drink_outlined),
-            const SizedBox(width: 12),
-            Expanded(child: Text(title ?? product.name)),
-            const SizedBox(width: 12),
-            _quantityControls(product, refreshOverlay: refreshOverlay),
+            _thumb(_productImage(product), Icons.local_drink_outlined),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title ?? product.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    _boxHint(product),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            _totalBadge(total),
           ],
-        ),
-      );
+        );
+
+        if (compact) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                identity,
+                const SizedBox(height: AppSpacing.md),
+                _quantityControls(product, refreshOverlay: refreshOverlay),
+              ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Expanded(child: identity),
+              const SizedBox(width: AppSpacing.lg),
+              _quantityControls(product, refreshOverlay: refreshOverlay),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> _chooseVariants(ProductEntry entry) async {
     final variants = entry.products;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: 720),
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, refreshOverlay) => SafeArea(
-          child: FractionallySizedBox(
-            heightFactor: 0.8,
+        builder: (context, refreshOverlay) {
+          final screen = MediaQuery.sizeOf(context);
+          final height = screen.width < AppBreakpoints.mobileMax
+              ? screen.height * 0.82
+              : screen.height * 0.72;
+          return SizedBox(
+            height: height,
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  child: Text(
-                    entry.groupName!,
-                    style: Theme.of(context).textTheme.titleLarge,
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
                   ),
-                ),
-                Expanded(
-                  child: ListView(
+                  child: Row(
                     children: [
-                      for (final variant in variants)
-                        _productTile(
-                          variant,
-                          title: ProductEntry.label(variant),
-                          refreshOverlay: refreshOverlay,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.groupName!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(
+                              '${variants.length} variantes · ajusta cajas y sueltos',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close),
+                      ),
                     ],
                   ),
                 ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    itemCount: variants.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final variant = variants[index];
+                      return _productTile(
+                        variant,
+                        title: ProductEntry.label(variant),
+                        refreshOverlay: refreshOverlay,
+                      );
+                    },
+                  ),
+                ),
+                const Divider(height: 1),
                 Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(sheetContext),
-                    child: const Text('Listo'),
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Text('Listo'),
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -287,36 +386,82 @@ class _RegistroScreenState extends State<RegistroScreen> {
       0,
       (total, product) => total + _totalFor(product),
     );
-    return ListTile(
-      leading: _listThumb(entry.image, Icons.inventory_2_outlined),
-      title: Text(entry.groupName!),
-      subtitle: Text('${entry.products.length} variantes'),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (count > 0) Text('$count'),
-          const SizedBox(width: 8),
-          const Icon(Icons.expand_more),
-        ],
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _chooseVariants(entry),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              _thumb(entry.image, Icons.inventory_2_outlined),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.groupName!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '${entry.products.length} variantes',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              if (count > 0) _totalBadge(count),
+              const SizedBox(width: AppSpacing.xs),
+              Icon(
+                Icons.chevron_right,
+                size: 22,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
       ),
-      onTap: () => _chooseVariants(entry),
     );
   }
 
   /// Imagen de una tarjeta de cuadrícula, con placeholder si no hay archivo.
   Widget _gridThumb(String? path, IconData placeholder) {
-    if (path == null || path.trim().isEmpty) {
-      return Icon(placeholder,
-          size: 42, color: Theme.of(context).colorScheme.outline);
-    }
-    return Image.asset(
-      path,
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => Icon(
-        Icons.broken_image_outlined,
-        size: 42,
-        color: Theme.of(context).colorScheme.error,
+    final theme = Theme.of(context);
+    final cleaned = path?.trim();
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      child: cleaned == null || cleaned.isEmpty
+          ? Icon(
+              placeholder,
+              size: 38,
+              color: theme.colorScheme.onSurfaceVariant,
+            )
+          : Image.asset(
+              cleaned,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Icon(
+                Icons.broken_image_outlined,
+                size: 38,
+                color: theme.colorScheme.error,
+              ),
+            ),
     );
   }
 
@@ -325,26 +470,25 @@ class _RegistroScreenState extends State<RegistroScreen> {
       0,
       (total, product) => total + _totalFor(product),
     );
+    final theme = Theme.of(context);
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _chooseVariants(entry),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(AppSpacing.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Center(
-                  child: _gridThumb(entry.image, Icons.inventory_2_outlined),
-                ),
+                child: _gridThumb(entry.image, Icons.inventory_2_outlined),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.sm),
               Text(
                 entry.groupName!,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
+                style: theme.textTheme.titleSmall,
               ),
               const SizedBox(height: 2),
               Row(
@@ -352,13 +496,14 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   Expanded(
                     child: Text(
                       '${entry.products.length} variantes',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                  if (count > 0)
-                    Text('$count',
-                        style: Theme.of(context).textTheme.labelLarge),
-                  const Icon(Icons.expand_more, size: 18),
+                  if (count > 0) _totalBadge(count),
                 ],
               ),
             ],
@@ -369,47 +514,46 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   Widget _productGridCard(Product product) {
-    final unit = _boxSize(product);
-    final boxes = _boxes[product.id] ?? 0;
-    final loose = _loose[product.id] ?? 0;
-    final total = boxes * unit + loose;
+    final total = _totalFor(product);
+    final theme = Theme.of(context);
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _editQuantity(product),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(AppSpacing.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Center(
-                  child: _gridThumb(
-                      _productImage(product), Icons.local_drink_outlined),
+                child: _gridThumb(
+                  _productImage(product),
+                  Icons.local_drink_outlined,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.sm),
               Text(
                 product.name,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
+                style: theme.textTheme.titleSmall,
               ),
               const SizedBox(height: 2),
-              Text(
-                total > 0 ? '$total botellines' : 'Sin añadir',
-                style: Theme.of(context).textTheme.labelLarge,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _boxHint(product),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  _totalBadge(total),
+                ],
               ),
-              if (total > 0 && unit > 1)
-                Text(
-                  '$boxes cajas · $loose sueltos',
-                  style: Theme.of(context).textTheme.bodySmall,
-                )
-              else
-                Text(
-                  'Toca para ajustar',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
             ],
           ),
         ),
@@ -420,40 +564,68 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Future<void> _editQuantity(Product product) async {
     await showModalBottomSheet<void>(
       context: context,
+      useSafeArea: true,
       showDragHandle: true,
+      isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: 560),
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, refreshOverlay) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  _listThumb(
-                      _productImage(product), Icons.local_drink_outlined),
-                  const SizedBox(width: 12),
+        builder: (context, refreshOverlay) => Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            0,
+            AppSpacing.xl,
+            AppSpacing.xl,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  _thumb(
+                    _productImage(product),
+                    Icons.local_drink_outlined,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Text(product.name,
-                        style: Theme.of(context).textTheme.titleLarge),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          product.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        Text(
+                          _boxHint(product),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                        ),
+                      ],
+                    ),
                   ),
-                ]),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _quantityControls(product,
-                      refreshOverlay: refreshOverlay),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
+                  IconButton(
+                    tooltip: 'Cerrar',
                     onPressed: () => Navigator.pop(sheetContext),
-                    child: const Text('Listo'),
+                    icon: const Icon(Icons.close),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Divider(),
+              const SizedBox(height: AppSpacing.lg),
+              _quantityControls(product, refreshOverlay: refreshOverlay),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('Listo'),
+              ),
+            ],
           ),
         ),
       ),
@@ -462,34 +634,45 @@ class _RegistroScreenState extends State<RegistroScreen> {
 
   Widget _categoryList(List<Product> products) {
     final entries = buildProductEntries(products);
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 90),
-      children: [
-        for (final entry in entries)
-          if (entry.isGroup)
-            _groupListTile(entry)
-          else
-            _productTile(entry.products.single),
-      ],
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      itemCount: entries.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return entry.isGroup
+            ? _groupListTile(entry)
+            : _productTile(entry.products.single);
+      },
     );
   }
 
   Widget _categoryGrid(List<Product> products) {
     final entries = buildProductEntries(products);
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 90),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 0.95,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        return entry.isGroup
-            ? _groupGridCard(entry)
-            : _productGridCard(entry.products.single);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = AppBreakpoints.gridColumns(
+          constraints.maxWidth,
+          min: 2,
+          max: 5,
+          minTileWidth: 150,
+        );
+        return GridView.builder(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: AppSpacing.sm,
+            mainAxisSpacing: AppSpacing.sm,
+            mainAxisExtent: 200,
+          ),
+          itemCount: entries.length,
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            return entry.isGroup
+                ? _groupGridCard(entry)
+                : _productGridCard(entry.products.single);
+          },
+        );
       },
     );
   }
@@ -569,67 +752,273 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const AppLogo(),
-          actions: [
-            IconButton(
-              tooltip: 'Vista de lista',
-              isSelected: !_gridView,
-              icon: const Icon(Icons.view_list),
-              selectedIcon: const Icon(Icons.view_list),
-              onPressed: () => setState(() => _gridView = false),
+  Widget _header() {
+    // En móvil el selector de vista usa solo iconos (con tooltip) para que las
+    // acciones quepan en una sola línea junto al botón de fecha.
+    final compactActions =
+        MediaQuery.sizeOf(context).width < AppBreakpoints.mobileMax;
+    return AppPageHeader(
+      eyebrow: 'Operación nocturna',
+      title: 'Lista de montaje',
+      subtitle: 'Ajusta cajas y unidades del servicio del '
+          '${formatLongDate(_date).toLowerCase()}',
+      leading: const AppLogo(height: 26),
+      actions: [
+        Tooltip(
+          message: 'Cambiar la fecha del servicio',
+          child: OutlinedButton.icon(
+            onPressed: _pickDate,
+            icon: const Icon(Icons.calendar_today, size: 17),
+            label: Text(formatShortDate(_date)),
+          ),
+        ),
+        SegmentedButton<bool>(
+          segments: [
+            ButtonSegment(
+              value: false,
+              icon: const Icon(Icons.view_list_rounded, size: 18),
+              label: compactActions ? null : const Text('Lista'),
+              tooltip: 'Ver los productos en lista',
             ),
-            IconButton(
-              tooltip: 'Vista de cuadrícula',
-              isSelected: _gridView,
-              icon: const Icon(Icons.grid_view),
-              selectedIcon: const Icon(Icons.grid_view),
-              onPressed: () => setState(() => _gridView = true),
-            ),
-            TextButton.icon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.calendar_today, size: 18),
-              label: Text(formatShortDate(_date)),
+            ButtonSegment(
+              value: true,
+              icon: const Icon(Icons.grid_view_rounded, size: 18),
+              label: compactActions ? null : const Text('Cuadrícula'),
+              tooltip: 'Ver los productos en cuadrícula',
             ),
           ],
+          selected: {_gridView},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) =>
+              setState(() => _gridView = selection.first),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-            onPressed: _save,
-            icon: const Icon(Icons.inventory_2),
-            label: const Text('Guardar y montar cajas')),
-        body: FutureBuilder<List<Product>>(
+      ],
+    );
+  }
+
+  ({int products, int boxes, int units}) _summary(List<Product> products) {
+    var selected = 0;
+    var boxes = 0;
+    var units = 0;
+    for (final product in products) {
+      final productBoxes = _boxes[product.id] ?? 0;
+      final loose = _loose[product.id] ?? 0;
+      if (productBoxes == 0 && loose == 0) continue;
+      selected++;
+      boxes += productBoxes;
+      units += productBoxes * _boxSize(product) + loose;
+    }
+    return (products: selected, boxes: boxes, units: units);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, pageConstraints) {
+        final contentWidth =
+            pageConstraints.maxWidth > AppBreakpoints.contentMaxWidth
+                ? AppBreakpoints.contentMaxWidth
+                : pageConstraints.maxWidth;
+        return FutureBuilder<List<Product>>(
           future: _future,
-          builder: (_, s) {
-            if (s.hasError) {
-              return Center(
-                  child:
-                      Text('No se pudieron cargar los productos: ${s.error}'));
-            }
-            if (!s.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (s.data!.isEmpty) {
-              return const Center(
-                  child:
-                      Text('Primero añade productos en la pestaña Productos'));
-            }
-            final products = s.data!;
-            return CategoryTabs(
-              products: products,
-              badge: (category) {
-                final count = products
-                    .where((product) =>
-                        product.category == category && _totalFor(product) > 0)
-                    .length;
-                return count == 0 ? '' : ' ($count)';
-              },
-              builder: (_, categoryProducts) => _gridView
-                  ? _categoryGrid(categoryProducts)
-                  : _categoryList(categoryProducts),
+          builder: (_, snapshot) {
+            final products = snapshot.data;
+            final summary = products == null
+                ? (products: 0, boxes: 0, units: 0)
+                : _summary(products);
+            return Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: SizedBox(
+                      width: contentWidth,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              pageConstraints.maxWidth >=
+                                      AppBreakpoints.tabletMin
+                                  ? AppSpacing.xl
+                                  : AppSpacing.lg,
+                              AppSpacing.md,
+                              pageConstraints.maxWidth >=
+                                      AppBreakpoints.tabletMin
+                                  ? AppSpacing.xl
+                                  : AppSpacing.lg,
+                              AppSpacing.md,
+                            ),
+                            child: _header(),
+                          ),
+                          Expanded(
+                            child: _content(snapshot),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (products != null && products.isNotEmpty)
+                  _MontajeActionBar(
+                    contentWidth: contentWidth,
+                    products: summary.products,
+                    boxes: summary.boxes,
+                    units: summary.units,
+                    onSave: _save,
+                  ),
+              ],
             );
           },
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _content(AsyncSnapshot<List<Product>> snapshot) {
+    if (snapshot.hasError) {
+      return AppErrorState(
+        title: 'No se pudieron cargar los productos.',
+        error: snapshot.error!,
+        onRetry: _reload,
       );
+    }
+    if (!snapshot.hasData) {
+      return const AppLoadingState(label: 'Cargando el catálogo…');
+    }
+    if (snapshot.data!.isEmpty) {
+      return const AppEmptyState(
+        icon: Icons.inventory_2_outlined,
+        title: 'No hay productos en el catálogo',
+        message: 'Añade productos desde Admin → Productos para empezar a '
+            'preparar la lista de montaje.',
+      );
+    }
+    final products = snapshot.data!;
+    return CategoryTabs(
+      products: products,
+      badge: (category) {
+        final count = products
+            .where((product) =>
+                product.category == category && _totalFor(product) > 0)
+            .length;
+        return count == 0 ? '' : ' ($count)';
+      },
+      builder: (_, categoryProducts) => _gridView
+          ? _categoryGrid(categoryProducts)
+          : _categoryList(categoryProducts),
+    );
+  }
+}
+
+/// Barra fija de montaje: resume el pedido y mantiene la acción principal
+/// accesible sin tapar el contenido ni la navegación inferior.
+class _MontajeActionBar extends StatelessWidget {
+  final double contentWidth;
+  final int products;
+  final int boxes;
+  final int units;
+  final VoidCallback onSave;
+
+  const _MontajeActionBar({
+    required this.contentWidth,
+    required this.products,
+    required this.boxes,
+    required this.units,
+    required this.onSave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final summary = Wrap(
+      spacing: AppSpacing.lg,
+      runSpacing: AppSpacing.xs,
+      children: [
+        _SummaryMetric(label: 'Productos', value: '$products'),
+        _SummaryMetric(label: 'Cajas', value: '$boxes'),
+        _SummaryMetric(label: 'Unidades', value: '$units'),
+      ],
+    );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: contentWidth),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final button = FilledButton.icon(
+                  onPressed: onSave,
+                  icon: const Icon(Icons.inventory_2_outlined, size: 19),
+                  label: const Text('Guardar y montar cajas'),
+                );
+                if (constraints.maxWidth < 580) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: summary,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      SizedBox(width: double.infinity, child: button),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: summary),
+                    const SizedBox(width: AppSpacing.lg),
+                    button,
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SummaryMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          value,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label.toLowerCase(),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
 }

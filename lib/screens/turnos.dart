@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../app_design.dart';
 import '../auth.dart';
 import '../auth_controller.dart';
 import '../db.dart';
@@ -491,13 +492,14 @@ class _ScheduleTabState extends State<_ScheduleTab> {
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(
-              child:
-                  Text('No se pudieron cargar los turnos: ${snapshot.error}'),
+            return AppErrorState(
+              title: 'No se pudieron cargar los turnos.',
+              error: snapshot.error!,
+              onRetry: _reload,
             );
           }
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const AppLoadingState(label: 'Cargando horario…');
           }
           final data = snapshot.data!;
           final byDate = <String, List<Shift>>{};
@@ -505,65 +507,77 @@ class _ScheduleTabState extends State<_ScheduleTab> {
             byDate.putIfAbsent(shift.date, () => []).add(shift);
           }
 
-          return ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              MonthCalendar(
-                month: _month,
-                selected: _selected,
-                onSelect: (day) => setState(() => _selected = day),
-                onMonthChanged: (month) => setState(() {
-                  _month = month;
-                  _selected = _firstOpenDay(month);
-                  _future = _load();
-                }),
-                styleFor: (day) => _dayStyle(data, byDate, day),
-                footerFor: (day) => _dayFooter(data, byDate, day),
-                cellHeight: 50,
-                headerActions: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (widget.isAdmin) ...[
-                      FilledButton.icon(
-                        onPressed: _generate,
-                        icon: const Icon(Icons.auto_awesome),
-                        label: const Text('Generar mes'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: data.shifts.isEmpty ? null : _publish,
-                        icon: const Icon(Icons.publish),
-                        label: const Text('Publicar'),
-                      ),
-                    ],
-                    TextButton.icon(
-                      onPressed: _goToday,
-                      icon: const Icon(Icons.today),
-                      label: const Text('Hoy'),
-                    ),
-                  ],
-                ),
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: AppBreakpoints.contentMaxWidth,
               ),
-              if (data.users.isEmpty)
-                Card(
-                  margin: const EdgeInsets.only(top: 12),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      widget.isAdmin
-                          ? 'Añade puestos en «Puestos» y usuarios en '
-                              '«Usuarios» para poder generar el horario.'
-                          : 'Todavía no hay usuarios con un puesto asignado.',
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.xxl,
+                ),
+                children: [
+                  MonthCalendar(
+                    month: _month,
+                    selected: _selected,
+                    onSelect: (day) => setState(() => _selected = day),
+                    onMonthChanged: (month) => setState(() {
+                      _month = month;
+                      _selected = _firstOpenDay(month);
+                      _future = _load();
+                    }),
+                    styleFor: (day) => _dayStyle(data, byDate, day),
+                    footerFor: (day) => _dayFooter(data, byDate, day),
+                    cellHeight: 50,
+                    headerActions: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        if (widget.isAdmin) ...[
+                          FilledButton.icon(
+                            onPressed: _generate,
+                            icon: const Icon(Icons.auto_awesome),
+                            label: const Text('Generar mes'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: data.shifts.isEmpty ? null : _publish,
+                            icon: const Icon(Icons.publish),
+                            label: const Text('Publicar'),
+                          ),
+                        ],
+                        TextButton.icon(
+                          onPressed: _goToday,
+                          icon: const Icon(Icons.today),
+                          label: const Text('Hoy'),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              const SizedBox(height: 12),
-              _legend(),
-              const SizedBox(height: 8),
-              _dayDetails(data, byDate),
-              const SizedBox(height: 80),
-            ],
+                  if (data.users.isEmpty)
+                    Card(
+                      margin: const EdgeInsets.only(top: AppSpacing.md),
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Text(
+                          widget.isAdmin
+                              ? 'Añade puestos en «Puestos» y usuarios en '
+                                  '«Usuarios» para poder generar el horario.'
+                              : 'Todavía no hay usuarios con un puesto asignado.',
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  _legend(),
+                  const SizedBox(height: AppSpacing.sm),
+                  _dayDetails(data, byDate),
+                  const SizedBox(height: AppSpacing.xxl),
+                ],
+              ),
+            ),
           );
         },
       );

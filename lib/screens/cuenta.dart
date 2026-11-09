@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_design.dart';
 import '../auth_controller.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
@@ -31,6 +32,7 @@ class CuentaScreen extends StatelessWidget {
                     ? 'Introduce tu contraseña actual.'
                     : null,
               ),
+              const SizedBox(height: AppSpacing.md),
               TextFormField(
                 controller: next,
                 obscureText: true,
@@ -40,6 +42,7 @@ class CuentaScreen extends StatelessWidget {
                     ? 'Debe tener al menos 6 caracteres.'
                     : null,
               ),
+              const SizedBox(height: AppSpacing.md),
               TextFormField(
                 controller: repeat,
                 obscureText: true,
@@ -71,10 +74,10 @@ class CuentaScreen extends StatelessWidget {
       newPassword: next.text,
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error ?? 'Contraseña actualizada.'),
-      ),
+    showAppSnack(
+      context,
+      error ?? 'Contraseña actualizada.',
+      tone: error == null ? AppTone.success : AppTone.danger,
     );
   }
 
@@ -94,87 +97,166 @@ class CuentaScreen extends StatelessWidget {
         builder: (context, _) {
           final user = AuthController.i.user;
           if (user == null) {
-            return const Center(child: Text('No hay una sesión iniciada.'));
+            return const AppEmptyState(
+              icon: Icons.person_off_outlined,
+              title: 'No hay una sesión iniciada',
+            );
           }
           final jobRole = user.jobRole;
-          return Scaffold(
-            appBar: AppBar(title: const AppLogo()),
-            body: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        CircleAvatar(
-                          radius: 34,
-                          child: Text(
-                            user.initial,
-                            style: Theme.of(context).textTheme.headlineMedium,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          user.fullName,
-                          style: Theme.of(context).textTheme.titleLarge,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(user.email),
-                        const SizedBox(height: 12),
-                        Chip(
-                          avatar: const Icon(Icons.work_outline, size: 18),
-                          label: Text(
-                            jobRole == null
-                                ? 'Sin puesto asignado'
-                                : '${jobRole.name} · ${jobRole.floor.label}',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Chip(
-                          avatar: const Icon(Icons.shield_outlined, size: 18),
-                          label: Text(user.role.label),
-                        ),
-                      ],
+
+          final profile = Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 36,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor:
+                        Theme.of(context).colorScheme.onPrimaryContainer,
+                    child: Text(
+                      user.initial,
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Column(
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    user.fullName,
+                    style: Theme.of(context).textTheme.titleLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    user.email,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    alignment: WrapAlignment.center,
                     children: [
-                      ListTile(
-                        leading: const Icon(Icons.event_available_outlined),
-                        title: const Text('Días que puede trabajar'),
-                        subtitle: Text(user.workingDaysLabel),
+                      Chip(
+                        avatar: const Icon(Icons.work_outline, size: 17),
+                        label: Text(
+                          jobRole == null
+                              ? 'Sin puesto asignado'
+                              : '${jobRole.name} · ${jobRole.floor.label}',
+                        ),
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.lock_open_outlined),
-                        title: const Text('Puede abrir'),
-                        subtitle: Text(user.opener ? 'Sí' : 'No'),
+                      Chip(
+                        avatar: const Icon(Icons.shield_outlined, size: 17),
+                        label: Text(user.role.label),
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.verified_user_outlined),
-                        title: const Text('Estado'),
-                        subtitle: Text(user.active ? 'Activo' : 'Inactivo'),
+                      StatusPill(
+                        label: user.active ? 'Activo' : 'Inactivo',
+                        icon: user.active
+                            ? Icons.check_circle_outline
+                            : Icons.pause_circle_outline,
+                        tone: user.active ? AppTone.success : AppTone.neutral,
                       ),
                     ],
                   ),
+                ],
+              ),
+            ),
+          );
+
+          final settings = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.event_available_outlined),
+                      title: const Text('Días que puede trabajar'),
+                      subtitle: Text(user.workingDaysLabel),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.lock_open_outlined),
+                      title: const Text('Puede abrir'),
+                      subtitle: Text(user.opener ? 'Sí' : 'No'),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.verified_user_outlined),
+                      title: const Text('Estado'),
+                      subtitle: Text(user.active ? 'Activo' : 'Inactivo'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 20),
-                FilledButton.tonalIcon(
-                  onPressed: () => _changePassword(context),
-                  icon: const Icon(Icons.password),
-                  label: const Text('Cambiar contraseña'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _logout(context),
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Cerrar sesión'),
-                ),
-              ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton.tonalIcon(
+                onPressed: () => _changePassword(context),
+                icon: const Icon(Icons.password),
+                label: const Text('Cambiar contraseña'),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: () => _logout(context),
+                icon: const Icon(Icons.logout),
+                label: const Text('Cerrar sesión'),
+              ),
+            ],
+          );
+
+          return SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final wide =
+                    constraints.maxWidth >= AppBreakpoints.twoColumnContent;
+                final horizontal =
+                    constraints.maxWidth >= AppBreakpoints.desktopMin
+                        ? AppSpacing.xl
+                        : AppSpacing.lg;
+                return SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    horizontal,
+                    AppSpacing.md,
+                    horizontal,
+                    AppSpacing.xl,
+                  ),
+                  child: AppContentFrame(
+                    maxWidth: 1040,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const AppPageHeader(
+                          eyebrow: 'Sesión',
+                          title: 'Mi cuenta',
+                          subtitle: 'Datos del perfil y opciones de acceso.',
+                          leading: AppLogo(height: 26),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        if (wide)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 2, child: profile),
+                              const SizedBox(width: AppSpacing.lg),
+                              Expanded(flex: 3, child: settings),
+                            ],
+                          )
+                        else ...[
+                          profile,
+                          const SizedBox(height: AppSpacing.lg),
+                          settings,
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           );
         },

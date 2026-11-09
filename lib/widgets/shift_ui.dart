@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_design.dart';
 import '../shifts.dart';
 import 'app_ui.dart';
 
@@ -17,28 +18,20 @@ class ShiftStatusChip extends StatelessWidget {
   const ShiftStatusChip({super.key, required this.status});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = switch (status) {
-      ShiftStatus.draft => theme.colorScheme.onSurfaceVariant,
-      ShiftStatus.published => theme.colorScheme.primary,
-      ShiftStatus.confirmed => theme.colorScheme.tertiary,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Text(
-        status.label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => StatusPill(
+        label: status.label,
+        dense: true,
+        icon: switch (status) {
+          ShiftStatus.draft => Icons.edit_note,
+          ShiftStatus.published => Icons.visibility_outlined,
+          ShiftStatus.confirmed => Icons.verified_outlined,
+        },
+        tone: switch (status) {
+          ShiftStatus.draft => AppTone.neutral,
+          ShiftStatus.published => AppTone.info,
+          ShiftStatus.confirmed => AppTone.success,
+        },
+      );
 }
 
 /// Pestañas por planta del local. Cada pestaña conserva el icono de su planta
@@ -63,10 +56,28 @@ class FloorShiftTabs extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TabBar(
-            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+            indicatorSize: TabBarIndicatorSize.tab,
             tabs: [
               for (final floor in Floor.values)
-                Tab(icon: Icon(floorIcon(floor)), text: floor.label),
+                Tab(
+                  height: 44,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(floorIcon(floor), size: 17),
+                      const SizedBox(width: 5),
+                      Text(
+                        floor.label,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
           Builder(
@@ -80,7 +91,7 @@ class FloorShiftTabs extends StatelessWidget {
                       .where((shift) => shift.floor == floor)
                       .toList(growable: false);
                   return Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -91,7 +102,11 @@ class FloorShiftTabs extends StatelessWidget {
                         if (noOpener.contains(floor))
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
-                            child: WarningLine('Sin opener en ${floor.label}.'),
+                            child: AlertBanner(
+                              message: 'Sin opener en ${floor.label}.',
+                              tone: AppTone.warning,
+                              dense: true,
+                            ),
                           ),
                       ],
                     ),
@@ -114,18 +129,23 @@ class _TeamGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 6,
-        mainAxisExtent: 80,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 4,
-      ),
-      itemCount: shifts.length,
-      itemBuilder: (context, index) => _MemberTile(shift: shifts[index]),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = (constraints.maxWidth / 78).floor().clamp(2, 6);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: 82,
+            mainAxisSpacing: AppSpacing.sm,
+            crossAxisSpacing: AppSpacing.xs,
+          ),
+          itemCount: shifts.length,
+          itemBuilder: (context, index) => _MemberTile(shift: shifts[index]),
+        );
+      },
     );
   }
 }
@@ -140,27 +160,35 @@ class _MemberTile extends StatelessWidget {
     final theme = Theme.of(context);
     final name = shift.userName.trim();
     final initial = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 20,
-          child: Text(
-            initial,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
+    return Semantics(
+      label: '${name.isEmpty ? 'Sin nombre' : name}, ${shift.roleName}',
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 21,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            foregroundColor: theme.colorScheme.onPrimaryContainer,
+            child: Text(
+              initial,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall,
-        ),
-      ],
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              height: 1.2,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

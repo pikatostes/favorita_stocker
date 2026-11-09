@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../app_design.dart';
 import '../models.dart';
 
 /// Pestañas por categoría de producto (Cervezas y similares, Refrescos...).
@@ -80,24 +82,53 @@ class _CategoryTabsState extends State<CategoryTabs>
   Widget build(BuildContext context) {
     final c = _c;
     if (c == null) return const SizedBox.shrink();
-    return Column(children: [
-      TabBar(
-        controller: c,
-        tabs: [
-          for (final cat in _cats)
-            Tab(text: '$cat${widget.badge?.call(cat) ?? ""}'),
-        ],
-      ),
-      Expanded(
-        child: TabBarView(
-          controller: c,
-          children: [
-            for (final cat in _cats)
-              widget.builder(
-                  context, widget.products.where((p) => p.category == cat).toList()),
-          ],
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(
+              bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+          ),
+          child: TabBar(
+            controller: c,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelPadding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+            ),
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: [
+              for (final cat in _cats)
+                Tab(
+                  height: 44,
+                  child: Text(
+                    '$cat${widget.badge?.call(cat) ?? ""}',
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
-    ]);
+        Expanded(
+          child: TabBarView(
+            controller: c,
+            children: [
+              for (final cat in _cats)
+                widget.builder(
+                  context,
+                  widget.products
+                      .where((p) => p.category == cat)
+                      .toList(growable: false),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
