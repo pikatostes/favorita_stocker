@@ -1,20 +1,17 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../auth.dart';
 import '../auth_controller.dart';
 import '../db.dart';
+import '../formats.dart';
 import '../models.dart';
 import '../schedule.dart';
 import '../shifts.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/app_ui.dart';
 import '../widgets/month_calendar.dart';
-
-String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
-
-String _dateLabel(String date) =>
-    _cap(DateFormat('EEEE d MMMM', 'es').format(DateTime.parse(date)));
+import '../widgets/shift_ui.dart';
 
 DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -45,16 +42,6 @@ DateTime _initialSelectedDay() {
   if (Schedule.openWeekdays.contains(now.weekday)) return now;
   final next = _nextOpenDay(now);
   return next.month == now.month ? next : _firstOpenDay(now);
-}
-
-IconData _floorIcon(Floor floor) => switch (floor) {
-      Floor.plantaBaja => Icons.storefront,
-      Floor.karaoke => Icons.mic,
-      Floor.terraza => Icons.deck,
-    };
-
-void _snack(BuildContext context, String text) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 }
 
 /// Pestañas internas de Turnos. [roles] (Puestos) solo está disponible para
@@ -217,7 +204,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       data = await _load();
     } catch (error) {
       if (!mounted) return;
-      _snack(
+      showAppSnack(
           context,
           'No se pudieron cargar los turnos: '
           '${describeDbError(error)}');
@@ -225,30 +212,20 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     }
     if (!mounted) return;
     if (data.users.isEmpty) {
-      _snack(context,
+      showAppSnack(context,
           'Añade al menos un usuario en la pestaña «Usuarios» para generar.');
       return;
     }
 
     if (data.shifts.isNotEmpty) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Regenerar el mes'),
-          content: Text(
-              'Se borrarán los ${data.shifts.length} turnos de este mes y se '
-              'crearán de nuevo a partir de los usuarios.'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancelar')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Generar')),
-          ],
-        ),
+      final ok = await showConfirmDialog(
+        context,
+        title: 'Regenerar el mes',
+        message: 'Se borrarán los ${data.shifts.length} turnos de este mes y '
+            'se crearán de nuevo a partir de los usuarios.',
+        confirmLabel: 'Generar',
       );
-      if (ok != true || !mounted) return;
+      if (!ok || !mounted) return;
     }
 
     final generated = ShiftGenerator.generateMonth(
@@ -263,14 +240,14 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       await Db.i.replaceMonthShifts(_month, generated);
     } catch (error) {
       if (!mounted) return;
-      _snack(
+      showAppSnack(
           context,
           'No se pudieron generar los turnos: '
           '${describeDbError(error)}');
       return;
     }
     if (!mounted) return;
-    _snack(context, 'Generados ${generated.length} turnos.');
+    showAppSnack(context, 'Generados ${generated.length} turnos.');
   }
 
   Future<void> _publish() async {
@@ -278,14 +255,14 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       await Db.i.publishMonth(_month);
     } catch (error) {
       if (!mounted) return;
-      _snack(
+      showAppSnack(
           context,
           'No se pudieron publicar los turnos: '
           '${describeDbError(error)}');
       return;
     }
     if (!mounted) return;
-    _snack(context, 'Turnos publicados.');
+    showAppSnack(context, 'Turnos publicados.');
   }
 
   /// Tocar un turno: el admin lo edita; el empleado confirma el suyo.
@@ -297,52 +274,39 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     final me = AuthController.i.user;
     if (me == null) return;
     if (shift.userId != me.id) {
-      _snack(context, 'Solo puedes confirmar tus propios turnos.');
+      showAppSnack(context, 'Solo puedes confirmar tus propios turnos.');
       return;
     }
     if (shift.status == ShiftStatus.confirmed) {
-      _snack(context, 'Este turno ya está confirmado.');
+      showAppSnack(context, 'Este turno ya está confirmado.');
       return;
     }
     if (shift.status != ShiftStatus.published) {
-      _snack(context, 'El turno todavía no está publicado.');
+      showAppSnack(context, 'El turno todavía no está publicado.');
       return;
     }
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar turno'),
-        content: Text(
-          '${_dateLabel(shift.date)} · ${shift.timeLabel}\n'
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Confirmar turno',
+      message: '${formatLongDateIso(shift.date)} · ${shift.timeLabel}\n'
           '${shift.roleName} (${shift.floor.label})',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Confirmar',
     );
-    if (ok != true || !mounted) return;
+    if (!ok || !mounted) return;
 
     try {
       await Db.i.confirmShift(shift.id!);
     } catch (error) {
       if (!mounted) return;
-      _snack(
+      showAppSnack(
           context,
           'No se pudo confirmar el turno: '
           '${describeDbError(error)}');
       return;
     }
     if (!mounted) return;
-    _snack(context, 'Turno confirmado.');
+    showAppSnack(context, 'Turno confirmado.');
   }
 
   void _onShiftLongPress(Shift shift) {
@@ -359,32 +323,24 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       await Db.i.updateShift(updated);
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el turno: ${describeDbError(e)}');
+      showAppSnack(
+          context, 'No se pudo guardar el turno: ${describeDbError(e)}');
     }
   }
 
   Future<void> _deleteShift(Shift shift) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('¿Borrar el turno de ${shift.userName}?'),
-        content: Text('${_dateLabel(shift.date)} · ${shift.timeLabel}'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Borrar')),
-        ],
-      ),
+    final ok = await showConfirmDialog(
+      context,
+      title: '¿Borrar el turno de ${shift.userName}?',
+      message: '${formatLongDateIso(shift.date)} · ${shift.timeLabel}',
+      confirmLabel: 'Borrar',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await Db.i.deleteShift(shift.id!);
     } catch (error) {
       if (!mounted) return;
-      _snack(
+      showAppSnack(
           context,
           'No se pudo borrar el turno: '
           '${describeDbError(error)}');
@@ -510,7 +466,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _dateLabel(key),
+              formatLongDateIso(key),
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -653,7 +609,7 @@ class _DayCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          _dateLabel(date),
+                          formatLongDateIso(date),
                           style: theme.textTheme.titleMedium,
                         ),
                       ),
@@ -1024,7 +980,7 @@ class _ShiftDialogState extends State<_ShiftDialog> {
 
   void _save() {
     if (_start == _end) {
-      _snack(context, 'La entrada y la salida no pueden ser iguales.');
+      showAppSnack(context, 'La entrada y la salida no pueden ser iguales.');
       return;
     }
     Navigator.pop(
@@ -1063,7 +1019,7 @@ class _ShiftDialogState extends State<_ShiftDialog> {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             Text(
-              _dateLabel(widget.shift.date),
+              formatLongDateIso(widget.shift.date),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -1178,7 +1134,8 @@ class _AppUsersTabState extends State<_AppUsersTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el usuario: ${describeDbError(e)}');
+      showAppSnack(
+          context, 'No se pudo guardar el usuario: ${describeDbError(e)}');
     }
   }
 
@@ -1189,7 +1146,8 @@ class _AppUsersTabState extends State<_AppUsersTab> {
       await AuthController.i.refresh();
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo cambiar el estado: ${describeDbError(e)}');
+      showAppSnack(
+          context, 'No se pudo cambiar el estado: ${describeDbError(e)}');
     }
   }
 
@@ -1641,39 +1599,26 @@ class _RolesTabState extends State<_RolesTab> {
       }
     } on StateError catch (e) {
       if (!mounted) return;
-      _snack(context, e.message.toString());
+      showAppSnack(context, e.message.toString());
     } catch (e) {
       if (!mounted) return;
-      _snack(context, 'No se pudo guardar el puesto: $e');
+      showAppSnack(context, 'No se pudo guardar el puesto: $e');
     }
   }
 
   Future<void> _delete(JobRole role) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('¿Borrar ${role.name}?'),
-        content: const Text(
-          'Solo se puede borrar si no tiene usuarios asignados.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Borrar'),
-          ),
-        ],
-      ),
+    final ok = await showConfirmDialog(
+      context,
+      title: '¿Borrar ${role.name}?',
+      message: 'Solo se puede borrar si no tiene usuarios asignados.',
+      confirmLabel: 'Borrar',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await Db.i.deleteRole(role.id!);
     } on StateError catch (e) {
       if (!mounted) return;
-      _snack(context, e.message.toString());
+      showAppSnack(context, e.message.toString());
     }
   }
 
@@ -1705,7 +1650,7 @@ class _RolesTabState extends State<_RolesTab> {
               itemBuilder: (context, index) {
                 final role = roles[index];
                 return ListTile(
-                  leading: Icon(_floorIcon(role.floor)),
+                  leading: Icon(floorIcon(role.floor)),
                   title: Text(role.name),
                   subtitle: Text(
                     '${role.floor.label}'
@@ -1753,7 +1698,7 @@ class _RoleDialogState extends State<_RoleDialog> {
   void _save() {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      _snack(context, 'El nombre del puesto es obligatorio.');
+      showAppSnack(context, 'El nombre del puesto es obligatorio.');
       return;
     }
     Navigator.pop(

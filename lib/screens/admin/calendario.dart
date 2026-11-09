@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../db.dart';
+import '../../formats.dart';
 import '../../models.dart';
 import '../../prediction.dart';
 import '../../schedule.dart';
@@ -14,8 +15,6 @@ class _CalData {
   final Map<int, Product> products;
   _CalData(this.nights, this.special, this.products);
 }
-
-String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
 /// Calendario mensual: días trabajados (con lista guardada) resaltados.
 /// Al tocar un día se ven sus detalles.
@@ -79,7 +78,8 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: Text(_cap(DateFormat('EEEE d MMMM yyyy', 'es').format(date))),
+          title: Text(
+              capitalize(DateFormat('EEEE d MMMM yyyy', 'es').format(date))),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             SwitchListTile(
               title: Text(open ? 'Abierto' : 'Cerrado'),
@@ -218,7 +218,9 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_cap(DateFormat('EEEE d MMMM yyyy', 'es').format(_selected)),
+          Text(
+              capitalize(
+                  DateFormat('EEEE d MMMM yyyy', 'es').format(_selected)),
               style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           Wrap(spacing: 8, children: [

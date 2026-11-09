@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../auth_controller.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/app_ui.dart';
 
 /// Datos del usuario conectado y acciones de cuenta.
 class CuentaScreen extends StatelessWidget {
@@ -78,24 +79,13 @@ class CuentaScreen extends StatelessWidget {
   }
 
   Future<void> _logout(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cerrar sesión'),
-        content: const Text('¿Quieres salir de tu cuenta?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cerrar sesión'),
-          ),
-        ],
-      ),
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Cerrar sesión',
+      message: '¿Quieres salir de tu cuenta?',
+      confirmLabel: 'Cerrar sesión',
     );
-    if (ok == true) await AuthController.i.logout();
+    if (ok) await AuthController.i.logout();
   }
 
   @override

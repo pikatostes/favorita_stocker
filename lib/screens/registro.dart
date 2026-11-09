@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../auth_controller.dart';
 import '../db.dart';
+import '../formats.dart';
 import '../models.dart';
 import '../product_entries.dart';
 import '../schedule.dart';
@@ -591,7 +591,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
             TextButton.icon(
               onPressed: _pickDate,
               icon: const Icon(Icons.calendar_today, size: 18),
-              label: Text(DateFormat('EEE d MMM', 'es').format(_date)),
+              label: Text(formatShortDate(_date)),
             ),
           ],
         ),

@@ -69,8 +69,13 @@ lib/
   prediction.dart        Predictor.forecast(): previsión en 2 pasos (base + temporada + margen).
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
   product_entries.dart   buildProductEntries(): agrupa variantes para las listas de UI.
+  formats.dart           Fechas en español (larga, corta, mes) y `capitalize`.
   screens/
-    home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack; Inicio (panel admin/empleado) y pestañas.
+    home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack.
+    home/
+      home_dashboard.dart Panel de Inicio: carga, acciones y composición de tarjetas.
+      home_cards.dart     Tarjetas del Inicio (cabecera, mantenimiento, admin, empleado).
+      home_data.dart      HomeData, NightListSummary y loadHomeData().
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
@@ -83,6 +88,9 @@ lib/
       productos.dart     "Productos": CRUD de catálogo (diálogo de alta/edición).
       inventario.dart    "Inventario": listado del catálogo con el stock disponible.
   widgets/
+    app_ui.dart          Componentes compartidos: AppSectionCard, MutedText, WarningLine, AppErrorState, AppStatsRow, snack y confirmación.
+    shift_ui.dart        floorIcon, ShiftStatusChip y FloorShiftTabs (pestañas por planta).
+    month_calendar.dart  Calendario mensual reutilizable.
     category_tabs.dart   Pestañas por categoría (reutilizado en Lista y Productos).
   img/                   Imágenes de productos/grupos referenciadas por ruta (assets).
 supabase/
@@ -305,7 +313,15 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   La previsión está integrada en el detalle del día del Calendario: se muestra
   en días abiertos sin lista guardada y desde hoy en adelante. También se
   resume en el panel de Inicio del administrador.
-- **Inicio**: panel contextual por rol. El administrador ve turnos y personal
+- **Componentes compartidos**: `AppSectionCard`, `MutedText`, `WarningLine`,
+  `AppErrorState`, `AppStatsRow`, `showAppSnack` y `showConfirmDialog` en
+  `widgets/app_ui.dart`; `floorIcon`, `ShiftStatusChip` y `FloorShiftTabs` en
+  `widgets/shift_ui.dart`. Reutilízalos antes de crear otra variante local.
+- **Inicio**: panel contextual por rol, en `screens/home/`. `home_data.dart`
+  concentra la carga (`loadHomeData`) y los datos derivados; `home_cards.dart`
+  las tarjetas (cabecera, mantenimiento, admin y empleado); `home_dashboard.dart`
+  solo orquesta el `FutureBuilder`, las acciones y el refresco. El administrador
+  ve turnos y personal
   de la noche, estado del mes, previsión y avisos, con acciones para
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
   noche y avisos; los turnos en borrador no se muestran. Quien tiene el puesto

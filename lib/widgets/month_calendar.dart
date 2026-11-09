@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../formats.dart';
+
 /// Apariencia de un día dentro de [MonthCalendar].
 ///
 /// Solo describe el estado del día (relleno, color del número y borde). El
@@ -94,7 +96,7 @@ class MonthCalendar extends StatelessWidget {
             Expanded(
               child: Center(
                 child: Text(
-                  _capitalize(monthLabel),
+                  capitalize(monthLabel),
                   style: theme.textTheme.titleLarge,
                 ),
               ),
@@ -183,9 +185,6 @@ class MonthCalendar extends StatelessWidget {
     );
   }
 }
-
-String _capitalize(String value) =>
-    value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
 
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;

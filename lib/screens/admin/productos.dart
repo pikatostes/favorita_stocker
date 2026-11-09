@@ -3,6 +3,7 @@ import '../../db.dart';
 import '../../models.dart';
 import '../../theme.dart';
 import '../../widgets/app_logo.dart';
+import '../../widgets/app_ui.dart';
 import '../../widgets/product_catalog.dart';
 
 /// Datos que devuelve el formulario de alta/edición de un producto.
@@ -134,47 +135,36 @@ class _ProductosScreenState extends State<ProductosScreen> {
         await Db.i.addProduct(form.product, groupImage: form.groupImage);
       } catch (error) {
         if (!mounted) return;
-        _snack('No se pudo guardar el producto: ${describeDbError(error)}');
+        showAppSnack(context,
+            'No se pudo guardar el producto: ${describeDbError(error)}');
       }
     } else {
       try {
         await Db.i.updateProduct(form.product, groupImage: form.groupImage);
       } catch (error) {
         if (!mounted) return;
-        _snack('No se pudo guardar el producto: ${describeDbError(error)}');
+        showAppSnack(context,
+            'No se pudo guardar el producto: ${describeDbError(error)}');
       }
     }
   }
 
-  void _snack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _delete(Product p) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('¿Borrar ${p.name}?'),
-        content: const Text(
-            'Dejará de aparecer en las listas, pero se conserva su histórico.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Borrar')),
-        ],
-      ),
+    final ok = await showConfirmDialog(
+      context,
+      title: '¿Borrar ${p.name}?',
+      message:
+          'Dejará de aparecer en las listas, pero se conserva su histórico.',
+      confirmLabel: 'Borrar',
     );
     if (!mounted) return;
-    if (ok == true) {
+    if (ok) {
       try {
         await Db.i.deleteProduct(p.id!);
       } catch (error) {
         if (!mounted) return;
-        _snack('No se pudo borrar el producto: ${describeDbError(error)}');
+        showAppSnack(context,
+            'No se pudo borrar el producto: ${describeDbError(error)}');
       }
     }
   }
