@@ -805,8 +805,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
     return AppPageHeader(
       eyebrow: 'Operación nocturna',
       title: 'Lista de montaje',
-      subtitle: 'Ajusta cajas y unidades de ${_floor.label.toLowerCase()} '
-          'para el servicio del ${formatLongDate(_date).toLowerCase()}',
+      // subtitle: 'Ajusta cajas y unidades de ${_floor.label.toLowerCase()} '
+      //     'para el servicio del ${formatLongDate(_date).toLowerCase()}',
       leading: const AppLogo(height: 26),
       actions: [
         Tooltip(
