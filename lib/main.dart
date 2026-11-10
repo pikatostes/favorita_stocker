@@ -52,7 +52,7 @@ class _MissingConfigApp extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<AppPalette>(
         valueListenable: selectedPalette,
         builder: (_, palette, __) => MaterialApp(
-          title: 'Stock Bar',
+          title: 'La Favorita - Stock Bar',
           debugShowCheckedModeBanner: false,
           locale: const Locale('es'),
           supportedLocales: const [Locale('es')],
@@ -194,7 +194,7 @@ class StockBarApp extends StatelessWidget {
           builder: (_, __) {
             final auth = AuthController.i;
             return MaterialApp(
-              title: 'Stock Bar',
+              title: 'La Favorita - Stock Bar',
               locale: const Locale('es'),
               supportedLocales: const [Locale('es')],
               localizationsDelegates: GlobalMaterialLocalizations.delegates,
