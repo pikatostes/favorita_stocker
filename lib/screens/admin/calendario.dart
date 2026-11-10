@@ -6,13 +6,15 @@ import '../../formats.dart';
 import '../../models.dart';
 import '../../prediction.dart';
 import '../../schedule.dart';
+import '../../shifts.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/month_calendar.dart';
 import '../plan.dart';
 
 class _CalData {
-  final Map<String, Map<int, int>> nights; // fecha -> (producto -> botellines)
+  /// fecha -> planta -> (producto -> botellines)
+  final Map<String, Map<Floor, Map<int, int>>> nights;
   final Map<String, SpecialDay> special;
   final Map<int, Product> products;
   _CalData(this.nights, this.special, this.products);
@@ -34,11 +36,12 @@ class CalendarioScreen extends StatefulWidget {
 class _CalendarioScreenState extends State<CalendarioScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime _selected = Schedule.day(DateTime.now());
+  Floor _floor = Floor.plantaBaja;
   late Future<_CalData> _future = _load();
 
   Future<_CalData> _load() async {
     // Las tres consultas son independientes: se lanzan a la vez.
-    final nightsF = Db.i.nights();
+    final nightsF = Db.i.nightsByFloor();
     final specialF = Db.i.specialDays();
     // Incluye los productos borrados para poder mostrar su histórico.
     final productsF = Db.i.products(includeDeleted: true);
@@ -190,10 +193,33 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
 
   // ---------- Detalle del día ----------
 
+  /// Selector para consultar la lista de cada planta en el día elegido.
+  Widget _floorSelector() => SizedBox(
+        width: 200,
+        child: DropdownButtonFormField<Floor>(
+          initialValue: _floor,
+          isDense: true,
+          decoration: const InputDecoration(
+            labelText: 'Planta de la lista',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final floor in Floor.values)
+              DropdownMenuItem(value: floor, child: Text(floor.label)),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _floor = value);
+          },
+        ),
+      );
+
   Widget _details(_CalData d) {
     final theme = Theme.of(context);
     final key = Schedule.fmt(_selected);
-    final qty = d.nights[key];
+    final byFloor = d.nights[key];
+    final qty = byFloor?[_floor];
+    final hasAnyList = byFloor != null && byFloor.isNotEmpty;
     final sp = d.special[key];
     final open = Schedule.isOpen(_selected, d.special);
 
@@ -225,14 +251,16 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                   DateFormat('EEEE d MMMM yyyy', 'es').format(_selected)),
               style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
+          _floorSelector(),
+          const SizedBox(height: 8),
           Wrap(spacing: 8, children: [
             Chip(
                 avatar: Icon(
-                    qty != null
+                    hasAnyList
                         ? Icons.check_circle
                         : (open ? Icons.lock_open : Icons.lock_outline),
                     size: 18),
-                label: Text(qty != null
+                label: Text(hasAnyList
                     ? 'Noche trabajada'
                     : (open ? 'Abre' : 'Cerrado'))),
             if (sp != null)
@@ -242,11 +270,14 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                       : sp.note)),
           ]),
           const SizedBox(height: 8),
-          if (qty == null)
+          if (!hasAnyList)
             Text(
                 open
                     ? 'Sin lista guardada para este día.'
                     : 'El bar no abre este día.',
+                style: theme.textTheme.bodyMedium)
+          else if (qty == null)
+            Text('Sin lista guardada para ${_floor.label.toLowerCase()}.',
                 style: theme.textTheme.bodyMedium)
           else if (byCat.isEmpty)
             const Text('Noche trabajada sin consumo registrado.')
@@ -279,7 +310,9 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                   MaterialPageRoute(
                       builder: (_) => PlanScreen(
                           qty: qty,
-                          title: DateFormat('d MMM', 'es').format(_selected)))),
+                          title:
+                              '${DateFormat('d MMM', 'es').format(_selected)}'
+                              ' · ${_floor.label}'))),
             ),
           ],
           const Divider(height: 24),
@@ -304,7 +337,7 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   bool _showForecast(_CalData d) {
     final key = Schedule.fmt(_selected);
     final today = Schedule.day(DateTime.now());
-    return !d.nights.containsKey(key) &&
+    return (d.nights[key]?[_floor] == null) &&
         !_selected.isBefore(today) &&
         Schedule.isOpen(_selected, d.special);
   }
@@ -357,6 +390,7 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                   if (_showForecast(d))
                     _ForecastCard(
                       day: _selected,
+                      floor: _floor,
                       revision: Db.i.version.value,
                     ),
                   const SizedBox(height: AppSpacing.xl),
@@ -389,9 +423,14 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
 /// de día o cuando cambia el histórico ([revision] es [Db.i.version]).
 class _ForecastCard extends StatefulWidget {
   final DateTime day;
+  final Floor floor;
   final int revision;
 
-  const _ForecastCard({required this.day, required this.revision});
+  const _ForecastCard({
+    required this.day,
+    required this.floor,
+    required this.revision,
+  });
 
   @override
   State<_ForecastCard> createState() => _ForecastCardState();
@@ -400,12 +439,14 @@ class _ForecastCard extends StatefulWidget {
 class _ForecastCardState extends State<_ForecastCard> {
   late Future<ForecastResult> _future = _load();
 
-  Future<ForecastResult> _load() => Predictor.forecast(widget.day);
+  Future<ForecastResult> _load() =>
+      Predictor.forecast(widget.day, floor: widget.floor);
 
   @override
   void didUpdateWidget(covariant _ForecastCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (Schedule.fmt(widget.day) != Schedule.fmt(oldWidget.day) ||
+        widget.floor != oldWidget.floor ||
         widget.revision != oldWidget.revision) {
       _future = _load();
     }
@@ -430,7 +471,7 @@ class _ForecastCardState extends State<_ForecastCard> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Previsión para este día',
+                  'Previsión para este día · ${widget.floor.label}',
                   style: theme.textTheme.titleMedium,
                 ),
               ),
@@ -523,7 +564,8 @@ class _ForecastCardState extends State<_ForecastCard> {
                               for (final f in r.items) f.product.id!: f.units,
                             },
                             title: 'Previsión '
-                                '${DateFormat('d MMM', 'es').format(widget.day)}',
+                                '${DateFormat('d MMM', 'es').format(widget.day)}'
+                                ' · ${widget.floor.label}',
                           ),
                         ),
                       ),

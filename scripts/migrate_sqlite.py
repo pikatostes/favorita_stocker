@@ -160,6 +160,8 @@ def export(db_path: Path, out_path: Path) -> dict:
             {
                 "id": r["id"],
                 "date": r["date"],
+                # Las bases antiguas no tienen planta: se importan en la baja.
+                "floor": r["floor"] if "floor" in r.keys() else "planta_baja",
                 "note": r["note"],
                 "created_at": iso_from_ms(r["created_at"]),
             }

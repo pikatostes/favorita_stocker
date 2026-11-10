@@ -170,8 +170,10 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   `subcategory_view`, `user_view`.
 - `product` guarda referencias: `box_id`, `group_id`, `subcategory_id`, `image`,
   `deleted_at` (borrado lógico).
-- `consumption` = una fila por (noche, producto); `night` marca qué noches
-  existen. UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
+- `consumption` = una fila por (noche, producto); `night` marca qué noches y
+  plantas existen. Cada `night` tiene `floor` (`planta_baja`, `karaoke`,
+  `terraza`) y UNIQUE(`date`,`floor`): una lista independiente por planta y
+  noche. UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
 - `job_role` es UNIQUE por `name` (más `name_key` normalizado) y guarda
   `floor` + `note`; `profiles` referencia `job_role_id` y guarda `opener`,
   `working_days` (`"5,6"`; vacío = cualquiera), `must_change_password` y
@@ -199,7 +201,7 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 ### 6.4 RPC y Edge Function
 - `save_product`, `set_group_image`: catálogo + upsert de categoría/grupo/
   subcategoría/caja en una transacción.
-- `save_night(date, items)`: sustituye la lista de esa noche.
+- `save_night(date, floor, items)`: sustituye la lista de esa noche y planta.
 - `replace_month_shifts`, `publish_month`, `confirm_my_shift`: turnos.
 - `update_own_profile`, `mark_password_changed`, `set_own_avatar`: perfil
   propio. `set_own_avatar` valida que la ruta empiece por `auth.uid()`.
@@ -335,10 +337,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
   noche y avisos; los turnos en borrador no se muestran. Quien tiene el puesto
   de mantenimiento (`AppUser.isMaintenance`) ve además, destacada al principio,
-  una tarjeta con la última lista guardada (`Db.latestNightDate()`): indica si
-  hay lista y, si la hay, resume productos/botellines y abre `PlanScreen` con
-  los sueltos y las cajas completas reconstruidos. Es el sustituto provisional
-  del sistema de notificaciones.
+  una tarjeta con la última lista guardada (`Db.latestNight()`): indica la
+  fecha y la planta, resume productos/botellines y abre `PlanScreen` con los
+  sueltos y las cajas completas reconstruidos. Es el sustituto provisional del
+  sistema de notificaciones.
 - **Recarga reactiva**: cada pantalla hace en `initState`
   `Db.i.version.addListener(_reload)` y lo quita en `dispose`. `_reload` vuelve a
   lanzar el `Future` y hace `setState`. **Mantén este patrón.**
@@ -363,6 +365,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   describen la caja seleccionada, **compartida** por todos los productos de ese tipo.
   El diálogo es dueño de sus `TextEditingController` y los destruye en `dispose`
   (no destruirlos antes de que el diálogo se desmonte: provocaba `_dependents.isEmpty`).
+- **Lista por planta** (`screens/registro.dart`): un selector `Planta` permite
+  crear o consultar la lista de planta baja, karaoke o terraza para la fecha de
+  servicio elegida. Al cambiar de planta se carga su lista guardada (o una
+  lista vacía) y al guardar se sustituye solo la de esa planta.
 - **Confirmación de la lista** (`screens/confirmar_lista.dart`): al pulsar
   "Guardar y montar cajas" en Lista se abre una pantalla intermedia con el
   resumen del pedido (por categoría, cajas/sueltos y totales). Solo si se

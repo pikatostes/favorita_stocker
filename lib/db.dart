@@ -314,12 +314,13 @@ class Db {
   // Consumo
   // ---------------------------------------------------------------------------
 
-  /// Guarda la lista de una noche (sustituye la que hubiera de esa fecha).
-  /// Los productos no incluidos cuentan como consumo 0.
-  Future<void> saveNight(String date, Map<int, int> qty) async {
+  /// Guarda la lista de una noche y planta (sustituye la que hubiera de esa
+  /// fecha y planta). Los productos no incluidos cuentan como consumo 0.
+  Future<void> saveNight(String date, Floor floor, Map<int, int> qty) async {
     try {
       await _client.rpc('save_night', params: {
         'p_date': date,
+        'p_floor': floor.db,
         'p_items': [
           for (final entry in qty.entries.where((e) => e.value > 0))
             {'product_id': entry.key, 'quantity': entry.value},
@@ -331,45 +332,91 @@ class Db {
     _changed();
   }
 
-  /// date -> (productId -> cantidad). Por defecto, todo el histórico.
-  Future<Map<String, Map<int, int>>> nights([String? since]) async {
+  /// Filas crudas de consumo, opcionalmente filtradas por fecha y planta.
+  Future<List<Map<String, dynamic>>> _consumptionRows({
+    String? since,
+    Floor? floor,
+  }) async {
     var query = _client
         .from('consumption')
-        .select('quantity, product_id, night!inner(date)');
+        .select('quantity, product_id, night!inner(date, floor)');
     if (since != null) {
       query = query.gte('night.date', since);
     }
-    final rows = await query;
+    if (floor != null) {
+      query = query.eq('night.floor', floor.db);
+    }
+    return await query;
+  }
 
+  /// date -> (productId -> cantidad), sumando todas las plantas.
+  ///
+  /// Se usa para la previsión y los resúmenes globales. Para separar las listas
+  /// por planta está [nightsByFloor] o el filtro [floor].
+  Future<Map<String, Map<int, int>>> nights({
+    String? since,
+    Floor? floor,
+  }) async {
+    final rows = await _consumptionRows(since: since, floor: floor);
     final out = <String, Map<int, int>>{};
     for (final row in rows) {
       final night = row['night'];
       final date = night is Map ? night['date'] as String : night as String;
-      out.putIfAbsent(date, () => {})[row['product_id'] as int] =
-          row['quantity'] as int;
+      final productId = row['product_id'] as int;
+      final quantity = row['quantity'] as int;
+      final day = out.putIfAbsent(date, () => {});
+      day[productId] = (day[productId] ?? 0) + quantity;
     }
     return out;
   }
 
-  /// Botellines guardados de una noche concreta (productId -> cantidad).
-  Future<Map<int, int>> nightConsumption(String date) async {
+  /// date -> planta -> (productId -> cantidad).
+  Future<Map<String, Map<Floor, Map<int, int>>>> nightsByFloor([
+    String? since,
+  ]) async {
+    final rows = await _consumptionRows(since: since);
+    final out = <String, Map<Floor, Map<int, int>>>{};
+    for (final row in rows) {
+      final night = row['night'];
+      final date = night is Map ? night['date'] as String : night as String;
+      final floor = Floor.fromDb(
+        night is Map ? night['floor'] as String? : null,
+      );
+      final productId = row['product_id'] as int;
+      final quantity = row['quantity'] as int;
+      final byFloor = out.putIfAbsent(date, () => {});
+      final day = byFloor.putIfAbsent(floor, () => {});
+      day[productId] = (day[productId] ?? 0) + quantity;
+    }
+    return out;
+  }
+
+  /// Botellines guardados de una noche y planta (productId -> cantidad).
+  Future<Map<int, int>> nightConsumption(String date, Floor floor) async {
     final rows = await _client
         .from('consumption')
-        .select('product_id, quantity, night!inner(date)')
-        .eq('night.date', date);
+        .select('product_id, quantity, night!inner(date, floor)')
+        .eq('night.date', date)
+        .eq('night.floor', floor.db);
     return {
       for (final row in rows) row['product_id'] as int: row['quantity'] as int,
     };
   }
 
-  /// Fecha de la lista guardada más reciente, o `null` si no hay ninguna.
-  Future<String?> latestNightDate() async {
+  /// Última lista guardada, con su fecha y planta, o `null` si no hay ninguna.
+  Future<({String date, Floor floor})?> latestNight() async {
     final rows = await _client
         .from('night')
-        .select('date, consumption!inner(id)')
+        .select('date, floor, consumption!inner(id)')
         .order('date', ascending: false)
+        .order('created_at', ascending: false)
         .limit(1);
-    return rows.isEmpty ? null : rows.first['date'] as String;
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      date: row['date'] as String,
+      floor: Floor.fromDb(row['floor'] as String?),
+    );
   }
 
   // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import '../../shifts.dart';
 /// cajas completas, igual que el flujo de Lista → Confirmar → Plan.
 class NightListSummary {
   final String date;
+  final Floor floor;
   final Map<int, int> qty;
   final Map<int, int> fullBoxes;
   final int totalUnits;
@@ -19,6 +20,7 @@ class NightListSummary {
 
   const NightListSummary({
     required this.date,
+    required this.floor,
     required this.qty,
     required this.fullBoxes,
     required this.totalUnits,
@@ -29,6 +31,7 @@ class NightListSummary {
   /// hay ningún producto con cantidad positiva.
   static NightListSummary? fromConsumption({
     required String date,
+    required Floor floor,
     required Map<int, int> saved,
     required Map<int, Product> productsById,
   }) {
@@ -50,6 +53,7 @@ class NightListSummary {
     if (count == 0) return null;
     return NightListSummary(
       date: date,
+      floor: floor,
       qty: qty,
       fullBoxes: fullBoxes,
       totalUnits: totalUnits,
@@ -271,16 +275,17 @@ Future<HomeData> loadHomeData() async {
 /// El puesto de mantenimiento no tiene notificaciones: en Inicio ve un aviso
 /// con la última lista guardada y, si existe, abre directamente el montaje.
 Future<NightListSummary?> _latestNightList() async {
-  final date = await Db.i.latestNightDate();
-  if (date == null) return null;
-  final saved = await Db.i.nightConsumption(date);
+  final latest = await Db.i.latestNight();
+  if (latest == null) return null;
+  final saved = await Db.i.nightConsumption(latest.date, latest.floor);
   final products = await Db.i.products();
   final byId = <int, Product>{
     for (final product in products)
       if (product.id != null) product.id!: product,
   };
   return NightListSummary.fromConsumption(
-    date: date,
+    date: latest.date,
+    floor: latest.floor,
     saved: saved,
     productsById: byId,
   );

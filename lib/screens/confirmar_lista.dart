@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../app_design.dart';
 import '../models.dart';
+import '../shifts.dart';
 
 /// Una línea del resumen: lo pedido de un producto, separado en cajas completas
 /// y botellines sueltos tal y como se introdujo en la lista.
@@ -23,11 +24,13 @@ class LineaPedido {
 /// `null` si se cierra) al volver a editar.
 class ConfirmarListaScreen extends StatelessWidget {
   final DateTime date;
+  final Floor? floor;
   final List<LineaPedido> lines;
 
   const ConfirmarListaScreen({
     super.key,
     required this.date,
+    this.floor,
     required this.lines,
   });
 
@@ -84,8 +87,11 @@ class ConfirmarListaScreen extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                           )),
                       const SizedBox(height: 4),
-                      Text(DateFormat("EEEE d 'de' MMMM 'de' yyyy", 'es')
-                          .format(date)),
+                      Text([
+                        if (floor != null) floor!.label,
+                        DateFormat("EEEE d 'de' MMMM 'de' yyyy", 'es')
+                            .format(date),
+                      ].join(' · ')),
                       const SizedBox(height: AppSpacing.md),
                       Wrap(
                         spacing: AppSpacing.sm,
@@ -156,8 +162,9 @@ class ConfirmarListaScreen extends StatelessWidget {
                       ]),
                       const SizedBox(height: AppSpacing.sm),
                       const Text(
-                        'Al confirmar se guardará la lista de la noche '
-                        'seleccionada. Si ya había una guardada, se sustituirá.',
+                        'Al confirmar se guardará la lista de la noche y la '
+                        'planta seleccionadas. Si ya había una guardada, se '
+                        'sustituirá.',
                       ),
                     ],
                   ),

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'db.dart';
 import 'models.dart';
 import 'schedule.dart';
+import 'shifts.dart';
 
 /// Previsión en dos pasos:
 ///
@@ -25,11 +26,14 @@ class Predictor {
   static const int minNightsInWindow = 2;
   static const double minRatio = 0.5, maxRatio = 2.0;
 
-  static Future<ForecastResult> forecast(DateTime targetIn) async {
+  static Future<ForecastResult> forecast(
+    DateTime targetIn, {
+    Floor? floor,
+  }) async {
     // La BD solo es accesible desde el isolate principal: aquí se leen los
     // datos (histórico y catálogo, en paralelo) y el cálculo pesado se delega
-    // a un isolate de fondo.
-    final rawF = Db.i.nights();
+    // a un isolate de fondo. Sin [floor] se usa el histórico de todo el local.
+    final rawF = Db.i.nights(floor: floor);
     final productsF = Db.i.products();
     final raw = await rawF;
     final products = await productsF;
@@ -51,7 +55,8 @@ class Predictor {
     final usualDay = Schedule.openWeekdays.contains(target.weekday);
     List<DateTime> recent(bool sameWeekday) => (history.keys
             .where((d) =>
-                d.isBefore(target) && (!sameWeekday || d.weekday == target.weekday))
+                d.isBefore(target) &&
+                (!sameWeekday || d.weekday == target.weekday))
             .toList()
           ..sort((a, b) => b.compareTo(a)))
         .take(maxNights)
@@ -65,7 +70,8 @@ class Predictor {
     final refMillis =
         base.map((d) => d.millisecondsSinceEpoch).reduce((a, b) => a + b) ~/
             base.length;
-    final refCenter = Schedule.day(DateTime.fromMillisecondsSinceEpoch(refMillis));
+    final refCenter =
+        Schedule.day(DateTime.fromMillisecondsSinceEpoch(refMillis));
 
     // 2) Años con datos suficientes en ambas épocas
     var seasonalYears = 0;

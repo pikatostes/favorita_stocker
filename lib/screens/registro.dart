@@ -7,6 +7,7 @@ import '../formats.dart';
 import '../models.dart';
 import '../product_entries.dart';
 import '../schedule.dart';
+import '../shifts.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/category_tabs.dart';
@@ -24,6 +25,9 @@ class RegistroScreen extends StatefulWidget {
 class _RegistroScreenState extends State<RegistroScreen> {
   // La noche empieza a las 16:00: a las 3:00 sigue siendo la de "ayer".
   DateTime _date = Schedule.serviceDay(DateTime.now());
+
+  /// Cada noche tiene una lista independiente por planta.
+  Floor _floor = Floor.plantaBaja;
 
   /// Cajas completas y botellines sueltos por producto. La cantidad se guarda
   /// siempre en botellines (cajas × unidades por caja + sueltos).
@@ -54,11 +58,13 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// que la BD solo guarda el total de botellines.
   Future<void> _loadNight() async {
     final date = _date;
+    final floor = _floor;
     try {
       final products = await _future;
-      final saved = await Db.i.nightConsumption(Schedule.fmt(date));
-      // Si mientras cargaba cambió la fecha, no se pisa la nueva selección.
-      if (!mounted || date != _date) return;
+      final saved = await Db.i.nightConsumption(Schedule.fmt(date), floor);
+      // Si mientras cargaba cambió la fecha o la planta, no se pisa la nueva
+      // selección.
+      if (!mounted || date != _date || floor != _floor) return;
       final boxes = <int, int>{};
       final loose = <int, int>{};
       for (final p in products) {
@@ -693,6 +699,17 @@ class _RegistroScreenState extends State<RegistroScreen> {
     await _loadNight();
   }
 
+  Future<void> _pickFloor(Floor floor) async {
+    if (floor == _floor) return;
+    setState(() {
+      _floor = floor;
+      // Se limpia lo escrito y se muestra lo guardado de la nueva planta.
+      _boxes.clear();
+      _loose.clear();
+    });
+    await _loadNight();
+  }
+
   Future<void> _save() async {
     final products = await _future;
     if (!mounted) return;
@@ -716,15 +733,17 @@ class _RegistroScreenState extends State<RegistroScreen> {
     }
     // Pantalla intermedia: se revisa el resumen y se confirma antes de guardar.
     final date = _date;
+    final floor = _floor;
     final confirmed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => ConfirmarListaScreen(date: date, lines: lines),
+        builder: (_) =>
+            ConfirmarListaScreen(date: date, floor: floor, lines: lines),
       ),
     );
     if (confirmed != true || !mounted) return;
     try {
-      await Db.i.saveNight(Schedule.fmt(date), qty);
+      await Db.i.saveNight(Schedule.fmt(date), floor, qty);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -747,10 +766,36 @@ class _RegistroScreenState extends State<RegistroScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PlanScreen(qty: loose, fullBoxes: boxes),
+        builder: (_) => PlanScreen(
+          qty: loose,
+          fullBoxes: boxes,
+          title: 'Montar cajas · ${floor.label}',
+        ),
       ),
     );
   }
+
+  /// Selector de la planta a la que pertenece la lista.
+  Widget _floorSelector({double width = 180}) => SizedBox(
+        width: width,
+        child: DropdownButtonFormField<Floor>(
+          initialValue: _floor,
+          isDense: true,
+          decoration: const InputDecoration(
+            labelText: 'Planta',
+            isDense: true,
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+          items: [
+            for (final floor in Floor.values)
+              DropdownMenuItem(value: floor, child: Text(floor.label)),
+          ],
+          onChanged: (value) {
+            if (value != null) _pickFloor(value);
+          },
+        ),
+      );
 
   Widget _header() {
     // En móvil el selector de vista usa solo iconos (con tooltip) para que las
@@ -760,8 +805,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
     return AppPageHeader(
       eyebrow: 'Operación nocturna',
       title: 'Lista de montaje',
-      subtitle: 'Ajusta cajas y unidades del servicio del '
-          '${formatLongDate(_date).toLowerCase()}',
+      subtitle: 'Ajusta cajas y unidades de ${_floor.label.toLowerCase()} '
+          'para el servicio del ${formatLongDate(_date).toLowerCase()}',
       leading: const AppLogo(height: 26),
       actions: [
         Tooltip(
@@ -772,6 +817,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
             label: Text(formatShortDate(_date)),
           ),
         ),
+        _floorSelector(width: compactActions ? 150 : 180),
         SegmentedButton<bool>(
           segments: [
             ButtonSegment(

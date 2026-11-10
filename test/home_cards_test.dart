@@ -79,6 +79,7 @@ HomeData _data({bool withNightList = false}) => HomeData(
       nightList: withNightList
           ? const NightListSummary(
               date: '2026-11-09',
+              floor: Floor.terraza,
               qty: {7: 12},
               fullBoxes: {7: 4},
               totalUnits: 108,

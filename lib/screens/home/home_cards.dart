@@ -287,7 +287,8 @@ class MaintenanceListCard extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           hasList
-                              ? 'Guardada el ${formatLongDateIso(list.date)}'
+                              ? 'Guardada el ${formatLongDateIso(list.date)} · '
+                                  '${list.floor.label}'
                               : 'Todavía no hay lista montada',
                           maxLines: 2,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -316,6 +317,11 @@ class MaintenanceListCard extends StatelessWidget {
                     _InfoChip(
                       icon: Icons.event_outlined,
                       label: formatShortDateIso(list.date),
+                      foreground: cs.onPrimaryContainer,
+                    ),
+                    _InfoChip(
+                      icon: Icons.stairs_outlined,
+                      label: list.floor.label,
                       foreground: cs.onPrimaryContainer,
                     ),
                     _InfoChip(
