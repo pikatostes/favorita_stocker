@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_design.dart';
 import '../shifts.dart';
 import 'app_ui.dart';
+import 'user_avatar.dart';
 
 /// Icono que representa una planta del local.
 IconData floorIcon(Floor floor) => switch (floor) {
@@ -38,12 +39,17 @@ class ShiftStatusChip extends StatelessWidget {
 /// y solo muestra los turnos de la planta seleccionada.
 class FloorShiftTabs extends StatelessWidget {
   final List<Shift> shifts;
+
+  /// Rutas de avatar por id de usuario para pintar las fotos del equipo.
+  final Map<int, String?> avatars;
+
   final String emptyLabel;
   final Set<Floor> noOpener;
 
   const FloorShiftTabs({
     super.key,
     required this.shifts,
+    this.avatars = const {},
     required this.emptyLabel,
     this.noOpener = const {},
   });
@@ -98,7 +104,7 @@ class FloorShiftTabs extends StatelessWidget {
                         if (floorShifts.isEmpty)
                           MutedText(emptyLabel)
                         else
-                          _TeamGrid(shifts: floorShifts),
+                          _TeamGrid(shifts: floorShifts, avatars: avatars),
                         if (noOpener.contains(floor))
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -124,8 +130,9 @@ class FloorShiftTabs extends StatelessWidget {
 /// Miembros de la planta en una rejilla de avatares con su nombre debajo.
 class _TeamGrid extends StatelessWidget {
   final List<Shift> shifts;
+  final Map<int, String?> avatars;
 
-  const _TeamGrid({required this.shifts});
+  const _TeamGrid({required this.shifts, required this.avatars});
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +150,10 @@ class _TeamGrid extends StatelessWidget {
             crossAxisSpacing: AppSpacing.xs,
           ),
           itemCount: shifts.length,
-          itemBuilder: (context, index) => _MemberTile(shift: shifts[index]),
+          itemBuilder: (context, index) => _MemberTile(
+            shift: shifts[index],
+            avatarPath: avatars[shifts[index].userId],
+          ),
         );
       },
     );
@@ -152,29 +162,26 @@ class _TeamGrid extends StatelessWidget {
 
 class _MemberTile extends StatelessWidget {
   final Shift shift;
+  final String? avatarPath;
 
-  const _MemberTile({required this.shift});
+  const _MemberTile({required this.shift, this.avatarPath});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final name = shift.userName.trim();
-    final initial = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
     return Semantics(
       label: '${name.isEmpty ? 'Sin nombre' : name}, ${shift.roleName}',
       child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
-          CircleAvatar(
+          UserAvatar(
+            path: avatarPath,
+            name: name,
             radius: 21,
             backgroundColor: theme.colorScheme.primaryContainer,
             foregroundColor: theme.colorScheme.onPrimaryContainer,
-            child: Text(
-              initial,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            textStyle: theme.textTheme.titleSmall,
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(

@@ -8,6 +8,7 @@ import '../../shifts.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/shift_ui.dart';
+import '../../widgets/user_avatar.dart';
 import 'home_data.dart';
 
 /// Cabecera del Inicio con el saludo, el estado del bar y la próxima excepción
@@ -53,16 +54,11 @@ class HomeHeader extends StatelessWidget {
 
     final avatar = Tooltip(
       message: user?.fullName ?? 'Cuenta',
-      child: CircleAvatar(
+      child: UserAvatar(
+        user: user,
         radius: 20,
         backgroundColor: theme.colorScheme.surfaceContainerHigh,
         foregroundColor: theme.colorScheme.onSurface,
-        child: Text(
-          user?.initial ?? '?',
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
       ),
     );
 
@@ -429,6 +425,7 @@ class AdminTonightCard extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         FloorShiftTabs(
           shifts: data.focusShifts,
+          avatars: AppUser.avatarPaths(data.users),
           noOpener: data.floorsWithoutOpener,
           emptyLabel: 'Sin turnos generados en esta planta.',
         ),
@@ -750,6 +747,7 @@ class EmployeeTonightCard extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         FloorShiftTabs(
           shifts: data.publishedFocusShifts,
+          avatars: AppUser.avatarPaths(data.users),
           emptyLabel: 'Sin turnos publicados en esta planta.',
         ),
       ],

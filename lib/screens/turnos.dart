@@ -13,6 +13,7 @@ import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/month_calendar.dart';
 import '../widgets/shift_ui.dart';
+import '../widgets/user_avatar.dart';
 
 DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -451,6 +452,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
       return _DayCard(
         date: key,
         shifts: shifts,
+        avatars: AppUser.avatarPaths(data.users),
         isAdmin: widget.isAdmin,
         onEdit: _onShiftTap,
         onDelete: _onShiftLongPress,
@@ -586,6 +588,7 @@ class _ScheduleTabState extends State<_ScheduleTab> {
 class _DayCard extends StatelessWidget {
   final String date;
   final List<Shift> shifts;
+  final Map<int, String?> avatars;
   final bool isAdmin;
   final ValueChanged<Shift> onEdit;
   final ValueChanged<Shift> onDelete;
@@ -593,6 +596,7 @@ class _DayCard extends StatelessWidget {
   const _DayCard({
     required this.date,
     required this.shifts,
+    required this.avatars,
     required this.isAdmin,
     required this.onEdit,
     required this.onDelete,
@@ -660,6 +664,7 @@ class _DayCard extends StatelessWidget {
                           children: [
                             _ShiftTimeline(
                               shifts: floorShifts,
+                              avatars: avatars,
                               onEdit: onEdit,
                               onDelete: onDelete,
                             ),
@@ -697,11 +702,13 @@ class _DayCard extends StatelessWidget {
 /// en varias líneas y la fila crece en vertical.
 class _ShiftTimeline extends StatelessWidget {
   final List<Shift> shifts;
+  final Map<int, String?> avatars;
   final ValueChanged<Shift> onEdit;
   final ValueChanged<Shift> onDelete;
 
   const _ShiftTimeline({
     required this.shifts,
+    this.avatars = const {},
     required this.onEdit,
     required this.onDelete,
   });
@@ -870,6 +877,7 @@ class _ShiftTimeline extends StatelessWidget {
                     for (final shift in sorted)
                       _TimelineAvatar(
                         shift: shift,
+                        avatarPath: avatars[shift.userId],
                         onTap: () => onEdit(shift),
                         onLongPress: () => onDelete(shift),
                       ),
@@ -888,11 +896,13 @@ class _ShiftTimeline extends StatelessWidget {
 /// Tocar edita; mantener pulsado borra (con confirmación).
 class _TimelineAvatar extends StatelessWidget {
   final Shift shift;
+  final String? avatarPath;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   const _TimelineAvatar({
     required this.shift,
+    this.avatarPath,
     required this.onTap,
     required this.onLongPress,
   });
@@ -901,7 +911,6 @@ class _TimelineAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final name = shift.userName.trim();
-    final initial = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
     final statusColor = switch (shift.status) {
       ShiftStatus.draft => cs.outline,
       ShiftStatus.published => cs.primary,
@@ -921,16 +930,15 @@ class _TimelineAvatar extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              CircleAvatar(
+              UserAvatar(
+                path: avatarPath,
+                name: name,
                 radius: _ShiftTimeline._avatarSize / 2,
                 backgroundColor: cs.primaryContainer,
-                child: Text(
-                  initial,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onPrimaryContainer,
-                  ),
+                foregroundColor: cs.onPrimaryContainer,
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               Positioned(
@@ -1202,7 +1210,7 @@ class _AppUsersTabState extends State<_AppUsersTab> {
                 final user = users[index];
                 final jobRole = user.jobRole;
                 return ListTile(
-                  leading: CircleAvatar(child: Text(user.initial)),
+                  leading: UserAvatar(user: user),
                   title: Text(
                     user.fullName,
                     style: user.active
@@ -1251,7 +1259,7 @@ class _UserInfoDialog extends StatelessWidget {
     return AlertDialog(
       title: Row(
         children: [
-          CircleAvatar(child: Text(user.initial)),
+          UserAvatar(user: user),
           const SizedBox(width: 12),
           Expanded(child: Text(user.fullName)),
         ],

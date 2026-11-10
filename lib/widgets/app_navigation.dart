@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_design.dart';
 import '../shifts.dart';
 import 'app_logo.dart';
+import 'user_avatar.dart';
 
 /// Grupo al que pertenece un destino del menú principal.
 enum AppNavGroup {
@@ -498,7 +499,8 @@ class _ProfileFooter extends StatelessWidget {
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: onAccount,
-                child: CircleAvatar(
+                child: UserAvatar(
+                  user: user,
                   radius: 20,
                   backgroundColor: accountSelected
                       ? theme.colorScheme.primaryContainer
@@ -506,12 +508,6 @@ class _ProfileFooter extends StatelessWidget {
                   foregroundColor: accountSelected
                       ? theme.colorScheme.onPrimaryContainer
                       : theme.colorScheme.onSurface,
-                  child: Text(
-                    user?.initial ?? '?',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -543,16 +539,11 @@ class _ProfileFooter extends StatelessWidget {
                 padding: const EdgeInsets.all(AppSpacing.sm),
                 child: Row(
                   children: [
-                    CircleAvatar(
+                    UserAvatar(
+                      user: user,
                       radius: 19,
                       backgroundColor: theme.colorScheme.surfaceContainerHigh,
                       foregroundColor: theme.colorScheme.onSurface,
-                      child: Text(
-                        user?.initial ?? '?',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(

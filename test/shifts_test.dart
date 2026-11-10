@@ -53,6 +53,45 @@ void main() {
     });
   });
 
+  group('foto de perfil', () {
+    test('lee, normaliza y comparte la ruta del avatar', () {
+      final user = AppUser.fromRow({
+        'id': 3,
+        'name': 'Ana',
+        'surname': 'Pérez',
+        'email': 'ana@favorita.local',
+        'active': 1,
+        'opener': 0,
+        'must_change_password': 0,
+        'working_days': '',
+        'role': 'employee',
+        'avatar_path': '  abc/123.jpg  ',
+      });
+
+      expect(user.avatarPath, 'abc/123.jpg');
+      expect(AppUser.avatarPaths([user]), {3: 'abc/123.jpg'});
+      expect(user.copyWith(clearAvatar: true).avatarPath, isNull);
+    });
+
+    test('trata una ruta vacía o nula como sin foto', () {
+      Map<String, Object?> row(Object? avatar) => {
+            'id': 4,
+            'name': 'Luis',
+            'surname': '',
+            'email': 'luis@favorita.local',
+            'active': 1,
+            'opener': 0,
+            'must_change_password': 0,
+            'working_days': '',
+            'role': 'employee',
+            'avatar_path': avatar,
+          };
+
+      expect(AppUser.fromRow(row('   ')).avatarPath, isNull);
+      expect(AppUser.fromRow(row(null)).avatarPath, isNull);
+    });
+  });
+
   group('duración y descansos', () {
     test('calcula la duración y el cruce de medianoche', () {
       expect(shiftDurationMinutes(16 * 60, 21 * 60), 300);

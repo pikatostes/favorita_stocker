@@ -101,6 +101,16 @@ class Db {
       return error.message;
     }
     if (error is AuthException) return error.message;
+    if (error is StorageException) {
+      final message = error.message.toLowerCase();
+      if (message.contains('maximum') && message.contains('size')) {
+        return 'La imagen es demasiado grande.';
+      }
+      if (message.contains('mime')) {
+        return 'El formato de la imagen no es válido.';
+      }
+      return error.message;
+    }
     if (error is FunctionException) {
       final details = error.details;
       if (details is Map && details['error'] != null) {
@@ -590,6 +600,88 @@ class Db {
       'id': id,
       'active': active,
     });
+    _changed();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Foto de perfil
+  // ---------------------------------------------------------------------------
+
+  static const String _avatarBucket = 'avatars';
+
+  /// URL pública de una foto guardada en el bucket `avatars`.
+  String avatarPublicUrl(String path) =>
+      _client.storage.from(_avatarBucket).getPublicUrl(path);
+
+  /// Sube la foto de perfil del usuario actual y la asigna a su perfil.
+  ///
+  /// [bytes] debe llegar ya reducida (JPEG). Se guarda con un nombre único para
+  /// que el CDN no sirva una imagen anterior y para que la fila de `profiles`
+  /// cambie y el resto de dispositivos lo reciba por Realtime. Devuelve la
+  /// ruta almacenada.
+  Future<String> updateOwnAvatar({required Uint8List bytes}) async {
+    final session = _client.auth.currentSession;
+    if (session == null) throw StateError('No hay una sesión iniciada.');
+    final current = await _profileByAuthId(session.user.id);
+    final path =
+        '${session.user.id}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    try {
+      await _client.storage.from(_avatarBucket).uploadBinary(
+            path,
+            bytes,
+            fileOptions: const FileOptions(
+              contentType: 'image/jpeg',
+              cacheControl: '3600',
+            ),
+          );
+    } catch (error) {
+      throw StateError('No se pudo subir la imagen: ${_friendly(error)}');
+    }
+
+    try {
+      await _client.rpc('set_own_avatar', params: {'p_path': path});
+    } catch (error) {
+      // Si no se pudo guardar la ruta, no dejamos el archivo huérfano.
+      try {
+        await _client.storage.from(_avatarBucket).remove([path]);
+      } catch (_) {
+        // Sin importancia: el archivo no está referenciado por ningún perfil.
+      }
+      throw StateError(_friendly(error));
+    }
+
+    final previous = current?.avatarPath;
+    if (previous != null && previous.isNotEmpty && previous != path) {
+      try {
+        await _client.storage.from(_avatarBucket).remove([previous]);
+      } catch (_) {
+        // La foto nueva ya está asignada; un archivo antiguo no impide usar
+        // la app.
+      }
+    }
+    _changed();
+    return path;
+  }
+
+  /// Quita la foto de perfil del usuario actual.
+  Future<void> removeOwnAvatar() async {
+    final session = _client.auth.currentSession;
+    if (session == null) throw StateError('No hay una sesión iniciada.');
+    final current = await _profileByAuthId(session.user.id);
+    try {
+      await _client.rpc('set_own_avatar', params: {'p_path': null});
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+
+    final path = current?.avatarPath;
+    if (path != null && path.isNotEmpty) {
+      try {
+        await _client.storage.from(_avatarBucket).remove([path]);
+      } catch (_) {
+        // El perfil ya no apunta a la imagen; el archivo sobrante no afecta.
+      }
+    }
     _changed();
   }
 

@@ -160,6 +160,10 @@ class AppUser {
   final UserRole role;
   final bool active;
 
+  /// Ruta de la foto de perfil dentro del bucket `avatars` de Supabase
+  /// Storage. `null` si el usuario no ha subido ninguna.
+  final String? avatarPath;
+
   /// Capacidad de abrir el bar o su planta.
   final bool opener;
 
@@ -179,6 +183,7 @@ class AppUser {
     this.jobRole,
     this.role = UserRole.employee,
     this.active = true,
+    this.avatarPath,
     this.opener = false,
     this.mustChangePassword = false,
     this.workingDays = const {},
@@ -186,15 +191,17 @@ class AppUser {
 
   factory AppUser.fromRow(Map<String, Object?> m) {
     final roleId = m['role_id'] as int?;
+    final avatarPath = (m['avatar_path'] as String?)?.trim();
     return AppUser(
       id: m['id'] as int,
       name: m['name'] as String,
       surname: (m['surname'] as String?) ?? '',
       email: (m['email'] as String?) ?? '',
       active: m['active'] == true || m['active'] == 1,
+      avatarPath: avatarPath == null || avatarPath.isEmpty ? null : avatarPath,
       opener: m['opener'] == true || m['opener'] == 1,
-      mustChangePassword: m['must_change_password'] == true ||
-          m['must_change_password'] == 1,
+      mustChangePassword:
+          m['must_change_password'] == true || m['must_change_password'] == 1,
       workingDays: parseWorkingDays(m['working_days']),
       role: UserRole.fromDb(m['role'] as String?),
       jobRole: roleId == null
@@ -215,6 +222,13 @@ class AppUser {
   /// Inicial para el avatar de la lista.
   String get initial =>
       fullName.isEmpty ? '?' : fullName.substring(0, 1).toUpperCase();
+
+  /// Mapa `id -> ruta de avatar` para pintar turnos sin volver a consultar
+  /// los perfiles.
+  static Map<int, String?> avatarPaths(Iterable<AppUser> users) => {
+        for (final user in users)
+          if (user.id != null) user.id!: user.avatarPath,
+      };
 
   /// Puesto de mantenimiento. Se compara con [roleNameKey] para tolerar
   /// mayúsculas, espacios y acentos («Manteni», «Mantenimiento»...).
@@ -268,6 +282,8 @@ class AppUser {
     bool clearJobRole = false,
     UserRole? role,
     bool? active,
+    String? avatarPath,
+    bool clearAvatar = false,
     bool? opener,
     bool? mustChangePassword,
     Set<int>? workingDays,
@@ -280,6 +296,7 @@ class AppUser {
         jobRole: clearJobRole ? null : (jobRole ?? this.jobRole),
         role: role ?? this.role,
         active: active ?? this.active,
+        avatarPath: clearAvatar ? null : (avatarPath ?? this.avatarPath),
         opener: opener ?? this.opener,
         mustChangePassword: mustChangePassword ?? this.mustChangePassword,
         workingDays: workingDays ?? this.workingDays,

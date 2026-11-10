@@ -80,7 +80,7 @@ lib/
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
     turnos.dart          "Turnos": horario mensual, usuarios y puestos.
     plan.dart            Pantalla "Montar cajas" (compartida por Lista y Calendario).
-    cuenta.dart          "Cuenta": datos del usuario y cambio de contraseña.
+    cuenta.dart          "Cuenta": datos del usuario, foto de perfil y cambio de contraseña.
     forced_password.dart Bloqueo hasta cambiar la contraseña temporal.
     admin/
       admin.dart         "Admin": pestañas Calendario, Productos e Inventario.
@@ -90,6 +90,7 @@ lib/
   widgets/
     app_ui.dart          Componentes compartidos: AppSectionCard, MutedText, WarningLine, AppErrorState, AppStatsRow, snack y confirmación.
     shift_ui.dart        floorIcon, ShiftStatusChip y FloorShiftTabs (pestañas por planta).
+    user_avatar.dart     Avatar compartido: foto de Storage o inicial de respaldo.
     month_calendar.dart  Calendario mensual reutilizable.
     category_tabs.dart   Pestañas por categoría (reutilizado en Lista y Productos).
   img/                   Imágenes de productos/grupos referenciadas por ruta (assets).
@@ -173,10 +174,11 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   existen. UNIQUE(`night_id`,`product_id`), `quantity >= 0`.
 - `job_role` es UNIQUE por `name` (más `name_key` normalizado) y guarda
   `floor` + `note`; `profiles` referencia `job_role_id` y guarda `opener`,
-  `working_days` (`"5,6"`; vacío = cualquiera), `must_change_password`;
-  `shift` referencia `profiles`/`job_role`, guarda copia de `role_name`,
-  `floor` y `note`, y UNIQUE(`user_id`, `date`). Estados: `borrador`,
-  `publicado`, `confirmado`.
+  `working_days` (`"5,6"`; vacío = cualquiera), `must_change_password` y
+  `avatar_path` (ruta del objeto en el bucket `avatars` de Storage; `null` =
+  sin foto); `shift` referencia `profiles`/`job_role`, guarda copia de
+  `role_name`, `floor` y `note`, y UNIQUE(`user_id`, `date`). Estados:
+  `borrador`, `publicado`, `confirmado`.
 - El alta de un usuario en `auth.users` crea su fila en `profiles` con el
   trigger `handle_new_user`.
 
@@ -189,13 +191,18 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 - `current_profile_id()` e `is_admin()` son `security definer` con
   `search_path = public`.
 - Turnos: el empleado solo ve `publicado`/`confirmado`; el admin ve borradores.
+- Fotos de perfil: bucket público `avatars` (2 MB; JPEG/PNG/WebP). La RLS de
+  `storage.objects` solo permite escribir en la carpeta `<auth.uid()>/`; los
+  administradores pueden gestionar cualquier carpeta. La ruta se guarda en
+  `profiles.avatar_path`, no la URL completa.
 
 ### 6.4 RPC y Edge Function
 - `save_product`, `set_group_image`: catálogo + upsert de categoría/grupo/
   subcategoría/caja en una transacción.
 - `save_night(date, items)`: sustituye la lista de esa noche.
 - `replace_month_shifts`, `publish_month`, `confirm_my_shift`: turnos.
-- `update_own_profile`, `mark_password_changed`: perfil propio.
+- `update_own_profile`, `mark_password_changed`, `set_own_avatar`: perfil
+  propio. `set_own_avatar` valida que la ruta empiece por `auth.uid()`.
 - `reset_sequences`, `purge_old_data`: solo `service_role` (importación y
   mantenimiento).
 - **`admin-users`** (Edge Function): crear/editar/desactivar cuentas. Comprueba
@@ -316,7 +323,9 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **Componentes compartidos**: `AppSectionCard`, `MutedText`, `WarningLine`,
   `AppErrorState`, `AppStatsRow`, `showAppSnack` y `showConfirmDialog` en
   `widgets/app_ui.dart`; `floorIcon`, `ShiftStatusChip` y `FloorShiftTabs` en
-  `widgets/shift_ui.dart`. Reutilízalos antes de crear otra variante local.
+  `widgets/shift_ui.dart`; `UserAvatar` en `widgets/user_avatar.dart` (foto de
+  Storage con la inicial como respaldo). Reutilízalos antes de crear otra
+  variante local.
 - **Inicio**: panel contextual por rol, en `screens/home/`. `home_data.dart`
   concentra la carga (`loadHomeData`) y los datos derivados; `home_cards.dart`
   las tarjetas (cabecera, mantenimiento, admin y empleado); `home_dashboard.dart`
@@ -429,6 +438,10 @@ migraciones se validan con `pglast`/el SQL Editor y el script de importación.
 - **Controllers en diálogos**: crea y destruye junto al diálogo (ver §8).
 - **Assets**: las imágenes se referencian por ruta `lib/img/...` y están declaradas
   en `pubspec.yaml`; un archivo inexistente cae al placeholder, no rompe.
+- **Fotos de perfil**: `profiles.avatar_path` guarda la ruta del objeto (no la
+  URL) y debe empezar por `auth.uid()`. El bucket `avatars` es público: quien
+  tenga la URL puede ver la foto. Para ocultarlas, pásalo a privado y usa
+  `createSignedUrl`. El cliente reduce a 512 px/JPEG antes de subir.
 - **Turnos y DST**: no recorras días con `Duration(days: 1)`; en el cambio de
   hora oficial se pierde el último día. Usa componentes (`DateTime(y, m, day)`).
 - **Regenerar un mes** borra los turnos de ese mes, también los publicados o

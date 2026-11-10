@@ -1,13 +1,128 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 
 import '../app_design.dart';
 import '../auth_controller.dart';
+import '../db.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/user_avatar.dart';
 
 /// Datos del usuario conectado y acciones de cuenta.
-class CuentaScreen extends StatelessWidget {
+class CuentaScreen extends StatefulWidget {
   const CuentaScreen({super.key});
+
+  @override
+  State<CuentaScreen> createState() => _CuentaScreenState();
+}
+
+class _CuentaScreenState extends State<CuentaScreen> {
+  final ImagePicker _picker = ImagePicker();
+  bool _avatarBusy = false;
+
+  /// Reduce y convierte la imagen elegida a JPEG para que el bucket no crezca
+  /// y la carga sea rápida en móvil y web.
+  Uint8List _prepareAvatar(Uint8List raw) {
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) {
+      throw const FormatException('El archivo no es una imagen válida.');
+    }
+    final oriented = img.bakeOrientation(decoded);
+    final largest = math.max(oriented.width, oriented.height);
+    final resized = largest <= 512
+        ? oriented
+        : img.copyResize(
+            oriented,
+            width: oriented.width >= oriented.height ? 512 : null,
+            height: oriented.height > oriented.width ? 512 : null,
+            interpolation: img.Interpolation.average,
+          );
+    return img.encodeJpg(resized, quality: 85);
+  }
+
+  Future<void> _pickAvatar() async {
+    if (AuthController.i.user == null || _avatarBusy) return;
+    XFile? picked;
+    try {
+      picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        requestFullMetadata: false,
+      );
+    } catch (_) {
+      if (mounted) {
+        showAppSnack(
+          context,
+          'No se pudo abrir el selector de imágenes.',
+          tone: AppTone.danger,
+        );
+      }
+      return;
+    }
+    if (picked == null) return;
+
+    setState(() => _avatarBusy = true);
+    try {
+      final raw = await picked.readAsBytes();
+      final bytes = _prepareAvatar(raw);
+      await Db.i.updateOwnAvatar(bytes: bytes);
+      await AuthController.i.refresh();
+      if (mounted) {
+        showAppSnack(
+          context,
+          'Foto de perfil actualizada.',
+          tone: AppTone.success,
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showAppSnack(
+          context,
+          'No se pudo actualizar la foto: ${describeDbError(error)}',
+          tone: AppTone.danger,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _avatarBusy = false);
+    }
+  }
+
+  Future<void> _removeAvatar() async {
+    if (_avatarBusy) return;
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Quitar foto de perfil',
+      message: '¿Quieres quitar tu foto? Se mostrará tu inicial.',
+      confirmLabel: 'Quitar',
+    );
+    if (!ok || !mounted) return;
+
+    setState(() => _avatarBusy = true);
+    try {
+      await Db.i.removeOwnAvatar();
+      await AuthController.i.refresh();
+      if (mounted) {
+        showAppSnack(
+          context,
+          'Foto de perfil eliminada.',
+          tone: AppTone.success,
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showAppSnack(
+          context,
+          'No se pudo quitar la foto: ${describeDbError(error)}',
+          tone: AppTone.danger,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _avatarBusy = false);
+    }
+  }
 
   Future<void> _changePassword(BuildContext context) async {
     final current = TextEditingController();
@@ -109,21 +224,70 @@ class CuentaScreen extends StatelessWidget {
               padding: const EdgeInsets.all(AppSpacing.xl),
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor:
-                        Theme.of(context).colorScheme.primaryContainer,
-                    foregroundColor:
-                        Theme.of(context).colorScheme.onPrimaryContainer,
-                    child: Text(
-                      user.initial,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      UserAvatar(
+                        user: user,
+                        radius: 36,
+                        backgroundColor:
+                            Theme.of(context).colorScheme.primaryContainer,
+                        foregroundColor:
+                            Theme.of(context).colorScheme.onPrimaryContainer,
+                        textStyle: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      Positioned(
+                        right: -4,
+                        bottom: -4,
+                        child: Tooltip(
+                          message: user.avatarPath == null
+                              ? 'Añadir foto de perfil'
+                              : 'Cambiar foto de perfil',
+                          child: Material(
+                            color: Theme.of(context).colorScheme.primary,
+                            shape: const CircleBorder(),
+                            elevation: 2,
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: _avatarBusy ? null : _pickAvatar,
+                              child: Padding(
+                                padding: const EdgeInsets.all(7),
+                                child: _avatarBusy
+                                    ? SizedBox(
+                                        width: 17,
+                                        height: 17,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.photo_camera_outlined,
+                                        size: 17,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onPrimary,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: AppSpacing.md),
+                  if (user.avatarPath != null)
+                    TextButton.icon(
+                      onPressed: _avatarBusy ? null : _removeAvatar,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('Quitar foto'),
+                    )
+                  else
+                    const SizedBox(height: AppSpacing.md),
                   Text(
                     user.fullName,
                     style: Theme.of(context).textTheme.titleLarge,

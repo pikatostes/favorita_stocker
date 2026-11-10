@@ -22,6 +22,11 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 1. `supabase/migrations/20261103000100_schema.sql`
 2. `supabase/migrations/20261103000200_security.sql`
 3. `supabase/migrations/20261103000300_rpc.sql`
+4. `supabase/migrations/20261110000100_profile_avatars.sql`
+
+La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
+el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
+RPC `set_own_avatar`.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,
