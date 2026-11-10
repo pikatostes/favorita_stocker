@@ -775,70 +775,161 @@ class _RegistroScreenState extends State<RegistroScreen> {
     );
   }
 
-  /// Selector de la planta a la que pertenece la lista.
-  Widget _floorSelector({double width = 180}) => SizedBox(
-        width: width,
-        child: DropdownButtonFormField<Floor>(
-          initialValue: _floor,
-          isDense: true,
-          decoration: const InputDecoration(
-            labelText: 'Planta',
-            isDense: true,
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          ),
-          items: [
-            for (final floor in Floor.values)
-              DropdownMenuItem(value: floor, child: Text(floor.label)),
-          ],
-          onChanged: (value) {
-            if (value != null) _pickFloor(value);
-          },
-        ),
-      );
-
   Widget _header() {
-    // En móvil el selector de vista usa solo iconos (con tooltip) para que las
-    // acciones quepan en una sola línea junto al botón de fecha.
-    final compactActions =
-        MediaQuery.sizeOf(context).width < AppBreakpoints.mobileMax;
+    // Controles compactos: fecha, planta y modo de visualización.
+    // Se agrupan en una única fila para evitar botones grandes en móvil.
+    final theme = Theme.of(context);
+    final compactActions = MediaQuery.sizeOf(context).width < 600;
+
+    final controlDecoration = BoxDecoration(
+      color: theme.colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      border: Border.all(color: theme.colorScheme.outlineVariant),
+    );
+
+    final dateControl = Tooltip(
+      message: 'Cambiar fecha del servicio',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          onTap: _pickDate,
+          child: Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: controlDecoration,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today_rounded,
+                    size: 17, color: theme.colorScheme.primary),
+                const SizedBox(width: 7),
+                Text(
+                  formatShortDate(_date),
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(Icons.expand_more, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final floorControl = PopupMenuButton<Floor>(
+      tooltip: 'Cambiar planta',
+      initialValue: _floor,
+      onSelected: _pickFloor,
+      itemBuilder: (context) => [
+        for (final floor in Floor.values)
+          PopupMenuItem<Floor>(
+            value: floor,
+            child: Row(
+              children: [
+                if (floor == _floor) ...[
+                  Icon(Icons.check, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                ],
+                Text(floor.label),
+              ],
+            ),
+          ),
+      ],
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: controlDecoration,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.layers_outlined,
+                size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              compactActions ? _floor.label : 'Planta: ${_floor.label}',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const Icon(Icons.expand_more, size: 18),
+          ],
+        ),
+      ),
+    );
+
+    final viewControl = Container(
+      height: 40,
+      padding: const EdgeInsets.all(3),
+      decoration: controlDecoration,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _viewModeButton(
+            icon: Icons.view_list_rounded,
+            selected: !_gridView,
+            tooltip: 'Ver en lista',
+            onTap: () => setState(() => _gridView = false),
+          ),
+          _viewModeButton(
+            icon: Icons.grid_view_rounded,
+            selected: _gridView,
+            tooltip: 'Ver en cuadrícula',
+            onTap: () => setState(() => _gridView = true),
+          ),
+        ],
+      ),
+    );
+
     return AppPageHeader(
       eyebrow: 'Operación nocturna',
       title: 'Lista de montaje',
-      // subtitle: 'Ajusta cajas y unidades de ${_floor.label.toLowerCase()} '
-      //     'para el servicio del ${formatLongDate(_date).toLowerCase()}',
-      leading: const AppLogo(height: 26),
+      leading: const AppLogo(height: 24),
+      compact: true,
       actions: [
-        Tooltip(
-          message: 'Cambiar la fecha del servicio',
-          child: OutlinedButton.icon(
-            onPressed: _pickDate,
-            icon: const Icon(Icons.calendar_today, size: 17),
-            label: Text(formatShortDate(_date)),
-          ),
-        ),
-        _floorSelector(width: compactActions ? 150 : 180),
-        SegmentedButton<bool>(
-          segments: [
-            ButtonSegment(
-              value: false,
-              icon: const Icon(Icons.view_list_rounded, size: 18),
-              label: compactActions ? null : const Text('Lista'),
-              tooltip: 'Ver los productos en lista',
-            ),
-            ButtonSegment(
-              value: true,
-              icon: const Icon(Icons.grid_view_rounded, size: 18),
-              label: compactActions ? null : const Text('Cuadrícula'),
-              tooltip: 'Ver los productos en cuadrícula',
-            ),
-          ],
-          selected: {_gridView},
-          showSelectedIcon: false,
-          onSelectionChanged: (selection) =>
-              setState(() => _gridView = selection.first),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [dateControl, floorControl, viewControl],
         ),
       ],
+    );
+  }
+
+  Widget _viewModeButton({
+    required IconData icon,
+    required bool selected,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: selected
+            ? theme.colorScheme.secondaryContainer
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: SizedBox(
+            width: 34,
+            height: 32,
+            child: Icon(
+              icon,
+              size: 18,
+              color: selected
+                  ? theme.colorScheme.onSecondaryContainer
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -886,12 +977,18 @@ class _RegistroScreenState extends State<RegistroScreen> {
                                       AppBreakpoints.tabletMin
                                   ? AppSpacing.xl
                                   : AppSpacing.lg,
-                              AppSpacing.md,
+                              pageConstraints.maxWidth >=
+                                      AppBreakpoints.tabletMin
+                                  ? AppSpacing.md
+                                  : AppSpacing.sm,
                               pageConstraints.maxWidth >=
                                       AppBreakpoints.tabletMin
                                   ? AppSpacing.xl
                                   : AppSpacing.lg,
-                              AppSpacing.md,
+                              pageConstraints.maxWidth >=
+                                      AppBreakpoints.tabletMin
+                                  ? AppSpacing.md
+                                  : AppSpacing.sm,
                             ),
                             child: _header(),
                           ),
