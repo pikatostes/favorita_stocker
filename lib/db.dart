@@ -310,6 +310,24 @@ class Db {
     _changed();
   }
 
+  /// Suma [delta] unidades al stock de un producto (negativo para quitarlas) y
+  /// devuelve el stock resultante.
+  ///
+  /// Es la misma operación que usa `save_night` al guardar una lista: el stock
+  /// siempre se mueve en unidades sueltas (botellines).
+  Future<int> adjustStock(int productId, int delta) async {
+    try {
+      final stock = await _client.rpc('adjust_product_stock', params: {
+        'p_product_id': productId,
+        'p_delta': delta,
+      });
+      _changed();
+      return (stock as num).toInt();
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Consumo
   // ---------------------------------------------------------------------------

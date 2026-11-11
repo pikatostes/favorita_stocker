@@ -86,7 +86,7 @@ lib/
       admin.dart         "Admin": pestañas Calendario, Productos e Inventario.
       calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día y previsión.
       productos.dart     "Productos": CRUD de catálogo (diálogo de alta/edición).
-      inventario.dart    "Inventario": listado del catálogo con el stock disponible.
+      inventario.dart    "Inventario": listado del catálogo, stock disponible y ajuste manual.
   widgets/
     app_ui.dart          Componentes compartidos: AppSectionCard, MutedText, WarningLine, AppErrorState, AppStatsRow, snack y confirmación.
     shift_ui.dart        floorIcon, ShiftStatusChip y FloorShiftTabs (pestañas por planta).
@@ -200,8 +200,14 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 
 ### 6.4 RPC y Edge Function
 - `save_product`, `set_group_image`: catálogo + upsert de categoría/grupo/
-  subcategoría/caja en una transacción.
-- `save_night(date, floor, items)`: sustituye la lista de esa noche y planta.
+  subcategoría/caja en una transacción. `save_product` solo fija el stock al
+  crear el producto; al editar lo conserva.
+- `adjust_product_stock(product_id, delta)`: ajuste manual del stock (solo
+  admin). Es la misma operación que usa la lista para descontar consumo.
+- `save_night(date, floor, items)`: sustituye la lista de esa noche y planta y
+  descuenta del stock solo la diferencia respecto a la lista anterior. Si el
+  stock disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
+  para …» y no se guarda nada.
 - `replace_month_shifts`, `publish_month`, `confirm_my_shift`: turnos.
 - `update_own_profile`, `mark_password_changed`, `set_own_avatar`: perfil
   propio. `set_own_avatar` valida que la ruta empiece por `auth.uid()`.
@@ -370,7 +376,9 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **Lista por planta** (`screens/registro.dart`): un selector `Planta` permite
   crear o consultar la lista de planta baja, karaoke o terraza para la fecha de
   servicio elegida. Al cambiar de planta se carga su lista guardada (o una
-  lista vacía) y al guardar se sustituye solo la de esa planta.
+  lista vacía) y al guardar se sustituye solo la de esa planta. La RPC descuenta
+  del stock solo la diferencia respecto a la lista anterior; si falta stock, el
+  guardado falla y no se modifica nada.
 - **Confirmación de la lista** (`screens/confirmar_lista.dart`): al pulsar
   "Guardar y montar cajas" en Lista se abre una pantalla intermedia con el
   resumen del pedido (por categoría, cajas/sueltos y totales). Solo si se
