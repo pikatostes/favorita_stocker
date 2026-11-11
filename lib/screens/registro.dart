@@ -769,7 +769,9 @@ class _RegistroScreenState extends State<RegistroScreen> {
         builder: (_) => PlanScreen(
           qty: loose,
           fullBoxes: boxes,
-          title: 'Montar cajas · ${floor.label}',
+          title: 'Montar cajas',
+          date: Schedule.fmt(date),
+          floor: floor,
         ),
       ),
     );
@@ -819,28 +821,13 @@ class _RegistroScreenState extends State<RegistroScreen> {
       ),
     );
 
-    final floorControl = PopupMenuButton<Floor>(
-      tooltip: 'Cambiar planta',
-      initialValue: _floor,
-      onSelected: _pickFloor,
-      itemBuilder: (context) => [
-        for (final floor in Floor.values)
-          PopupMenuItem<Floor>(
-            value: floor,
-            child: Row(
-              children: [
-                if (floor == _floor) ...[
-                  Icon(Icons.check, size: 18, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
-                ],
-                Text(floor.label),
-              ],
-            ),
-          ),
-      ],
+    // Desplegable de planta: la lista guardada se consulta por separado para
+    // planta baja, karaoke y terraza.
+    final floorControl = Tooltip(
+      message: 'Cambiar la planta de la lista',
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.only(left: 10, right: 4),
         decoration: controlDecoration,
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -848,14 +835,37 @@ class _RegistroScreenState extends State<RegistroScreen> {
             Icon(Icons.layers_outlined,
                 size: 18, color: theme.colorScheme.primary),
             const SizedBox(width: 6),
-            Text(
-              compactActions ? _floor.label : 'Planta: ${_floor.label}',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
+            DropdownButtonHideUnderline(
+              child: DropdownButton<Floor>(
+                value: _floor,
+                isDense: true,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                icon: const Icon(Icons.expand_more, size: 18),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+                selectedItemBuilder: (context) => [
+                  for (final floor in Floor.values)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        compactActions ? floor.label : 'Planta: ${floor.label}',
+                      ),
+                    ),
+                ],
+                items: [
+                  for (final floor in Floor.values)
+                    DropdownMenuItem(
+                      value: floor,
+                      child: Text(floor.label),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) _pickFloor(value);
+                },
               ),
             ),
-            const SizedBox(width: 2),
-            const Icon(Icons.expand_more, size: 18),
           ],
         ),
       ),

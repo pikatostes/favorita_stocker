@@ -310,9 +310,9 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                   MaterialPageRoute(
                       builder: (_) => PlanScreen(
                           qty: qty,
-                          title:
-                              '${DateFormat('d MMM', 'es').format(_selected)}'
-                              ' · ${_floor.label}'))),
+                          title: 'Montar cajas',
+                          date: key,
+                          floor: _floor))),
             ),
           ],
           const Divider(height: 24),

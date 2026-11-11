@@ -129,8 +129,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
           builder: (_) => PlanScreen(
             qty: list.qty,
             fullBoxes: list.fullBoxes,
-            title: 'Montar cajas · ${list.floor.label} · '
-                '${formatShortDateIso(list.date)}',
+            title: 'Montar cajas',
+            date: list.date,
+            floor: list.floor,
           ),
         ),
       );
