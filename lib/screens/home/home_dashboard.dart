@@ -234,6 +234,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                     EmployeeTonightCard(data: data),
                                   ],
                                 ),
+                        const SizedBox(height: AppSpacing.lg),
+                        const IncidentsCard(),
                       ],
                     ),
                   ),

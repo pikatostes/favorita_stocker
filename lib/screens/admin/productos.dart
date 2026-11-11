@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../db.dart';
 import '../../models.dart';
-import '../../theme.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/product_catalog.dart';
@@ -169,106 +168,25 @@ class _ProductosScreenState extends State<ProductosScreen> {
     }
   }
 
-  /// Selector temporal para comparar las propuestas de color. Al elegir una,
-  /// `main.dart` reconstruye el `MaterialApp` con el tema correspondiente.
-  Future<void> _choosePalette() async {
-    final current = selectedPalette.value;
-    final chosen = await showModalBottomSheet<AppPalette>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.only(bottom: 12),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Text('Paletas de color',
-                  style: Theme.of(context).textTheme.titleLarge),
-            ),
-            for (final palette in AppPalettes.all)
-              ListTile(
-                selected: palette.id == current.id,
-                leading: _paletteSwatch(palette),
-                title: Text(palette.name),
-                subtitle: Text(palette.description),
-                trailing: palette.id == current.id
-                    ? Icon(Icons.check,
-                        color: Theme.of(context).colorScheme.primary)
-                    : null,
-                onTap: () => Navigator.pop(context, palette),
-              ),
-          ],
+  Widget _body(BuildContext context) => ProductCatalog(
+        emptyMessage: 'Añade tu primer producto con +',
+        onCategoryChanged: (category) => _cat = category,
+        onProductTap: (product) => _edit(product),
+        productSubtitle: (product) => product.boxInfo,
+        listPadding: const EdgeInsets.only(bottom: 90),
+        trailingBuilder: (rowContext, product, inOverlay) => IconButton(
+          tooltip: 'Borrar ${product.name}',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: () {
+            if (inOverlay) Navigator.of(rowContext).pop();
+            _delete(product);
+          },
         ),
-      ),
-    );
-    if (chosen != null) selectedPalette.value = chosen;
-  }
-
-  Widget _paletteSwatch(AppPalette palette) {
-    final scheme = palette.light.colorScheme;
-    return Container(
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: scheme.outlineVariant),
-        gradient: LinearGradient(
-          colors: [scheme.primary, scheme.secondary, scheme.tertiary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-    );
-  }
-
-  Widget _body(BuildContext context) {
-    final catalog = ProductCatalog(
-      emptyMessage: 'Añade tu primer producto con +',
-      onCategoryChanged: (category) => _cat = category,
-      onProductTap: (product) => _edit(product),
-      productSubtitle: (product) => product.boxInfo,
-      listPadding: const EdgeInsets.only(bottom: 90),
-      trailingBuilder: (rowContext, product, inOverlay) => IconButton(
-        tooltip: 'Borrar ${product.name}',
-        icon: const Icon(Icons.delete_outline),
-        onPressed: () {
-          if (inOverlay) Navigator.of(rowContext).pop();
-          _delete(product);
-        },
-      ),
-    );
-
-    if (!widget.embedded) return catalog;
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            tooltip: 'Paletas de color',
-            icon: const Icon(Icons.palette_outlined),
-            onPressed: _choosePalette,
-          ),
-        ),
-        Expanded(child: catalog),
-      ],
-    );
-  }
+      );
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: widget.embedded
-            ? null
-            : AppBar(
-                title: const AppLogo(),
-                actions: [
-                  IconButton(
-                    tooltip: 'Paletas de color',
-                    icon: const Icon(Icons.palette_outlined),
-                    onPressed: _choosePalette,
-                  ),
-                ],
-              ),
+        appBar: widget.embedded ? null : AppBar(title: const AppLogo()),
         floatingActionButton: FloatingActionButton(
             onPressed: () => _edit(), child: const Icon(Icons.add)),
         body: _body(context),

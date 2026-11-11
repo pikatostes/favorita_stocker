@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth.dart';
+import 'incidents.dart';
 import 'models.dart';
 import 'schedule.dart';
 import 'shifts.dart';
@@ -48,6 +49,7 @@ class Db {
     'job_role',
     'profiles',
     'shift',
+    'incident',
   ];
 
   /// Se suscribe a los cambios de las tablas que alimentan la UI.
@@ -466,6 +468,63 @@ class Db {
   Future<void> deleteSpecialDay(String date) async {
     try {
       await _client.from('special_day').delete().eq('date', date);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+    _changed();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Incidencias
+  // ---------------------------------------------------------------------------
+
+  /// Incidencias del local, de la más reciente a la más antigua.
+  ///
+  /// Cualquier persona del equipo puede leerlas; los filtros se aplican en el
+  /// servidor para no traer histórico innecesario.
+  Future<List<Incident>> incidents({
+    Floor? floor,
+    IncidentStatus? status,
+    IncidentCategory? category,
+  }) async {
+    var query = _client.from('incident_view').select();
+    if (floor != null) query = query.eq('floor', floor.db);
+    if (status != null) query = query.eq('status', status.db);
+    if (category != null) query = query.eq('category', category.db);
+    final rows = await query.order('created_at', ascending: false);
+    return [
+      for (final row in rows) Incident.fromRow(Map<String, Object?>.from(row)),
+    ];
+  }
+
+  /// Crea una incidencia ([Incident.id] nulo) o actualiza la existente.
+  ///
+  /// La RPC fija el autor al usuario de la sesión y comprueba que solo el
+  /// administrador puede cambiar el estado. Devuelve el id guardado.
+  Future<int> saveIncident(Incident incident) async {
+    final error = incident.validationError;
+    if (error != null) throw ArgumentError.value(incident, 'incident', error);
+    try {
+      final id = await _client.rpc('save_incident', params: {
+        'p_id': incident.id,
+        'p_floor': incident.floor.db,
+        'p_category': incident.category.db,
+        'p_title': incident.title.trim(),
+        'p_description': incident.description.trim(),
+        'p_status': incident.status.db,
+      });
+      _changed();
+      return (id as num).toInt();
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+  }
+
+  /// Borra una incidencia. El administrador puede borrar cualquiera; el autor,
+  /// solo mientras siga abierta.
+  Future<void> deleteIncident(int id) async {
+    try {
+      await _client.rpc('delete_incident', params: {'p_id': id});
     } catch (error) {
       throw StateError(_friendly(error));
     }

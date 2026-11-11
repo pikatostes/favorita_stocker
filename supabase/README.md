@@ -25,6 +25,7 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 4. `supabase/migrations/20261110000100_profile_avatars.sql`
 5. `supabase/migrations/20261110000200_night_floor.sql`
 6. `supabase/migrations/20261111000100_stock_adjust.sql`
+7. `supabase/migrations/20261112000100_incidents.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -32,7 +33,9 @@ RPC `set_own_avatar`. La quinta añade `night.floor`, cambia la unicidad a
 (`date`, `floor`) y actualiza `save_night` para guardar una lista por planta. La
 sexta añade `adjust_product_stock` (ajuste manual solo para administradores) y
 hace que `save_night` descuente del stock solo la diferencia de la lista;
-`save_product` deja de sobrescribir el stock al editar un producto.
+`save_product` deja de sobrescribir el stock al editar un producto. La séptima
+crea `incident` + `incident_view`, con lectura para todo el equipo y escritura
+solo por las RPC `save_incident` y `delete_incident`.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,

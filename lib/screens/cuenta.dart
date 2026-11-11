@@ -10,6 +10,7 @@ import '../auth_controller.dart';
 import '../db.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/palette_picker.dart';
 import '../widgets/user_avatar.dart';
 
 /// Datos del usuario conectado y acciones de cuenta.
@@ -356,6 +357,8 @@ class _CuentaScreenState extends State<CuentaScreen> {
                       title: const Text('Estado'),
                       subtitle: Text(user.active ? 'Activo' : 'Inactivo'),
                     ),
+                    const Divider(height: 1),
+                    const PaletteTile(),
                   ],
                 ),
               ),
