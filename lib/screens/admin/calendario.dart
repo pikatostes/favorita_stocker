@@ -356,45 +356,92 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
             return const AppLoadingState(label: 'Cargando calendario…');
           }
           final d = s.data!;
+          final calendar = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              MonthCalendar(
+                month: _month,
+                selected: _selected,
+                onSelect: (day) => setState(() => _selected = day),
+                onMonthChanged: (month) => setState(() => _month = month),
+                styleFor: (day) => _dayStyle(d, day),
+                footerFor: (day) => _dayFooter(d, day),
+                headerTrailing: widget.embedded
+                    ? IconButton(
+                        tooltip: 'Hoy',
+                        icon: const Icon(Icons.today),
+                        onPressed: _goToday,
+                      )
+                    : null,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _legend(),
+            ],
+          );
+          final details = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _details(d),
+              if (_showForecast(d))
+                _ForecastCard(
+                  day: _selected,
+                  floor: _floor,
+                  revision: Db.i.version.value,
+                ),
+            ],
+          );
+
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(
                 maxWidth: AppBreakpoints.contentMaxWidth,
               ),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  AppSpacing.md,
-                  AppSpacing.md,
-                  AppSpacing.xl,
-                ),
-                children: [
-                  MonthCalendar(
-                    month: _month,
-                    selected: _selected,
-                    onSelect: (day) => setState(() => _selected = day),
-                    onMonthChanged: (month) => setState(() => _month = month),
-                    styleFor: (day) => _dayStyle(d, day),
-                    footerFor: (day) => _dayFooter(d, day),
-                    headerTrailing: widget.embedded
-                        ? IconButton(
-                            tooltip: 'Hoy',
-                            icon: const Icon(Icons.today),
-                            onPressed: _goToday,
-                          )
-                        : null,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  _legend(),
-                  _details(d),
-                  if (_showForecast(d))
-                    _ForecastCard(
-                      day: _selected,
-                      floor: _floor,
-                      revision: Db.i.version.value,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Dos columnas solo en tablet y escritorio: el calendario a la
+                  // izquierda y el detalle del día elegido a la derecha.
+                  // En móvil se mantiene una única columna apilada.
+                  final wide = constraints.maxWidth >= AppBreakpoints.tabletMin;
+
+                  if (!wide) {
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.xl,
+                      ),
+                      children: [
+                        calendar,
+                        details,
+                        const SizedBox(height: AppSpacing.xl),
+                      ],
+                    );
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.md,
+                      AppSpacing.lg,
+                      AppSpacing.xl,
                     ),
-                  const SizedBox(height: AppSpacing.xl),
-                ],
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: SingleChildScrollView(child: calendar),
+                        ),
+                        const SizedBox(width: AppSpacing.lg),
+                        Expanded(
+                          flex: 2,
+                          child: SingleChildScrollView(child: details),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           );

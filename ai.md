@@ -324,7 +324,9 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   1080 px; en el resto de plataformas se usa `NavigationBar` en móvil y menú
   lateral cuando el ancho supera 840 px. Inicio es la primera pestaña; Lista,
   Turnos y Cuenta son comunes. Admin agrupa Calendario, Productos e Inventario
-  y solo aparece para `UserRole.admin`.
+  y solo aparece para `UserRole.admin`. En tablet y escritorio el Calendario de
+  Admin usa dos columnas (mes y leyenda a la izquierda, detalle del día
+  seleccionado y previsión a la derecha); en móvil se apila en una columna.
   La previsión está integrada en el detalle del día del Calendario: se muestra
   en días abiertos sin lista guardada y desde hoy en adelante. También se
   resume en el panel de Inicio del administrador.
