@@ -350,10 +350,12 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **`TurnosScreen`** (`screens/turnos.dart`): `TabBar` con Horario, Usuarios y
   Puestos (este último solo para administradores). Horario es un calendario
   mensual: los días con turnos se rellenan, los días que abren sin turnos se
-  marcan con borde y las excepciones con color. Al tocar un día se muestran sus
-  turnos agrupados en pestañas por planta, con una **línea temporal horizontal**
-  de 16:00 a 04:00: cada fila es un horario exacto y reúne a todas las personas
-  que lo comparten. La barra rotula solo su entrada y su salida (sin eje horario
+  marcan con borde y las excepciones con color. En tablet y escritorio el
+  horario usa dos columnas independientes (calendario a la izquierda y turnos
+  del día elegido a la derecha); en móvil se apila en una sola columna. Al tocar
+  un día se muestran sus turnos agrupados en pestañas por planta, con una
+  **línea temporal horizontal** de 16:00 a 04:00: cada fila es un horario exacto
+  y reúne a todas las personas que lo comparten. La barra rotula solo su entrada y su salida (sin eje horario
   completo ni columna lateral) y lleva los avatares dentro; si no caben, pasan a
   otra línea y la fila crece en vertical. El admin toca un avatar para editarlo y
   lo mantiene pulsado para borrarlo (con confirmación); el empleado toca su

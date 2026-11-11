@@ -489,6 +489,70 @@ class _ScheduleTabState extends State<_ScheduleTab> {
     );
   }
 
+  /// Calendario del mes con sus acciones y la leyenda. En pantallas anchas
+  /// ocupa la columna izquierda del horario.
+  Widget _calendarColumn(
+    _ScheduleData data,
+    Map<String, List<Shift>> byDate,
+  ) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          MonthCalendar(
+            month: _month,
+            selected: _selected,
+            onSelect: (day) => setState(() => _selected = day),
+            onMonthChanged: (month) => setState(() {
+              _month = month;
+              _selected = _firstOpenDay(month);
+              _future = _load();
+            }),
+            styleFor: (day) => _dayStyle(data, byDate, day),
+            footerFor: (day) => _dayFooter(data, byDate, day),
+            cellHeight: 50,
+            headerActions: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                if (widget.isAdmin) ...[
+                  FilledButton.icon(
+                    onPressed: _generate,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('Generar mes'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: data.shifts.isEmpty ? null : _publish,
+                    icon: const Icon(Icons.publish),
+                    label: const Text('Publicar'),
+                  ),
+                ],
+                TextButton.icon(
+                  onPressed: _goToday,
+                  icon: const Icon(Icons.today),
+                  label: const Text('Hoy'),
+                ),
+              ],
+            ),
+          ),
+          if (data.users.isEmpty)
+            Card(
+              margin: const EdgeInsets.only(top: AppSpacing.md),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Text(
+                  widget.isAdmin
+                      ? 'Añade puestos en «Puestos» y usuarios en '
+                          '«Usuarios» para poder generar el horario.'
+                      : 'Todavía no hay usuarios con un puesto asignado.',
+                ),
+              ),
+            ),
+          const SizedBox(height: AppSpacing.md),
+          _legend(),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) => FutureBuilder<_ScheduleData>(
         future: _future,
@@ -508,76 +572,61 @@ class _ScheduleTabState extends State<_ScheduleTab> {
           for (final shift in data.shifts) {
             byDate.putIfAbsent(shift.date, () => []).add(shift);
           }
+          final calendar = _calendarColumn(data, byDate);
+          final details = _dayDetails(data, byDate);
 
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(
                 maxWidth: AppBreakpoints.contentMaxWidth,
               ),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  AppSpacing.md,
-                  AppSpacing.md,
-                  AppSpacing.xxl,
-                ),
-                children: [
-                  MonthCalendar(
-                    month: _month,
-                    selected: _selected,
-                    onSelect: (day) => setState(() => _selected = day),
-                    onMonthChanged: (month) => setState(() {
-                      _month = month;
-                      _selected = _firstOpenDay(month);
-                      _future = _load();
-                    }),
-                    styleFor: (day) => _dayStyle(data, byDate, day),
-                    footerFor: (day) => _dayFooter(data, byDate, day),
-                    cellHeight: 50,
-                    headerActions: Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Dos columnas solo en tablet y escritorio: el calendario a
+                  // la izquierda y los turnos del día elegido a la derecha.
+                  // En móvil se mantiene una única columna apilada.
+                  final wide = constraints.maxWidth >= AppBreakpoints.tabletMin;
+
+                  if (!wide) {
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.xxl,
+                      ),
                       children: [
-                        if (widget.isAdmin) ...[
-                          FilledButton.icon(
-                            onPressed: _generate,
-                            icon: const Icon(Icons.auto_awesome),
-                            label: const Text('Generar mes'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: data.shifts.isEmpty ? null : _publish,
-                            icon: const Icon(Icons.publish),
-                            label: const Text('Publicar'),
-                          ),
-                        ],
-                        TextButton.icon(
-                          onPressed: _goToday,
-                          icon: const Icon(Icons.today),
-                          label: const Text('Hoy'),
+                        calendar,
+                        const SizedBox(height: AppSpacing.md),
+                        details,
+                        const SizedBox(height: AppSpacing.xxl),
+                      ],
+                    );
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.md,
+                      AppSpacing.lg,
+                      AppSpacing.xxl,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: SingleChildScrollView(child: calendar),
+                        ),
+                        const SizedBox(width: AppSpacing.lg),
+                        Expanded(
+                          flex: 2,
+                          child: SingleChildScrollView(child: details),
                         ),
                       ],
                     ),
-                  ),
-                  if (data.users.isEmpty)
-                    Card(
-                      margin: const EdgeInsets.only(top: AppSpacing.md),
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Text(
-                          widget.isAdmin
-                              ? 'Añade puestos en «Puestos» y usuarios en '
-                                  '«Usuarios» para poder generar el horario.'
-                              : 'Todavía no hay usuarios con un puesto asignado.',
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: AppSpacing.md),
-                  _legend(),
-                  const SizedBox(height: AppSpacing.sm),
-                  _dayDetails(data, byDate),
-                  const SizedBox(height: AppSpacing.xxl),
-                ],
+                  );
+                },
               ),
             ),
           );
