@@ -161,6 +161,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _thumb(String? path, IconData placeholder, {double size = 48}) {
     final cleaned = path?.trim();
     final theme = Theme.of(context);
+    final cacheWidth =
+        (size * MediaQuery.devicePixelRatioOf(context)).round();
     return Container(
       width: size,
       height: size,
@@ -179,6 +181,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
           : Image.asset(
               cleaned,
               fit: BoxFit.contain,
+              cacheWidth: cacheWidth,
               errorBuilder: (_, __, ___) => Icon(
                 Icons.broken_image_outlined,
                 size: size * 0.52,
@@ -446,28 +449,39 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _gridThumb(String? path, IconData placeholder) {
     final theme = Theme.of(context);
     final cleaned = path?.trim();
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      child: cleaned == null || cleaned.isEmpty
-          ? Icon(
-              placeholder,
-              size: 38,
-              color: theme.colorScheme.onSurfaceVariant,
-            )
-          : Image.asset(
-              cleaned,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Icon(
-                Icons.broken_image_outlined,
-                size: 38,
-                color: theme.colorScheme.error,
-              ),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Decodifica el asset al ancho real de la celda en vez de a su tamaño
+        // original (hay PNG de más de 1700 px para una tarjeta de ~150 px).
+        final width =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 200;
+        final cacheWidth =
+            (width * MediaQuery.devicePixelRatioOf(context)).round();
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+          ),
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          child: cleaned == null || cleaned.isEmpty
+              ? Icon(
+                  placeholder,
+                  size: 38,
+                  color: theme.colorScheme.onSurfaceVariant,
+                )
+              : Image.asset(
+                  cleaned,
+                  fit: BoxFit.contain,
+                  cacheWidth: cacheWidth,
+                  errorBuilder: (_, __, ___) => Icon(
+                    Icons.broken_image_outlined,
+                    size: 38,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+        );
+      },
     );
   }
 

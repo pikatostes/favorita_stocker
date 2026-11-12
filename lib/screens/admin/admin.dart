@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../widgets/app_logo.dart';
+import '../../widgets/lazy_tab.dart';
 import '../incidents.dart';
 import 'calendario.dart';
 import 'inventario.dart';
@@ -36,12 +37,24 @@ class AdminScreen extends StatelessWidget {
               ],
             ),
           ),
-          body: const TabBarView(
+          body: TabBarView(
             children: [
-              CalendarioScreen(embedded: true),
-              ProductosScreen(embedded: true),
-              InventarioScreen(embedded: true),
-              IncidentsScreen(embedded: true),
+              LazyTab(
+                index: AdminTab.calendar.index,
+                builder: (_) => const CalendarioScreen(embedded: true),
+              ),
+              LazyTab(
+                index: AdminTab.products.index,
+                builder: (_) => const ProductosScreen(embedded: true),
+              ),
+              LazyTab(
+                index: AdminTab.inventory.index,
+                builder: (_) => const InventarioScreen(embedded: true),
+              ),
+              LazyTab(
+                index: AdminTab.incidents.index,
+                builder: (_) => const IncidentsScreen(embedded: true),
+              ),
             ],
           ),
         ),

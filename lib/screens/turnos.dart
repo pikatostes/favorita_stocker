@@ -11,6 +11,7 @@ import '../schedule.dart';
 import '../shifts.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/lazy_tab.dart';
 import '../widgets/month_calendar.dart';
 import '../widgets/shift_ui.dart';
 import '../widgets/user_avatar.dart';
@@ -134,7 +135,14 @@ class _TurnosScreenState extends State<TurnosScreen>
       ),
       body: TabBarView(
         controller: _tabs,
-        children: [for (final tab in tabs) _pageFor(tab)],
+        children: [
+          for (final tab in tabs)
+            LazyTab(
+              index: tabs.indexOf(tab),
+              controller: _tabs,
+              builder: (_) => _pageFor(tab),
+            ),
+        ],
       ),
     );
   }

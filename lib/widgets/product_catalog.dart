@@ -377,6 +377,10 @@ class _ProductThumb extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cleaned = path?.trim();
+    // El asset se decodifica al tamaño real en pantalla (44 px de alto por la
+    // densidad del dispositivo) en vez de a su resolución original.
+    final cacheWidth =
+        (size * MediaQuery.devicePixelRatioOf(context)).round();
     final fallback = Icon(
       isGroup ? Icons.category_outlined : Icons.local_drink_outlined,
       size: size * 0.6,
@@ -396,6 +400,7 @@ class _ProductThumb extends StatelessWidget {
           : Image.asset(
               cleaned,
               fit: BoxFit.contain,
+              cacheWidth: cacheWidth,
               errorBuilder: (_, __, ___) => fallback,
             ),
     );

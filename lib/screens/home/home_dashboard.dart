@@ -180,7 +180,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 padding: EdgeInsets.zero,
                 children: [
                   AppContentFrame(
-                    padding: padding,
+                    padding: padding.copyWith(bottom: AppSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -234,10 +234,15 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                     EmployeeTonightCard(data: data),
                                   ],
                                 ),
-                        const SizedBox(height: AppSpacing.lg),
-                        const IncidentsCard(),
                       ],
                     ),
+                  ),
+                  // Tarjeta separada del resto para que el listado de
+                  // incidencias solo consulte la base de datos cuando entra en
+                  // pantalla, no al abrir Inicio.
+                  AppContentFrame(
+                    padding: padding.copyWith(top: 0),
+                    child: const IncidentsCard(),
                   ),
                 ],
               );

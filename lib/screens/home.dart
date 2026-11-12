@@ -91,6 +91,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   HomeTab _tab = HomeTab.start;
 
+  /// Pestañas que ya se han abierto alguna vez. El resto no se construye, así
+  /// que no lanza sus consultas hasta que el usuario las necesita.
+  final Set<HomeTab> _built = {HomeTab.start};
+
   @override
   void initState() {
     super.initState();
@@ -117,7 +121,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goTo(HomeTab tab) {
     final role = AuthController.i.user?.role ?? UserRole.employee;
     if (!visibleHomeTabs(role).contains(tab)) return;
-    setState(() => _tab = tab);
+    setState(() {
+      _tab = tab;
+      _built.add(tab);
+    });
   }
 
   Future<void> _logout() async {
@@ -145,7 +152,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final selected = tabs.contains(_tab) ? tabs.indexOf(_tab) : 0;
     final pages = IndexedStack(
       index: selected,
-      children: [for (final tab in tabs) _pageFor(tab)],
+      children: [
+        for (final tab in tabs)
+          if (_built.contains(tab))
+            KeyedSubtree(key: ValueKey(tab), child: _pageFor(tab))
+          else
+            const SizedBox.shrink(),
+      ],
     );
 
     return AppNavigationShell(

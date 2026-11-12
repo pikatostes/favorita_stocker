@@ -14,6 +14,10 @@ class AppLogo extends StatelessWidget {
         child: Image.asset(
           'lib/img/la-favorita-logo.png',
           height: height,
+          // El logo se dibuja a 24–36 px: no hace falta decodificar el PNG a
+          // 447×199 puntos.
+          cacheHeight:
+              (height * MediaQuery.devicePixelRatioOf(context)).round(),
           fit: BoxFit.contain,
           semanticLabel: 'La Favorita',
         ),

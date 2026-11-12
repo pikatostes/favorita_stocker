@@ -61,7 +61,13 @@ class UserAvatar extends StatelessWidget {
       radius: radius,
       backgroundColor: background,
       foregroundColor: foreground,
-      foregroundImage: NetworkImage(Db.i.avatarPublicUrl(avatarPath)),
+      // La foto se descarga y decodifica al tamaño del avatar, no a su
+      // resolución original.
+      foregroundImage: ResizeImage.resizeIfNeeded(
+        (radius * 2 * MediaQuery.devicePixelRatioOf(context)).round(),
+        null,
+        NetworkImage(Db.i.avatarPublicUrl(avatarPath)),
+      ),
       // Al fallar la imagen se conserva la inicial del child.
       onForegroundImageError: (_, __) {},
       child: Text(initial, style: style),
