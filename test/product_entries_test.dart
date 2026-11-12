@@ -71,7 +71,7 @@ void main() {
       expect(entries.single.products.single.name, 'Fanta');
     });
 
-    test('coloca los grupos de variantes antes que los productos sueltos', () {
+    test('ordena alfabéticamente mezclando grupos y productos sueltos', () {
       final entries = buildProductEntries([
         _p(1, 'Agua', category: 'R'),
         _p(2, 'Aquarius', category: 'R', group: 'Aquarius', sub: 'Naranja'),
@@ -84,9 +84,8 @@ void main() {
       final names = entries
           .map((e) => e.isGroup ? e.groupName : e.products.single.name)
           .toList();
-      // Primero los grupos (en su orden original), luego los sueltos.
-      expect(names, ['Aquarius', 'Coca-Cola', 'Agua', 'Fanta']);
-      expect(entries.take(2).every((e) => e.isGroup), isTrue);
+      // Orden A-Z por el nombre visible, sin separar grupos de sueltos.
+      expect(names, ['Agua', 'Aquarius', 'Coca-Cola', 'Fanta']);
     });
 
     test('un grupo de una sola subcategoría cuenta como producto suelto', () {
@@ -100,7 +99,7 @@ void main() {
       final names = entries
           .map((e) => e.isGroup ? e.groupName : e.products.single.name)
           .toList();
-      expect(names, ['Coca-Cola', 'Bliss', 'Agua']);
+      expect(names, ['Agua', 'Bliss', 'Coca-Cola']);
     });
 
     test('no mezcla grupos con el mismo nombre en categorías distintas', () {

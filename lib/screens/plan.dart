@@ -1,45 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../app_design.dart';
+import '../data/product_repository.dart';
 import '../db.dart';
 import '../formats.dart';
-import '../models.dart';
-import '../planner.dart';
 import '../shifts.dart';
 import '../widgets/app_ui.dart';
-
-/// Resultado ya calculado del plan: evita volver a montar cajas y viajes en
-/// cada reconstrucción de la pantalla.
-class _PlanData {
-  final Plan plan;
-  final Map<String, int> byType; // nombre de caja -> nº de cajas
-  final bool hasSavedList;
-  _PlanData(this.plan, this.byType, {this.hasSavedList = true});
-}
-
-/// Adaptador para `compute`: monta cajas y viajes en un isolate de fondo para
-/// no bloquear la UI. El mensaje es un record de datos planos (serializables).
-_PlanData _buildPlanInBackground(
-  ({
-    List<Product> products,
-    Map<int, int> qty,
-    Map<int, int> fullBoxes,
-    bool preferFull,
-    bool hasSavedList,
-  }) input,
-) {
-  final plan = Planner.build(
-    input.products,
-    input.qty,
-    fullBoxes: input.fullBoxes,
-    preferFull: input.preferFull,
-  );
-  final byType = <String, int>{};
-  for (final c in plan.crates) {
-    byType[c.name] = (byType[c.name] ?? 0) + 1;
-  }
-  return _PlanData(plan, byType, hasSavedList: input.hasSavedList);
-}
 
 /// Muestra cómo montar las cajas y en cuántos viajes llevarlas.
 class PlanScreen extends StatefulWidget {
@@ -68,7 +33,7 @@ class PlanScreen extends StatefulWidget {
 class _PlanScreenState extends State<PlanScreen> {
   bool _preferFull = false;
   Floor? _floor;
-  late Future<_PlanData> _future = _load();
+  late Future<PlanData> _future = _load();
 
   bool get _canSwitchFloor => widget.date != null && _floor != null;
 
@@ -78,54 +43,13 @@ class _PlanScreenState extends State<PlanScreen> {
         '${formatShortDateIso(widget.date!)}';
   }
 
-  /// La BD guarda el total en botellines; para montar cajas se separa en cajas
-  /// completas y sueltos con las unidades por caja del producto.
-  ({Map<int, int> qty, Map<int, int> fullBoxes}) _splitSaved(
-    Map<int, int> saved,
-    List<Product> products,
-  ) {
-    final qty = <int, int>{};
-    final fullBoxes = <int, int>{};
-    for (final product in products) {
-      final id = product.id;
-      if (id == null) continue;
-      final total = saved[id] ?? 0;
-      if (total <= 0) continue;
-      final size = product.unitsPerBox < 1 ? 1 : product.unitsPerBox;
-      final boxes = total ~/ size;
-      final loose = total % size;
-      if (boxes > 0) fullBoxes[id] = boxes;
-      if (loose > 0) qty[id] = loose;
-    }
-    return (qty: qty, fullBoxes: fullBoxes);
-  }
-
-  Future<_PlanData> _load() async {
-    // Las listas son históricas: un producto borrado después sigue formando
-    // parte del montaje de esa noche.
-    final products = await Db.i.products(includeDeleted: true);
-    var qty = widget.qty;
-    var fullBoxes = widget.fullBoxes;
-    var hasSavedList = true;
-
-    final date = widget.date;
-    final floor = _floor;
-    if (date != null && floor != null) {
-      final saved = await Db.i.nightConsumption(date, floor);
-      final split = _splitSaved(saved, products);
-      qty = split.qty;
-      fullBoxes = split.fullBoxes;
-      hasSavedList = saved.isNotEmpty;
-    }
-
-    return compute(_buildPlanInBackground, (
-      products: products,
-      qty: qty,
-      fullBoxes: fullBoxes,
-      preferFull: _preferFull,
-      hasSavedList: hasSavedList,
-    ));
-  }
+  Future<PlanData> _load() => ProductRepository.i.loadPlan(
+        qty: widget.qty,
+        fullBoxes: widget.fullBoxes,
+        preferFull: _preferFull,
+        date: widget.date,
+        floor: _floor,
+      );
 
   @override
   void initState() {
@@ -228,7 +152,7 @@ class _PlanScreenState extends State<PlanScreen> {
                 ),
               ),
             Expanded(
-              child: FutureBuilder<_PlanData>(
+              child: FutureBuilder<PlanData>(
                 future: _future,
                 builder: (_, s) {
                   if (s.hasError) {

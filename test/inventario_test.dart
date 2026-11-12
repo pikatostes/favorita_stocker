@@ -73,17 +73,39 @@ void main() {
       expect(entries.single.isGroup, isFalse);
     });
 
-    test('productos sin grupo van sueltos y después de los grupos', () {
+    test('ordena alfabéticamente mezclando grupos y productos sueltos', () {
       final entries = buildProductEntries([
+        _product('Zumos', group: 'Zumos', subcategory: 'Piña'),
         _product('Agua', group: null),
         _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Zero'),
         _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Original'),
+        _product('Zumos', group: 'Zumos', subcategory: 'Naranja'),
       ]);
 
-      expect(entries, hasLength(2));
-      expect(entries.first.isGroup, isTrue);
-      expect(entries.last.isGroup, isFalse);
-      expect(entries.last.products.single.name, 'Agua');
+      expect(entries, hasLength(3));
+      expect(
+        entries.map((entry) => entry.groupName ?? entry.products.first.name),
+        ['Agua', 'Coca-Cola', 'Zumos'],
+      );
+      expect(entries.first.isGroup, isFalse);
+      expect(entries.last.isGroup, isTrue);
+      expect(
+        entries.last.products.map(ProductEntry.label),
+        ['Naranja', 'Piña'],
+      );
+    });
+
+    test('el orden alfabético ignora mayúsculas y tildes', () {
+      final entries = buildProductEntries([
+        _product('zumo'),
+        _product('Ámbar'),
+        _product('Banana'),
+      ]);
+
+      expect(
+        entries.map((entry) => entry.products.single.name),
+        ['Ámbar', 'Banana', 'zumo'],
+      );
     });
 
     test('dos categorías pueden tener grupos con el mismo nombre', () {
