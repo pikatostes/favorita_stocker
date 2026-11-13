@@ -66,6 +66,16 @@ List<TurnoTab> visibleTurnoTabs(UserRole role) => [
         if (!tab.adminOnly || role == UserRole.admin) tab,
     ];
 
+/// Resumen de otro usuario tal y como lo ve un empleado: rol de acceso, puesto
+/// habitual y estado. El nombre y los apellidos van en el título de la fila.
+///
+/// Deja fuera el email, los días de trabajo y si puede abrir, que son datos de
+/// gestión reservados al administrador.
+String employeeUserSummary(AppUser user) {
+  final jobRole = user.jobRole?.name ?? 'Sin puesto';
+  return '${user.role.label} · $jobRole · ${user.active ? 'Activo' : 'Inactivo'}';
+}
+
 /// Pestaña "Turnos": horario mensual, usuarios y puestos.
 class TurnosScreen extends StatefulWidget {
   const TurnosScreen({super.key});
@@ -1275,14 +1285,19 @@ class _AppUsersTabState extends State<_AppUsersTab> {
                         : const TextStyle(
                             decoration: TextDecoration.lineThrough),
                   ),
-                  subtitle: Text(
-                    '${user.email}\n'
-                    '${user.role.label}'
-                    ' · ${jobRole == null ? 'Sin puesto' : '${jobRole.name} · ${jobRole.floor.label}'}'
-                    ' · ${user.workingDaysLabel}'
-                    '${user.opener ? ' · Puede abrir' : ''}',
-                  ),
-                  isThreeLine: true,
+                  subtitle: widget.isAdmin
+                      ? Text(
+                          '${user.email}\n'
+                          '${user.role.label}'
+                          ' · ${jobRole == null ? 'Sin puesto' : '${jobRole.name} · ${jobRole.floor.label}'}'
+                          ' · ${user.workingDaysLabel}'
+                          '${user.opener ? ' · Puede abrir' : ''}',
+                        )
+                      // Los empleados solo ven nombre, rol de acceso, puesto y
+                      // estado: el email, los días y la apertura son datos de
+                      // gestión que no necesitan.
+                      : Text(employeeUserSummary(user)),
+                  isThreeLine: widget.isAdmin,
                   trailing: widget.isAdmin
                       ? Switch(
                           value: user.active,
@@ -1325,11 +1340,8 @@ class _UserInfoDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _InfoRow(
-              icon: Icons.mail_outline,
-              label: 'Email',
-              value: user.email.isEmpty ? 'Sin email' : user.email,
-            ),
+            // Solo los datos que un empleado puede ver del resto del equipo:
+            // nombre (en el título), rol de acceso, puesto y estado.
             _InfoRow(
               icon: Icons.shield_outlined,
               label: 'Rol de acceso',
@@ -1338,24 +1350,12 @@ class _UserInfoDialog extends StatelessWidget {
             _InfoRow(
               icon: Icons.work_outline,
               label: 'Puesto habitual',
-              value: jobRole == null
-                  ? 'Sin puesto'
-                  : '${jobRole.name} · ${jobRole.floor.label}',
+              value: jobRole == null ? 'Sin puesto' : jobRole.name,
             ),
             _InfoRow(
               icon: Icons.verified_user_outlined,
               label: 'Estado',
               value: user.active ? 'Activo' : 'Inactivo',
-            ),
-            _InfoRow(
-              icon: Icons.lock_open_outlined,
-              label: 'Puede abrir',
-              value: user.opener ? 'Sí' : 'No',
-            ),
-            _InfoRow(
-              icon: Icons.event_available_outlined,
-              label: 'Días que puede trabajar',
-              value: user.workingDaysLabel,
             ),
           ],
         ),

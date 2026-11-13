@@ -392,7 +392,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   lo mantiene pulsado para borrarlo (con confirmación); el empleado toca su
   turno publicado para **confirmarlo** y no puede editar los de nadie. El admin
   puede generar/publicar el mes. Los formularios de empleado y puesto son
-  diálogos con sus propios controllers (mismo patrón que Productos).
+  diálogos con sus propios controllers (mismo patrón que Productos). En la
+  pestaña Usuarios, el administrador ve email, puesto con planta, días y
+  apertura, y puede editar; el empleado solo ve nombre y apellidos, rol de
+  acceso, puesto y estado (`employeeUserSummary`).
 - **Formulario de producto** (`_ProductDialog`): categoría, grupo, subcategoría y tipo
   de caja son **desplegables estrictos** (solo valores existentes en BD). Los números
   describen la caja seleccionada, **compartida** por todos los productos de ese tipo.
