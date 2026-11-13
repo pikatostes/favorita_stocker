@@ -187,6 +187,7 @@ final List<Product> initialProducts = [
 
   _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
   _p('Agua Aquabona', _refrescos, _aquabona),
+  _p('Agua de cristal Vilas', _refrescos, _aquabona),
 ];
 
 /// Puestos iniciales del local. El nombre es único: la planta y la nota se

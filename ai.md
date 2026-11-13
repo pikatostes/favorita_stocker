@@ -250,7 +250,7 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 La clave secreta **nunca** se escribe en el repo ni se pasa por el chat.
 
 Si no hay base antigua, `supabase/seed_catalog.sql` carga el catálogo de ejemplo
-(35 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
+(36 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
 existentes.
 
 ## 7. Reglas de negocio
@@ -328,7 +328,9 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 ### Agrupación para la UI (`product_entries.dart`)
 - Un grupo se despliega **solo si tiene ≥2 productos**; si no, va suelto.
 - Etiqueta de variante = subcategoría o, si falta, su nombre.
-- Orden: primero grupos de variantes (orden original), después sueltos.
+- Orden: alfabético por el nombre visible (grupo o producto), sin distinguir
+  mayúsculas ni tildes. Grupos y sueltos van entremezclados; las variantes de un
+  grupo se ordenan por su etiqueta con el mismo criterio.
 
 ## 8. UI y patrones (`screens/`, `widgets/`)
 

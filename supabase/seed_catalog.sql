@@ -77,7 +77,8 @@ values
   ('Zumo Melocotón', 'Refrescos y zumos', 'Zumo', 'Melocotón', null, null, 'Cola', 12),
   ('Zumo Naranja', 'Refrescos y zumos', 'Zumo', 'Naranja', null, null, 'Cola', 48),
   ('Fanta Naranja', 'Refrescos y zumos', 'Fanta Naranja', null, null, null, 'Cola', 78),
-  ('Agua Aquabona', 'Refrescos y zumos', 'Agua Aquabona', null, null, null, 'Agua', 87);
+  ('Agua Aquabona', 'Refrescos y zumos', 'Agua Aquabona', null, null, null, 'Agua', 87),
+  ('Agua de cristal Vilas', 'Refrescos y zumos', 'Agua de cristal Vilas', null, null, null, 'Agua', 0);
 
 -- ---------------------------------------------------------------------------
 -- Categorías y grupos de variantes
