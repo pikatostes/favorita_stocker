@@ -407,9 +407,13 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   lista vacía) y al guardar se sustituye solo la de esa planta. La RPC descuenta
   del stock solo la diferencia respecto a la lista anterior; si falta stock, el
   guardado falla y no se modifica nada. En móvil (<600 px) los controles de
-  fecha, planta y modo de vista son tarjetas compactas de 56 px con el icono y
-  el dato apilados (la fecha en dos líneas, la planta con `Floor.short`); en
-  tablet y escritorio se mantienen los controles anchos.
+  fecha, planta y modo de vista son tarjetas compactas de 44 px con el icono y
+  el dato apilados (la fecha en dos líneas, la planta con `Floor.short`), dentro
+  de la cabecera a la altura del título (`AppPageHeader.inlineActions`). La
+  acción «Guardar y montar cajas» de la barra inferior también se reduce a un
+  botón compacto de 40 px con el color primario (icono y «Guardar», 128 px de
+  ancho mínimo) a la derecha del resumen, nunca a todo el ancho. En tablet y escritorio se mantienen los controles y el botón
+  anchos.
 - **Confirmación de la lista** (`screens/confirmar_lista.dart`): al pulsar
   "Guardar y montar cajas" en Lista se abre una pantalla intermedia con el
   resumen del pedido (por categoría, cajas/sueltos y totales). Solo si se

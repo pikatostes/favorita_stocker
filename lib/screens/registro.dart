@@ -1154,7 +1154,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   ),
                 ),
                 if (products != null && products.isNotEmpty)
-                  _MontajeActionBar(
+                  MontajeActionBar(
                     contentWidth: contentWidth,
                     products: summary.products,
                     boxes: summary.boxes,
@@ -1207,14 +1207,15 @@ class _RegistroScreenState extends State<RegistroScreen> {
 
 /// Barra fija de montaje: resume el pedido y mantiene la acción principal
 /// accesible sin tapar el contenido ni la navegación inferior.
-class _MontajeActionBar extends StatelessWidget {
+class MontajeActionBar extends StatelessWidget {
   final double contentWidth;
   final int products;
   final int boxes;
   final int units;
   final VoidCallback onSave;
 
-  const _MontajeActionBar({
+  const MontajeActionBar({
+    super.key,
     required this.contentWidth,
     required this.products,
     required this.boxes,
@@ -1225,8 +1226,11 @@ class _MontajeActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // En móvil la acción principal se reduce a una tarjeta compacta de 44 px
+    // a la derecha del resumen, en lugar de un botón a todo el ancho.
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.mobileMax;
     final summary = Wrap(
-      spacing: AppSpacing.lg,
+      spacing: compact ? AppSpacing.sm : AppSpacing.lg,
       runSpacing: AppSpacing.xs,
       children: [
         _SummaryMetric(label: 'Productos', value: '$products'),
@@ -1243,42 +1247,75 @@ class _MontajeActionBar extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
+        padding: EdgeInsets.symmetric(
           horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
+          vertical: compact ? AppSpacing.xs : AppSpacing.md,
         ),
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: contentWidth),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final button = FilledButton.icon(
-                  onPressed: onSave,
-                  icon: const Icon(Icons.inventory_2_outlined, size: 19),
-                  label: const Text('Guardar y montar cajas'),
-                );
-                if (constraints.maxWidth < 580) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: compact
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: summary,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      SizedBox(width: double.infinity, child: button),
+                      Expanded(child: summary),
+                      const SizedBox(width: AppSpacing.md),
+                      _compactSaveButton(context),
                     ],
-                  );
-                }
-                return Row(
-                  children: [
-                    Expanded(child: summary),
-                    const SizedBox(width: AppSpacing.lg),
-                    button,
-                  ],
-                );
-              },
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: summary),
+                      const SizedBox(width: AppSpacing.lg),
+                      FilledButton.icon(
+                        onPressed: onSave,
+                        icon: const Icon(Icons.inventory_2_outlined, size: 19),
+                        label: const Text('Guardar y montar cajas'),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botón compacto de guardado: conserva el color primario del botón
+  /// original, con 40 px de alto y 128 px de ancho para que siga leyéndose
+  /// como acción principal sin ocupar todo el ancho.
+  Widget _compactSaveButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final radius = BorderRadius.circular(AppRadii.md);
+    return Tooltip(
+      message: 'Guardar y montar cajas',
+      child: Material(
+        color: theme.colorScheme.primary,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onSave,
+          borderRadius: radius,
+          child: Container(
+            height: 40,
+            constraints: const BoxConstraints(minWidth: 128),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 17,
+                  color: theme.colorScheme.onPrimary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Guardar',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onPrimary,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
