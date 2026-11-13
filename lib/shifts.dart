@@ -3,13 +3,16 @@ import 'schedule.dart';
 
 /// Plantas del local. El puesto de cada empleado pertenece a una sola planta.
 enum Floor {
-  plantaBaja('planta_baja', 'Planta baja'),
-  karaoke('karaoke', 'Karaoke'),
-  terraza('terraza', 'Terraza');
+  plantaBaja('planta_baja', 'Planta baja', 'P.B.'),
+  karaoke('karaoke', 'Karaoke', 'Kar.'),
+  terraza('terraza', 'Terraza', 'Terr.');
 
-  const Floor(this.db, this.label);
+  const Floor(this.db, this.label, this.short);
   final String db;
   final String label;
+
+  /// Etiqueta corta para los controles compactos de la lista.
+  final String short;
 
   static Floor fromDb(String? value) => values.firstWhere(
         (f) => f.db == value,

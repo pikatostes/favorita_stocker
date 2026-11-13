@@ -15,6 +15,13 @@ String formatLongDate(DateTime date) =>
 String formatShortDate(DateTime date) =>
     capitalize(DateFormat('EEE d MMM', 'es').format(date));
 
+/// Día de la semana corto: «Vie». Para cabeceras compactas en dos líneas.
+String formatWeekdayShort(DateTime date) =>
+    capitalize(DateFormat('EEE', 'es').format(date));
+
+/// Día y mes cortos: «8 nov». Complementa a [formatWeekdayShort].
+String formatDayMonth(DateTime date) => DateFormat('d MMM', 'es').format(date);
+
 /// Fecha larga a partir de una fecha ISO (`yyyy-MM-dd`).
 String formatLongDateIso(String date) => formatLongDate(DateTime.parse(date));
 

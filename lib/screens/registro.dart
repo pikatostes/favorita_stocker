@@ -793,9 +793,11 @@ class _RegistroScreenState extends State<RegistroScreen> {
 
   Widget _header() {
     // Controles compactos: fecha, planta y modo de visualización.
-    // Se agrupan en una única fila para evitar botones grandes en móvil.
+    // En móvil cada control es una tarjeta con el icono encima y el dato
+    // debajo, para que quepan en una sola fila; en tablet y escritorio se
+    // mantienen los controles anchos de siempre.
     final theme = Theme.of(context);
-    final compactActions = MediaQuery.sizeOf(context).width < 600;
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.mobileMax;
 
     final controlDecoration = BoxDecoration(
       color: theme.colorScheme.surfaceContainerHigh,
@@ -803,116 +805,211 @@ class _RegistroScreenState extends State<RegistroScreen> {
       border: Border.all(color: theme.colorScheme.outlineVariant),
     );
 
-    final dateControl = Tooltip(
-      message: 'Cambiar fecha del servicio',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          onTap: _pickDate,
-          child: Container(
+    final dateControl = compact
+        ? _compactTile(
+            tooltip: 'Cambiar fecha del servicio',
+            onTap: _pickDate,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      size: 13,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      formatWeekdayShort(_date),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  formatDayMonth(_date),
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          )
+        : Tooltip(
+            message: 'Cambiar fecha del servicio',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                onTap: _pickDate,
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: controlDecoration,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.calendar_today_rounded,
+                          size: 17, color: theme.colorScheme.primary),
+                      const SizedBox(width: 7),
+                      Text(
+                        formatShortDate(_date),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      const Icon(Icons.expand_more, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+    // Desplegable de planta: la lista guardada se consulta por separado para
+    // planta baja, karaoke y terraza.
+    final floorControl = compact
+        ? _compactTile(
+            tooltip: 'Cambiar la planta de la lista',
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.layers_outlined,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<Floor>(
+                    value: _floor,
+                    isDense: true,
+                    padding: EdgeInsets.zero,
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                    icon: const Icon(Icons.expand_more, size: 12),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    selectedItemBuilder: (context) => [
+                      for (final floor in Floor.values)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(floor.short),
+                        ),
+                    ],
+                    items: [
+                      for (final floor in Floor.values)
+                        DropdownMenuItem(
+                          value: floor,
+                          child: Text(
+                            floor.label,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) _pickFloor(value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          )
+        : Tooltip(
+            message: 'Cambiar la planta de la lista',
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.only(left: 10, right: 4),
+              decoration: controlDecoration,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.layers_outlined,
+                      size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<Floor>(
+                      value: _floor,
+                      isDense: true,
+                      borderRadius: BorderRadius.circular(AppRadii.md),
+                      icon: const Icon(Icons.expand_more, size: 18),
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                      selectedItemBuilder: (context) => [
+                        for (final floor in Floor.values)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('Planta: ${floor.label}'),
+                          ),
+                      ],
+                      items: [
+                        for (final floor in Floor.values)
+                          DropdownMenuItem(
+                            value: floor,
+                            child: Text(floor.label),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) _pickFloor(value);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+
+    final viewControl = compact
+        ? _compactTile(
+            width: 44,
+            tooltip: _gridView ? 'Ver en lista' : 'Ver en cuadrícula',
+            onTap: () => setState(() => _gridView = !_gridView),
+            child: Center(
+              child: Icon(
+                _gridView ? Icons.grid_view_rounded : Icons.view_list_rounded,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        : Container(
             height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.all(3),
             decoration: controlDecoration,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.calendar_today_rounded,
-                    size: 17, color: theme.colorScheme.primary),
-                const SizedBox(width: 7),
-                Text(
-                  formatShortDate(_date),
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                _viewModeButton(
+                  icon: Icons.view_list_rounded,
+                  selected: !_gridView,
+                  tooltip: 'Ver en lista',
+                  onTap: () => setState(() => _gridView = false),
                 ),
-                const SizedBox(width: 3),
-                const Icon(Icons.expand_more, size: 18),
+                _viewModeButton(
+                  icon: Icons.grid_view_rounded,
+                  selected: _gridView,
+                  tooltip: 'Ver en cuadrícula',
+                  onTap: () => setState(() => _gridView = true),
+                ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-
-    // Desplegable de planta: la lista guardada se consulta por separado para
-    // planta baja, karaoke y terraza.
-    final floorControl = Tooltip(
-      message: 'Cambiar la planta de la lista',
-      child: Container(
-        height: 40,
-        padding: const EdgeInsets.only(left: 10, right: 4),
-        decoration: controlDecoration,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.layers_outlined,
-                size: 18, color: theme.colorScheme.primary),
-            const SizedBox(width: 6),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<Floor>(
-                value: _floor,
-                isDense: true,
-                borderRadius: BorderRadius.circular(AppRadii.md),
-                icon: const Icon(Icons.expand_more, size: 18),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.onSurface,
-                ),
-                selectedItemBuilder: (context) => [
-                  for (final floor in Floor.values)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        compactActions ? floor.label : 'Planta: ${floor.label}',
-                      ),
-                    ),
-                ],
-                items: [
-                  for (final floor in Floor.values)
-                    DropdownMenuItem(
-                      value: floor,
-                      child: Text(floor.label),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value != null) _pickFloor(value);
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    final viewControl = Container(
-      height: 40,
-      padding: const EdgeInsets.all(3),
-      decoration: controlDecoration,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _viewModeButton(
-            icon: Icons.view_list_rounded,
-            selected: !_gridView,
-            tooltip: 'Ver en lista',
-            onTap: () => setState(() => _gridView = false),
-          ),
-          _viewModeButton(
-            icon: Icons.grid_view_rounded,
-            selected: _gridView,
-            tooltip: 'Ver en cuadrícula',
-            onTap: () => setState(() => _gridView = true),
-          ),
-        ],
-      ),
-    );
+          );
 
     return AppPageHeader(
       eyebrow: 'Operación nocturna',
       title: 'Lista de montaje',
       leading: const AppLogo(height: 24),
       compact: true,
+      // En móvil los controles van dentro de la cabecera, a la altura del
+      // título, en vez de ocupar una fila completa debajo.
+      inlineActions: compact,
       actions: [
         Wrap(
           spacing: AppSpacing.xs,
@@ -921,6 +1018,38 @@ class _RegistroScreenState extends State<RegistroScreen> {
           children: [dateControl, floorControl, viewControl],
         ),
       ],
+    );
+  }
+
+  /// Tarjeta compacta de la cabecera en móvil: 44 px de alto y ancho según su
+  /// contenido, con el icono y el dato apilados en dos líneas.
+  Widget _compactTile({
+    required String tooltip,
+    required Widget child,
+    VoidCallback? onTap,
+    double? width,
+  }) {
+    final theme = Theme.of(context);
+    final radius = BorderRadius.circular(AppRadii.md);
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Container(
+            width: width,
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 

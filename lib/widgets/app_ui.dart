@@ -411,6 +411,11 @@ class AppPageHeader extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final bool compact;
 
+  /// Mantiene las acciones en la misma fila que el título aunque el ancho sea
+  /// reducido. Se usa con controles compactos que deben quedar dentro de la
+  /// cabecera, como los de la lista de montaje.
+  final bool inlineActions;
+
   const AppPageHeader({
     super.key,
     required this.title,
@@ -420,6 +425,7 @@ class AppPageHeader extends StatelessWidget {
     this.actions = const [],
     this.padding = EdgeInsets.zero,
     this.compact = false,
+    this.inlineActions = false,
   });
 
   @override
@@ -486,7 +492,9 @@ class AppPageHeader extends StatelessWidget {
       padding: padding,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stack = actions.isNotEmpty &&
+          final stack =
+              !inlineActions &&
+              actions.isNotEmpty &&
               (constraints.maxWidth < 720 || actions.length > 3);
           if (actions.isEmpty) return titleBlock;
           final actionWrap = Wrap(
