@@ -34,6 +34,13 @@ class _RegistroScreenState extends State<RegistroScreen> {
   final Map<int, int> _boxes = {};
   final Map<int, int> _loose = {};
   bool _gridView = false;
+
+  /// La jornada cargada ya se finalizó: su lista no se precarga y la pantalla
+  /// queda vacía hasta que se guarde una nueva.
+  bool _finalized = false;
+
+  /// Esa fecha y planta tienen una lista guardada que se puede finalizar.
+  bool _hasSavedNight = false;
   late Future<List<Product>> _future = Db.i.products();
 
   void _reload() {
@@ -56,12 +63,18 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// Carga en el formulario la lista guardada de [_date]. Se reparte el total
   /// en cajas completas y botellines sueltos según las unidades por caja, ya
   /// que la BD solo guarda el total de botellines.
+  ///
+  /// Si la jornada ya se finalizó, no se precarga nada: la lista sigue en el
+  /// histórico, pero la pantalla empieza vacía para la siguiente.
   Future<void> _loadNight() async {
     final date = _date;
     final floor = _floor;
     try {
       final products = await _future;
-      final saved = await Db.i.nightConsumption(Schedule.fmt(date), floor);
+      final finalized = await Db.i.nightFinalized(Schedule.fmt(date), floor);
+      final saved = finalized
+          ? <int, int>{}
+          : await Db.i.nightConsumption(Schedule.fmt(date), floor);
       // Si mientras cargaba cambió la fecha o la planta, no se pisa la nueva
       // selección.
       if (!mounted || date != _date || floor != _floor) return;
@@ -75,6 +88,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
         loose[p.id!] = total % size;
       }
       setState(() {
+        _finalized = finalized;
+        _hasSavedNight = finalized || saved.isNotEmpty;
         _boxes
           ..clear()
           ..addAll(boxes);
@@ -709,6 +724,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
       // Se limpia lo escrito y se muestra lo guardado de la nueva fecha.
       _boxes.clear();
       _loose.clear();
+      _finalized = false;
+      _hasSavedNight = false;
     });
     await _loadNight();
   }
@@ -720,6 +737,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
       // Se limpia lo escrito y se muestra lo guardado de la nueva planta.
       _boxes.clear();
       _loose.clear();
+      _finalized = false;
+      _hasSavedNight = false;
     });
     await _loadNight();
   }
@@ -788,6 +807,56 @@ class _RegistroScreenState extends State<RegistroScreen> {
           floor: floor,
         ),
       ),
+    );
+  }
+
+  /// Cierra la jornada de la fecha y planta actuales.
+  ///
+  /// La lista guardada se conserva (stock, plan e histórico): solo deja de
+  /// precargarse en esta pantalla, que queda vacía para la siguiente.
+  Future<void> _finalize() async {
+    final date = _date;
+    final floor = _floor;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Finalizar jornada'),
+        content: Text(
+          'La lista guardada de ${floor.label} seguirá en el histórico y el '
+          'stock, pero la pantalla quedará vacía para preparar la siguiente.'
+          '\n\nSe descartará lo que no hayas guardado.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Finalizar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await Db.i.finalizeNight(Schedule.fmt(date), floor);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No se pudo finalizar la jornada: '
+            '${describeDbError(error)}'),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _boxes.clear();
+      _loose.clear();
+      _finalized = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Jornada finalizada.')),
     );
   }
 
@@ -1002,21 +1071,35 @@ class _RegistroScreenState extends State<RegistroScreen> {
             ),
           );
 
-    return AppPageHeader(
-      eyebrow: 'Operación nocturna',
-      title: 'Lista de montaje',
-      leading: const AppLogo(height: 24),
-      compact: true,
-      // En móvil los controles van dentro de la cabecera, a la altura del
-      // título, en vez de ocupar una fila completa debajo.
-      inlineActions: compact,
-      actions: [
-        Wrap(
-          spacing: AppSpacing.xs,
-          runSpacing: AppSpacing.xs,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [dateControl, floorControl, viewControl],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppPageHeader(
+          eyebrow: 'Operación nocturna',
+          title: 'Lista de montaje',
+          leading: const AppLogo(height: 24),
+          compact: true,
+          // En móvil los controles van dentro de la cabecera, a la altura del
+          // título, en vez de ocupar una fila completa debajo.
+          inlineActions: compact,
+          actions: [
+            Wrap(
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [dateControl, floorControl, viewControl],
+            ),
+          ],
         ),
+        if (_finalized) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const AlertBanner(
+            message: 'Jornada finalizada. La lista guardada sigue en el '
+                'histórico; la pantalla está vacía para preparar la siguiente.',
+            icon: Icons.task_alt,
+            dense: true,
+          ),
+        ],
       ],
     );
   }
@@ -1160,6 +1243,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
                     boxes: summary.boxes,
                     units: summary.units,
                     onSave: _save,
+                    canFinalize: _hasSavedNight && !_finalized,
+                    onFinalize: _finalize,
                   ),
               ],
             );
@@ -1214,6 +1299,10 @@ class MontajeActionBar extends StatelessWidget {
   final int units;
   final VoidCallback onSave;
 
+  /// Muestra «Finalizar jornada» cuando hay una lista guardada que cerrar.
+  final bool canFinalize;
+  final VoidCallback? onFinalize;
+
   const MontajeActionBar({
     super.key,
     required this.contentWidth,
@@ -1221,6 +1310,8 @@ class MontajeActionBar extends StatelessWidget {
     required this.boxes,
     required this.units,
     required this.onSave,
+    this.canFinalize = false,
+    this.onFinalize,
   });
 
   @override
@@ -1259,6 +1350,10 @@ class MontajeActionBar extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(child: summary),
+                      if (canFinalize) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        _compactFinalizeButton(context),
+                      ],
                       const SizedBox(width: AppSpacing.md),
                       _compactSaveButton(context),
                     ],
@@ -1266,6 +1361,14 @@ class MontajeActionBar extends StatelessWidget {
                 : Row(
                     children: [
                       Expanded(child: summary),
+                      if (canFinalize) ...[
+                        const SizedBox(width: AppSpacing.lg),
+                        TextButton.icon(
+                          onPressed: onFinalize,
+                          icon: const Icon(Icons.task_alt, size: 19),
+                          label: const Text('Finalizar jornada'),
+                        ),
+                      ],
                       const SizedBox(width: AppSpacing.lg),
                       FilledButton.icon(
                         onPressed: onSave,
@@ -1274,6 +1377,36 @@ class MontajeActionBar extends StatelessWidget {
                       ),
                     ],
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botón compacto de «Finalizar jornada»: tarjeta de 40 px con el mismo
+  /// borde que los controles de la cabecera, a la izquierda del guardado.
+  Widget _compactFinalizeButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final radius = BorderRadius.circular(AppRadii.md);
+    return Tooltip(
+      message: 'Finalizar jornada',
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: onFinalize,
+          borderRadius: radius,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(
+              Icons.task_alt,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       ),

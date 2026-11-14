@@ -29,6 +29,7 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 8. `supabase/migrations/20261113000100_add_agua_vilas.sql`
 9. `supabase/migrations/20261114000100_add_nuevas_bebidas.sql`
 10. `supabase/migrations/20261114000200_product_images.sql`
+11. `supabase/migrations/20261114000300_night_finalized.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -47,7 +48,10 @@ idempotente. La décima rellena `product.image` con el asset de `lib/img/` que
 corresponde a cada producto que no tenía imagen (Heineken, Sol, Desperados,
 variantes de Coca-Cola Zero y Bliss, zumos, Fanta, aguas, Monster, Limón y
 Nada...). Solo escribe donde la imagen está vacía, así que no pisa lo que se
-haya cambiado desde Admin → Productos.
+haya cambiado desde Admin → Productos. La undécima añade `night.finalized_at` y
+la RPC `finalize_night(date, floor)`: «Finalizar jornada» deja de precargar esa
+lista en la pestaña Lista (el consumo se conserva para stock, plan e histórico),
+y guardar una lista nueva la reabre.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,

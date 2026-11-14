@@ -352,6 +352,37 @@ class Db {
     _changed();
   }
 
+  /// Marca la jornada de esa fecha y planta como finalizada.
+  ///
+  /// No borra nada: el consumo sigue contando para stock, plan e histórico.
+  /// Solo hace que la pestaña Lista deje de precargar esa lista hasta que se
+  /// guarde una nueva (que la reabre).
+  Future<void> finalizeNight(String date, Floor floor) async {
+    try {
+      await _client.rpc('finalize_night', params: {
+        'p_date': date,
+        'p_floor': floor.db,
+      });
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+  }
+
+  /// Indica si la jornada de esa fecha y planta ya se finalizó.
+  ///
+  /// Se lee con `select *` para que la app siga funcionando si la migración
+  /// que añade `finalized_at` todavía no se ha aplicado en el proyecto.
+  Future<bool> nightFinalized(String date, Floor floor) async {
+    final rows = await _client
+        .from('night')
+        .select()
+        .eq('date', date)
+        .eq('floor', floor.db)
+        .limit(1);
+    if (rows.isEmpty) return false;
+    return rows.first['finalized_at'] != null;
+  }
+
   /// Filas crudas de consumo, opcionalmente filtradas por fecha y planta.
   Future<List<Map<String, dynamic>>> _consumptionRows({
     String? since,

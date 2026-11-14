@@ -218,6 +218,9 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   descuenta del stock solo la diferencia respecto a la lista anterior. Si el
   stock disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
   para …» y no se guarda nada.
+- `finalize_night(date, floor)`: marca `night.finalized_at` para que la Lista
+  deje de precargar esa jornada. No borra consumo ni mueve stock; `save_night`
+  vuelve a poner `finalized_at = null` al guardar una lista nueva.
 - `save_incident(id, floor, category, title, description, status)` y
   `delete_incident(id)`: incidencias. Al crear fijan el autor a la sesión; el
   autor solo puede editar/borrar las suyas mientras estén abiertas y el admin
@@ -420,6 +423,12 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   confirma se guarda la noche y se navega a `PlanScreen`; volver no escribe nada.
   Tras guardar, el usuario recibe un SnackBar de éxito salvo que sea de
   mantenimiento: ese puesto sigue el estado desde la tarjeta de Inicio.
+- **Finalizar jornada** (`screens/registro.dart`): si la fecha y planta tienen
+  una lista guardada, la barra inferior muestra «Finalizar jornada» (icono en
+  móvil). Pide confirmación y marca `night.finalized_at` por RPC; el consumo se
+  conserva para stock, plan e histórico, pero la pestaña Lista ya no precarga esa
+  lista y queda vacía para la siguiente. Guardar una lista nueva reabre la
+  jornada. Mientras está finalizada se muestra un `AlertBanner` recordándolo.
 - **Montar cajas** (`screens/plan.dart`): dos vistas conmutables con un
   `SegmentedButton`. «Montaje» muestra viajes y cajas; «Lista» muestra cada
   producto una sola vez, en columna, con su miniatura, la caja y el total de
