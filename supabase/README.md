@@ -27,6 +27,7 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 6. `supabase/migrations/20261111000100_stock_adjust.sql`
 7. `supabase/migrations/20261112000100_incidents.sql`
 8. `supabase/migrations/20261113000100_add_agua_vilas.sql`
+9. `supabase/migrations/20261114000100_add_nuevas_bebidas.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -38,7 +39,10 @@ hace que `save_night` descuente del stock solo la diferencia de la lista;
 crea `incident` + `incident_view`, con lectura para todo el equipo y escritura
 solo por las RPC `save_incident` y `delete_incident`. La octava da de alta el
 producto «Agua de cristal Vilas» (categoría Refrescos y zumos, caja `Agua`,
-stock 0); es idempotente y se puede repetir sin duplicarlo.
+stock 0); es idempotente y se puede repetir sin duplicarlo. La novena da de alta
+Monster, Sprite, Cruzcampo Especial Sin Gluten, Bliss Tónica Zero y Limón y Nada
+(stock 0; Monster usa el tipo de caja nuevo `Energética`); también es
+idempotente.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,
@@ -64,7 +68,7 @@ con stock:
 
 `supabase/seed_catalog.sql` (SQL Editor → pegar → ejecutar).
 
-Crea 5 tipos de caja, 2 categorías, 11 grupos de variantes, 33 variantes y 36
+Crea 6 tipos de caja, 2 categorías, 14 grupos de variantes, 35 variantes y 41
 productos con stock de ejemplo. Es idempotente: se puede repetir sin duplicar y
 sin pisar el stock de productos que ya existan. Las cantidades son de
 demostración; ajústalas desde **Admin → Inventario** o con `update`.

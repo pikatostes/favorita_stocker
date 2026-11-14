@@ -2,7 +2,7 @@ import 'models.dart';
 import 'shifts.dart';
 
 const _cola = ['Original', 'Zero', 'Zero Zero', 'Light'];
-const _bliss = ['Tónica', 'Limón', 'Berry', 'Ginger Ale'];
+const _bliss = ['Tónica', 'Tónica Zero', 'Limón', 'Berry', 'Ginger Ale'];
 const _nestea = ['Té', 'Limón', 'Maracuyá', 'Melocotón'];
 const _aquarius = ['Naranja', 'Limón', 'Piña', 'Melocotón'];
 const _zumo = ['Piña', 'Melocotón', 'Naranja'];
@@ -13,6 +13,8 @@ const _cajaNestea = CrateType('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
 const _cerveza =
     CrateType('Cerveza', 24, 1, 1, 2, 5); // 5 por viaje (dato tuyo)
 const _aquabona = CrateType('Agua', 20, 2, 1, 3, 5); // 5 por viaje (dato tuyo)
+const _cajaEnergia =
+    CrateType('Energética', 24, 2, 1, 4, 5); // SUPUESTO 5 por viaje
 
 /// Cantidades de ejemplo, en unidades sueltas, para que el inventario inicial
 /// no aparezca todo a cero. Son datos de demostración y se pueden sustituir
@@ -132,6 +134,8 @@ final List<Product> initialProducts = [
       group: 'Cruzcampo', subcategory: 'Gran Reserva'),
   _p('Cruzcampo Radler', _cervezas, _cerveza,
       group: 'Cruzcampo', subcategory: 'Radler'),
+  _p('Cruzcampo Especial Sin Gluten', _cervezas, _cerveza,
+      group: 'Cruzcampo', subcategory: 'Especial Sin Gluten'),
   _p('Heineken', _cervezas, _cerveza, group: 'Heineken', subcategory: 'Normal'),
   _p('Heineken 0,0', _cervezas, _cerveza,
       group: 'Heineken', subcategory: '0,0'),
@@ -186,6 +190,9 @@ final List<Product> initialProducts = [
       )),
 
   _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
+  _p('Sprite', _refrescos, _cajaCola),
+  _p('Limón y Nada', _refrescos, _cajaCola),
+  _p('Monster', _refrescos, _cajaEnergia),
   _p('Agua Aquabona', _refrescos, _aquabona),
   _p('Agua de cristal Vilas', _refrescos, _aquabona),
 ];

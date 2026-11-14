@@ -250,7 +250,7 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 La clave secreta **nunca** se escribe en el repo ni se pasa por el chat.
 
 Si no hay base antigua, `supabase/seed_catalog.sql` carga el catálogo de ejemplo
-(36 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
+(41 productos con stock) desde el SQL Editor. Es idempotente y no pisa productos
 existentes.
 
 ## 7. Reglas de negocio

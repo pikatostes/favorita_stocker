@@ -21,7 +21,8 @@ values
   ('Cerveza grande', 24, 2, 1, 1, 2, 5),
   ('Cola', 24, 1, 0.5, 1, 1, 6),
   ('Nestea', 24, 1, 1, 1, 1, 5),
-  ('Agua', 20, 2, 1, 1, 3, 5)
+  ('Agua', 20, 2, 1, 1, 3, 5),
+  ('Energética', 24, 2, 1, 1, 4, 5)
 on conflict (type) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -47,6 +48,7 @@ values
   ('1904', 'Cervezas y similares', 'Cruzcampo', '1904', 'lib/img/1904.png', 'lib/img/cruzcampo.jfif', 'Cerveza', 72),
   ('Cruzcampo Gran Reserva', 'Cervezas y similares', 'Cruzcampo', 'Gran Reserva', null, 'lib/img/cruzcampo.jfif', 'Cerveza', 54),
   ('Cruzcampo Radler', 'Cervezas y similares', 'Cruzcampo', 'Radler', null, 'lib/img/cruzcampo.jfif', 'Cerveza', 24),
+  ('Cruzcampo Especial Sin Gluten', 'Cervezas y similares', 'Cruzcampo', 'Especial Sin Gluten', null, 'lib/img/cruzcampo.jfif', 'Cerveza', 0),
   ('Heineken', 'Cervezas y similares', 'Heineken', 'Normal', null, null, 'Cerveza', 114),
   ('Heineken 0,0', 'Cervezas y similares', 'Heineken', '0,0', null, null, 'Cerveza', 58),
   ('Amstel Tostada 0,0', 'Cervezas y similares', 'Otros', 'Amstel Tostada 0,0', 'lib/img/amstel00tostada.jpg', null, 'Cerveza', 29),
@@ -65,6 +67,7 @@ values
   ('Bliss Limón', 'Refrescos y zumos', 'Bliss', 'Limón', null, 'lib/img/royal-bliss.jpg', 'Cola', 24),
   ('Bliss Berry', 'Refrescos y zumos', 'Bliss', 'Berry', null, 'lib/img/royal-bliss.jpg', 'Cola', 15),
   ('Bliss Ginger Ale', 'Refrescos y zumos', 'Bliss', 'Ginger Ale', null, 'lib/img/royal-bliss.jpg', 'Cola', 56),
+  ('Bliss Tónica Zero', 'Refrescos y zumos', 'Bliss', 'Tónica Zero', null, 'lib/img/royal-bliss.jpg', 'Cola', 0),
   ('Nestea', 'Refrescos y zumos', 'Nestea', 'Té', null, 'lib/img/fuze-tea.png', 'Nestea', 106),
   ('Nestea Limón', 'Refrescos y zumos', 'Nestea', 'Limón', null, 'lib/img/fuze-tea.png', 'Nestea', 48),
   ('Nestea Maracuyá', 'Refrescos y zumos', 'Nestea', 'Maracuyá', null, 'lib/img/fuze-tea.png', 'Nestea', 36),
@@ -78,7 +81,10 @@ values
   ('Zumo Naranja', 'Refrescos y zumos', 'Zumo', 'Naranja', null, null, 'Cola', 48),
   ('Fanta Naranja', 'Refrescos y zumos', 'Fanta Naranja', null, null, null, 'Cola', 78),
   ('Agua Aquabona', 'Refrescos y zumos', 'Agua Aquabona', null, null, null, 'Agua', 87),
-  ('Agua de cristal Vilas', 'Refrescos y zumos', 'Agua de cristal Vilas', null, null, null, 'Agua', 0);
+  ('Agua de cristal Vilas', 'Refrescos y zumos', 'Agua de cristal Vilas', null, null, null, 'Agua', 0),
+  ('Monster', 'Refrescos y zumos', 'Monster', null, null, null, 'Energética', 0),
+  ('Sprite', 'Refrescos y zumos', 'Sprite', null, null, null, 'Cola', 0),
+  ('Limón y Nada', 'Refrescos y zumos', 'Limón y Nada', null, null, null, 'Cola', 0);
 
 -- ---------------------------------------------------------------------------
 -- Categorías y grupos de variantes
