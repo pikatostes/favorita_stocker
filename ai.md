@@ -428,7 +428,8 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   móvil). Pide confirmación y marca `night.finalized_at` por RPC; el consumo se
   conserva para stock, plan e histórico, pero la pestaña Lista ya no precarga esa
   lista y queda vacía para la siguiente. Guardar una lista nueva reabre la
-  jornada. Mientras está finalizada se muestra un `AlertBanner` recordándolo.
+  jornada. Mientras está finalizada se muestra un `AlertBanner` recordándolo,
+  que se puede cerrar con su botón de aspa.
 - **Montar cajas** (`screens/plan.dart`): dos vistas conmutables con un
   `SegmentedButton`. «Montaje» muestra viajes y cajas; «Lista» muestra cada
   producto una sola vez, en columna, con su miniatura, la caja y el total de

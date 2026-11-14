@@ -39,6 +39,9 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// queda vacía hasta que se guarde una nueva.
   bool _finalized = false;
 
+  /// El aviso de jornada finalizada se ha cerrado a mano.
+  bool _finalizeNoticeDismissed = false;
+
   /// Esa fecha y planta tienen una lista guardada que se puede finalizar.
   bool _hasSavedNight = false;
   late Future<List<Product>> _future = Db.i.products();
@@ -89,6 +92,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       }
       setState(() {
         _finalized = finalized;
+        _finalizeNoticeDismissed = false;
         _hasSavedNight = finalized || saved.isNotEmpty;
         _boxes
           ..clear()
@@ -854,6 +858,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       _boxes.clear();
       _loose.clear();
       _finalized = true;
+      _finalizeNoticeDismissed = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Jornada finalizada.')),
@@ -1091,13 +1096,22 @@ class _RegistroScreenState extends State<RegistroScreen> {
             ),
           ],
         ),
-        if (_finalized) ...[
+        if (_finalized && !_finalizeNoticeDismissed) ...[
           const SizedBox(height: AppSpacing.sm),
-          const AlertBanner(
+          AlertBanner(
             message: 'Jornada finalizada. La lista guardada sigue en el '
                 'histórico; la pantalla está vacía para preparar la siguiente.',
             icon: Icons.task_alt,
             dense: true,
+            action: IconButton(
+              tooltip: 'Cerrar aviso',
+              onPressed: () =>
+                  setState(() => _finalizeNoticeDismissed = true),
+              icon: const Icon(Icons.close, size: 18),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
           ),
         ],
       ],
