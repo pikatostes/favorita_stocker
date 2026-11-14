@@ -420,6 +420,12 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   confirma se guarda la noche y se navega a `PlanScreen`; volver no escribe nada.
   Tras guardar, el usuario recibe un SnackBar de éxito salvo que sea de
   mantenimiento: ese puesto sigue el estado desde la tarjeta de Inicio.
+- **Montar cajas** (`screens/plan.dart`): dos vistas conmutables con un
+  `SegmentedButton`. «Montaje» muestra viajes y cajas; «Lista» muestra cada
+  producto una sola vez, en columna, con su miniatura, la caja y el total de
+  botellines, y un checkbox local para ir marcando lo ya preparado (con
+  contador y «Desmarcar todo»). Las marcas no se guardan en BD: son estado de
+  la pantalla y se limpian al cambiar de planta.
 - Imágenes por ruta/URI (`Image.asset` con `errorBuilder` → placeholder).
 - Textos de UI, `NumberFormat`/`DateFormat` con locale `'es'` (`intl`, `initializeDateFormatting('es')`).
 
