@@ -28,6 +28,7 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 7. `supabase/migrations/20261112000100_incidents.sql`
 8. `supabase/migrations/20261113000100_add_agua_vilas.sql`
 9. `supabase/migrations/20261114000100_add_nuevas_bebidas.sql`
+10. `supabase/migrations/20261114000200_product_images.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -42,7 +43,11 @@ producto «Agua de cristal Vilas» (categoría Refrescos y zumos, caja `Agua`,
 stock 0); es idempotente y se puede repetir sin duplicarlo. La novena da de alta
 Monster, Sprite, Cruzcampo Especial Sin Gluten, Bliss Tónica Zero y Limón y Nada
 (stock 0; Monster usa el tipo de caja nuevo `Energética`); también es
-idempotente.
+idempotente. La décima rellena `product.image` con el asset de `lib/img/` que
+corresponde a cada producto que no tenía imagen (Heineken, Sol, Desperados,
+variantes de Coca-Cola Zero y Bliss, zumos, Fanta, aguas, Monster, Limón y
+Nada...). Solo escribe donde la imagen está vacía, así que no pisa lo que se
+haya cambiado desde Admin → Productos.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,

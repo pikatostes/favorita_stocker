@@ -7,6 +7,22 @@ const _nestea = ['Té', 'Limón', 'Maracuyá', 'Melocotón'];
 const _aquarius = ['Naranja', 'Limón', 'Piña', 'Melocotón'];
 const _zumo = ['Piña', 'Melocotón', 'Naranja'];
 
+/// Imágenes propias de las variantes que no comparten la del grupo.
+const _colaImages = {
+  'Zero': 'lib/img/coca-cola-zero.png',
+  'Zero Zero': 'lib/img/coca-cola-zero-zero.webp',
+};
+const _blissImages = {
+  'Tónica Zero': 'lib/img/bliss-zero.webp',
+  'Berry': 'lib/img/berry.webp',
+  'Ginger Ale': 'lib/img/ginger-ale.webp',
+};
+const _zumoImages = {
+  'Piña': 'lib/img/pina.png',
+  'Melocotón': 'lib/img/melocoton.png',
+  'Naranja': 'lib/img/orange.png',
+};
+
 const _cajaCola =
     CrateType('Cola', 24, 1, 0.5, 1, 6); // 6 por viaje (dato tuyo)
 const _cajaNestea = CrateType('Nestea', 24, 1, 1, 1, 5); // SUPUESTO 5 por viaje
@@ -136,16 +152,19 @@ final List<Product> initialProducts = [
       group: 'Cruzcampo', subcategory: 'Radler'),
   _p('Cruzcampo Especial Sin Gluten', _cervezas, _cerveza,
       group: 'Cruzcampo', subcategory: 'Especial Sin Gluten'),
-  _p('Heineken', _cervezas, _cerveza, group: 'Heineken', subcategory: 'Normal'),
+  _p('Heineken', _cervezas, _cerveza,
+      group: 'Heineken', subcategory: 'Normal', image: 'lib/img/heineken.png'),
   _p('Heineken 0,0', _cervezas, _cerveza,
-      group: 'Heineken', subcategory: '0,0'),
+      group: 'Heineken', subcategory: '0,0', image: 'lib/img/heineken00.png'),
   _otros('Amstel Tostada 0,0', image: 'lib/img/amstel00tostada.jpg'),
-  _otros('Sol'),
-  _otros('Desperados'),
-  _otros('Ladrón de manzanas'),
-  _otros('Paulaner', size: 2, crate: 'Cerveza grande'),
-  _otros('Águila sin filtrar', size: 2, crate: 'Cerveza grande'),
-  _otros('Guinness'),
+  _otros('Sol', image: 'lib/img/sol.png'),
+  _otros('Desperados', image: 'lib/img/desperados.png'),
+  _otros('Ladrón de manzanas', image: 'lib/img/ladron-manzanas.png'),
+  _otros('Paulaner',
+      image: 'lib/img/paulaner.png', size: 2, crate: 'Cerveza grande'),
+  _otros('Águila sin filtrar',
+      image: 'lib/img/aguila.png', size: 2, crate: 'Cerveza grande'),
+  _otros('Guinness', image: 'lib/img/guinness.jpg'),
   _otros('Alcázar', image: 'lib/img/alcazar.png'),
 
   // Refrescos y zumos
@@ -155,6 +174,7 @@ final List<Product> initialProducts = [
         _cajaCola,
         group: 'Coca-Cola',
         subcategory: subcategoria,
+        image: _colaImages[subcategoria],
       )),
 
   ..._bliss.map((subcategoria) => _p(
@@ -163,6 +183,7 @@ final List<Product> initialProducts = [
         _cajaCola,
         group: 'Bliss',
         subcategory: subcategoria,
+        image: _blissImages[subcategoria],
       )),
 
   ..._nestea.map((subcategoria) => _p(
@@ -187,14 +208,17 @@ final List<Product> initialProducts = [
         _cajaCola,
         group: 'Zumo',
         subcategory: subcategoria,
+        image: _zumoImages[subcategoria],
       )),
 
-  _p('Fanta Naranja', _refrescos, _cajaCola), // SUPUESTO
+  _p('Fanta Naranja', _refrescos, _cajaCola,
+      image: 'lib/img/fanta-naranja.png'), // SUPUESTO
   _p('Sprite', _refrescos, _cajaCola),
-  _p('Limón y Nada', _refrescos, _cajaCola),
-  _p('Monster', _refrescos, _cajaEnergia),
-  _p('Agua Aquabona', _refrescos, _aquabona),
-  _p('Agua de cristal Vilas', _refrescos, _aquabona),
+  _p('Limón y Nada', _refrescos, _cajaCola, image: 'lib/img/limon.png'),
+  _p('Monster', _refrescos, _cajaEnergia, image: 'lib/img/monster.png'),
+  _p('Agua Aquabona', _refrescos, _aquabona, image: 'lib/img/agua-gas.jpg'),
+  _p('Agua de cristal Vilas', _refrescos, _aquabona,
+      image: 'lib/img/agua-cristal.webp'),
 ];
 
 /// Puestos iniciales del local. El nombre es único: la planta y la nota se
