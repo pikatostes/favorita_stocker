@@ -21,6 +21,9 @@
 --     cuenta que el tipo de caja es compartido por todos sus productos.
 --   · El stock arranca en 0; el stock real se fija desde Admin → Inventario.
 --
+-- No usa tablas temporales: el editor SQL de Supabase no garantiza que una
+-- tabla `temp` sobreviva entre sentencias del mismo script.
+--
 -- Idempotente: se puede ejecutar varias veces sin duplicar nada.
 -- ============================================================================
 
@@ -40,51 +43,38 @@ values
   ('Energética', 24, 2, 1, 1, 4, 5)
 on conflict (type) do nothing;
 
--- ---------------------------------------------------------------------------
--- Datos de trabajo
--- ---------------------------------------------------------------------------
-drop table if exists seed_new_drinks;
-
-create temp table seed_new_drinks (
-  name text not null,
-  category text not null,
-  grp text not null,
-  subcategory text,
-  box text not null
-);
-
-insert into seed_new_drinks (name, category, grp, subcategory, box)
-values
-  ('Cruzcampo Especial Sin Gluten', 'Cervezas y similares', 'Cruzcampo',
-   'Especial Sin Gluten', 'Cerveza'),
-  ('Monster', 'Refrescos y zumos', 'Monster', null, 'Energética'),
-  ('Sprite', 'Refrescos y zumos', 'Sprite', null, 'Cola'),
-  ('Bliss Tónica Zero', 'Refrescos y zumos', 'Bliss', 'Tónica Zero', 'Cola'),
-  ('Limón y Nada', 'Refrescos y zumos', 'Limón y Nada', null, 'Cola');
-
--- ---------------------------------------------------------------------------
--- Categorías, grupos y variantes
--- ---------------------------------------------------------------------------
 insert into public.category (name)
-select distinct category from seed_new_drinks
+values
+  ('Cervezas y similares'),
+  ('Refrescos y zumos')
 on conflict (name) do nothing;
 
+-- ---------------------------------------------------------------------------
+-- Grupos de variantes
+-- ---------------------------------------------------------------------------
 insert into public.product_group (category_id, name)
-select c.id, s.grp
-from seed_new_drinks s
-join public.category c on c.name = s.category
-group by c.id, s.grp
+select c.id, v.grp
+from (values
+  ('Cervezas y similares', 'Cruzcampo'),
+  ('Refrescos y zumos', 'Monster'),
+  ('Refrescos y zumos', 'Sprite'),
+  ('Refrescos y zumos', 'Bliss'),
+  ('Refrescos y zumos', 'Limón y Nada')
+) as v(category, grp)
+join public.category c on c.name = v.category
 on conflict (category_id, name) do nothing;
 
+-- ---------------------------------------------------------------------------
+-- Variantes (solo los productos que comparten grupo)
+-- ---------------------------------------------------------------------------
 insert into public.subcategory (group_id, name)
-select g.id, s.subcategory
-from (
-  select distinct category, grp, subcategory
-  from seed_new_drinks
-  where subcategory is not null
-) s
-join public.category c on c.name = s.category
-join public.product_group g on g.category_id = c.id and g.name = s.grp
+select g.id, v.subcategory
+from (values
+  ('Cervezas y similares', 'Cruzcampo', 'Especial Sin Gluten'),
+  ('Refrescos y zumos', 'Bliss', 'Tónica Zero')
+) as v(category, grp, subcategory)
+join public.category c on c.name = v.category
+join public.product_group g on g.category_id = c.id and g.name = v.grp
 on conflict (group_id, name) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -92,22 +82,27 @@ on conflict (group_id, name) do nothing;
 -- ---------------------------------------------------------------------------
 insert into public.product
   (name, box_id, group_id, subcategory_id, image, unit_in_stock)
-select s.name, b.id, g.id, sc.id, null, 0
-from seed_new_drinks s
-join public.box_type b on b.type = s.box
-join public.category c on c.name = s.category
-join public.product_group g on g.category_id = c.id and g.name = s.grp
+select v.name, b.id, g.id, sc.id, null, 0
+from (values
+  ('Cruzcampo Especial Sin Gluten', 'Cervezas y similares', 'Cruzcampo',
+   'Especial Sin Gluten', 'Cerveza'),
+  ('Monster', 'Refrescos y zumos', 'Monster', null, 'Energética'),
+  ('Sprite', 'Refrescos y zumos', 'Sprite', null, 'Cola'),
+  ('Bliss Tónica Zero', 'Refrescos y zumos', 'Bliss', 'Tónica Zero', 'Cola'),
+  ('Limón y Nada', 'Refrescos y zumos', 'Limón y Nada', null, 'Cola')
+) as v(name, category, grp, subcategory, box)
+join public.box_type b on b.type = v.box
+join public.category c on c.name = v.category
+join public.product_group g on g.category_id = c.id and g.name = v.grp
 left join public.subcategory sc
-  on sc.group_id = g.id and sc.name = s.subcategory
+  on sc.group_id = g.id and sc.name = v.subcategory
 where not exists (
   select 1
   from public.product p
   where p.group_id = g.id
-    and p.name = s.name
+    and p.name = v.name
     and p.deleted_at is null
 );
-
-drop table if exists seed_new_drinks;
 
 commit;
 
