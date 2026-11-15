@@ -315,14 +315,22 @@ class Db {
   /// Suma [delta] unidades al stock de un producto (negativo para quitarlas) y
   /// devuelve el stock resultante.
   ///
+  /// Con [terrace] mueve el contador de la terraza; si no, el stock general.
   /// Es la misma operación que usa `save_night` al guardar una lista: el stock
   /// siempre se mueve en unidades sueltas (botellines).
-  Future<int> adjustStock(int productId, int delta) async {
+  Future<int> adjustStock(
+    int productId,
+    int delta, {
+    bool terrace = false,
+  }) async {
     try {
-      final stock = await _client.rpc('adjust_product_stock', params: {
-        'p_product_id': productId,
-        'p_delta': delta,
-      });
+      final stock = await _client.rpc(
+        terrace ? 'adjust_product_terrace_stock' : 'adjust_product_stock',
+        params: {
+          'p_product_id': productId,
+          'p_delta': delta,
+        },
+      );
       _changed();
       return (stock as num).toInt();
     } catch (error) {

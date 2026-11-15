@@ -77,7 +77,8 @@ class Product {
   final String? image;
   final String? groupImage; // imagen del grupo de variantes (compartida)
   final CrateType box;
-  final int unitInStock; // unidades físicas disponibles
+  final int unitInStock; // unidades físicas disponibles en el local
+  final int unitInTerraceStock; // unidades disponibles en la terraza
   final bool deleted; // borrado lógico
 
   Product({
@@ -90,6 +91,7 @@ class Product {
     this.groupImage,
     CrateType? box,
     this.unitInStock = 0,
+    this.unitInTerraceStock = 0,
     this.deleted = false,
   }) : box = box ?? const CrateType('Caja', 24, 1, 1, 1, 5);
 
@@ -108,6 +110,14 @@ class Product {
   /// Unidades que sobran después de completar las cajas.
   int get stockLooseUnits =>
       unitsPerBox > 0 ? unitInStock % unitsPerBox : unitInStock;
+
+  /// Cajas completas que se pueden formar con [unitInTerraceStock].
+  int get terraceStockBoxes =>
+      unitsPerBox > 0 ? unitInTerraceStock ~/ unitsPerBox : 0;
+
+  /// Unidades que sobran en la terraza tras completar las cajas.
+  int get terraceStockLooseUnits =>
+      unitsPerBox > 0 ? unitInTerraceStock % unitsPerBox : unitInTerraceStock;
 
   String? get validationError {
     if (name.trim().isEmpty) return 'El nombre es obligatorio.';
@@ -133,6 +143,9 @@ class Product {
     if (unitInStock < 0) {
       return 'Las unidades en stock no pueden ser negativas.';
     }
+    if (unitInTerraceStock < 0) {
+      return 'Las unidades en stock de terraza no pueden ser negativas.';
+    }
     return null;
   }
 
@@ -146,6 +159,7 @@ class Product {
         image: m['image'] as String?,
         groupImage: m['group_image'] as String?,
         unitInStock: (m['unit_in_stock'] as int?) ?? 0,
+        unitInTerraceStock: (m['unit_in_terrace_stock'] as int?) ?? 0,
         deleted: m['deleted_at'] != null,
         box: CrateType(
           (m['box_name'] as String?) ?? 'Caja',

@@ -15,24 +15,38 @@ import '../../widgets/quantity_stepper.dart';
 /// convierte en cajas completas más las unidades que sobran. El administrador
 /// puede subir o bajar el stock con los botones de cada fila o abriendo el
 /// diálogo de ajuste (útil para movimientos grandes).
-class InventarioScreen extends StatelessWidget {
+///
+/// Un selector alterna entre el stock general del local y el de la terraza: la
+/// lista de la planta Terraza descuenta del suyo automáticamente.
+class InventarioScreen extends StatefulWidget {
   /// Cuando se muestra dentro de [AdminScreen] no crea AppBar propia.
   final bool embedded;
 
   const InventarioScreen({super.key, this.embedded = false});
 
   @override
+  State<InventarioScreen> createState() => _InventarioScreenState();
+}
+
+class _InventarioScreenState extends State<InventarioScreen> {
+  /// `false` = stock general; `true` = stock de la terraza.
+  bool _terrace = false;
+
+  @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: embedded ? null : AppBar(title: const AppLogo()),
+        appBar: widget.embedded ? null : AppBar(title: const AppLogo()),
         body: ProductCatalog(
           emptyMessage: 'No hay productos.',
           headerBuilder: _header,
           productSubtitle: (product) =>
               '${product.crateName} · ${product.unitsPerBox} uds/caja',
-          trailingBuilder: (_, product, inOverlay) =>
-              _StockTrail(product: product, compact: inOverlay),
+          trailingBuilder: (_, product, inOverlay) => _StockTrail(
+            product: product,
+            compact: inOverlay,
+            terrace: _terrace,
+          ),
           groupTrailingBuilder: (context, entry) =>
-              _groupStockSummary(context, entry),
+              _groupStockSummary(context, entry, terrace: _terrace),
         ),
       );
 
@@ -40,11 +54,40 @@ class InventarioScreen extends StatelessWidget {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(
-        '${products.length} productos · toca el stock para ajustarlo',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.storefront_outlined),
+                  label: Text('General'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.deck_outlined),
+                  label: Text('Terraza'),
+                ),
+              ],
+              selected: {_terrace},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) =>
+                  setState(() => _terrace = selection.first),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '${products.length} productos · '
+            '${_terrace ? 'stock de terraza' : 'stock general'} · '
+            'toca el stock para ajustarlo',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -54,10 +97,15 @@ class InventarioScreen extends StatelessWidget {
 ///
 /// Si el grupo mezcla cajas distintas, no se puede expresar como un único
 /// número de cajas: en ese caso se muestran las unidades totales.
-Widget _groupStockSummary(BuildContext context, ProductEntry entry) {
+Widget _groupStockSummary(
+  BuildContext context,
+  ProductEntry entry, {
+  bool terrace = false,
+}) {
   final total = entry.products.fold<int>(
     0,
-    (sum, product) => sum + product.unitInStock,
+    (sum, product) =>
+        sum + (terrace ? product.unitInTerraceStock : product.unitInStock),
   );
   final crates = entry.products
       .map((product) => '${product.crateName}\u0000${product.unitsPerBox}')
@@ -116,7 +164,14 @@ class _StockTrail extends StatefulWidget {
   final Product product;
   final bool compact;
 
-  const _StockTrail({required this.product, this.compact = false});
+  /// `true` para mover y mostrar el stock de la terraza.
+  final bool terrace;
+
+  const _StockTrail({
+    required this.product,
+    this.compact = false,
+    this.terrace = false,
+  });
 
   @override
   State<_StockTrail> createState() => _StockTrailState();
@@ -129,20 +184,28 @@ class _StockTrailState extends State<_StockTrail> {
   int get _unitsPerBox =>
       widget.product.unitsPerBox < 1 ? 1 : widget.product.unitsPerBox;
 
+  int get _sourceStock => widget.terrace
+      ? widget.product.unitInTerraceStock
+      : widget.product.unitInStock;
+
   bool get _enabled => widget.product.id != null && !_busy;
 
   @override
   void initState() {
     super.initState();
-    _stock = widget.product.unitInStock;
+    _stock = _sourceStock;
   }
 
   @override
   void didUpdateWidget(covariant _StockTrail oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final oldSource = oldWidget.terrace
+        ? oldWidget.product.unitInTerraceStock
+        : oldWidget.product.unitInStock;
     if (oldWidget.product.id != widget.product.id ||
-        oldWidget.product.unitInStock != widget.product.unitInStock) {
-      _stock = widget.product.unitInStock;
+        oldWidget.terrace != widget.terrace ||
+        oldSource != _sourceStock) {
+      _stock = _sourceStock;
     }
   }
 
@@ -151,7 +214,7 @@ class _StockTrailState extends State<_StockTrail> {
     if (id == null || delta == 0 || _busy) return;
     setState(() => _busy = true);
     try {
-      final stock = await Db.i.adjustStock(id, delta);
+      final stock = await Db.i.adjustStock(id, delta, terrace: widget.terrace);
       if (mounted) setState(() => _stock = stock);
     } catch (error) {
       if (mounted) {
@@ -166,7 +229,11 @@ class _StockTrailState extends State<_StockTrail> {
     if (!_enabled) return;
     final delta = await showDialog<int>(
       context: context,
-      builder: (_) => _StockDialog(product: widget.product, stock: _stock),
+      builder: (_) => _StockDialog(
+        product: widget.product,
+        stock: _stock,
+        terrace: widget.terrace,
+      ),
     );
     if (delta == null || delta == 0) return;
     await _apply(delta);
@@ -189,8 +256,9 @@ class _StockTrailState extends State<_StockTrail> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final suffix = widget.terrace ? ' de terraza' : '';
     final summary = Tooltip(
-      message: 'Ajustar stock',
+      message: 'Ajustar stock$suffix',
       child: InkWell(
         onTap: _enabled ? _openDialog : null,
         borderRadius: BorderRadius.circular(AppRadii.sm),
@@ -227,13 +295,13 @@ class _StockTrailState extends State<_StockTrail> {
       children: [
         _iconButton(
           icon: Icons.remove,
-          tooltip: 'Quitar una unidad',
+          tooltip: 'Quitar una unidad$suffix',
           onPressed: _stock > 0 ? () => _apply(-1) : null,
         ),
         summary,
         _iconButton(
           icon: Icons.add,
-          tooltip: 'Añadir una unidad',
+          tooltip: 'Añadir una unidad$suffix',
           onPressed: () => _apply(1),
         ),
       ],
@@ -249,7 +317,14 @@ class _StockDialog extends StatefulWidget {
   final Product product;
   final int stock;
 
-  const _StockDialog({required this.product, required this.stock});
+  /// `true` si el diálogo ajusta el stock de la terraza.
+  final bool terrace;
+
+  const _StockDialog({
+    required this.product,
+    required this.stock,
+    this.terrace = false,
+  });
 
   @override
   State<_StockDialog> createState() => _StockDialogState();
@@ -274,8 +349,9 @@ class _StockDialogState extends State<_StockDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final suffix = widget.terrace ? ' de terraza' : '';
     return AlertDialog(
-      title: const Text('Ajustar stock'),
+      title: Text('Ajustar stock$suffix'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -284,7 +360,7 @@ class _StockDialogState extends State<_StockDialog> {
             Text(widget.product.name, style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.xxs),
             Text(
-              'Stock actual: ${widget.stock} uds',
+              'Stock actual$suffix: ${widget.stock} uds',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

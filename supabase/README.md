@@ -30,6 +30,7 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 9. `supabase/migrations/20261114000100_add_nuevas_bebidas.sql`
 10. `supabase/migrations/20261114000200_product_images.sql`
 11. `supabase/migrations/20261114000300_night_finalized.sql`
+12. `supabase/migrations/20261115000100_terrace_stock.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -51,7 +52,11 @@ Nada...). Solo escribe donde la imagen está vacía, así que no pisa lo que se
 haya cambiado desde Admin → Productos. La undécima añade `night.finalized_at` y
 la RPC `finalize_night(date, floor)`: «Finalizar jornada» deja de precargar esa
 lista en la pestaña Lista (el consumo se conserva para stock, plan e histórico),
-y guardar una lista nueva la reabre.
+y guardar una lista nueva la reabre. La duodécima añade
+`product.unit_in_terrace_stock` (stock propio de la terraza) y la RPC
+`adjust_product_terrace_stock`: la lista de la planta Terraza descuenta de ese
+contador en vez de `unit_in_stock`, y el resto de plantas sigue igual.
+Inventario → **Terraza** permite verlo y cargarlo o corregirlo (arranca en 0).
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,

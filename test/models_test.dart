@@ -80,6 +80,7 @@ void main() {
         'format': 1,
         'trip_capacity': 6,
         'unit_in_stock': 123,
+        'unit_in_terrace_stock': 30,
       });
 
       expect(p.id, 7);
@@ -96,6 +97,22 @@ void main() {
       expect(p.unitInStock, 123);
       expect(p.stockBoxes, 5);
       expect(p.stockLooseUnits, 3);
+      expect(p.unitInTerraceStock, 30);
+      expect(p.terraceStockBoxes, 1);
+      expect(p.terraceStockLooseUnits, 6);
+    });
+
+    test('calcula el stock de terraza en cajas y sueltas', () {
+      final p = Product(
+        name: 'Coca-Cola',
+        box: const CrateType('Cola', 24, 1, 1, 1, 5),
+        unitInTerraceStock: 53,
+      );
+
+      expect(p.terraceStockBoxes, 2);
+      expect(p.terraceStockLooseUnits, 5);
+      expect(p.stockBoxes, 0);
+      expect(p.stockLooseUnits, 0);
     });
 
     test('calcula cajas completas y unidades sobrantes', () {
@@ -124,6 +141,15 @@ void main() {
           category: 'X',
           groupName: 'g',
           unitInStock: -1,
+        ).validationError,
+        isNotNull,
+      );
+      expect(
+        Product(
+          name: 'X',
+          category: 'X',
+          groupName: 'g',
+          unitInTerraceStock: -1,
         ).validationError,
         isNotNull,
       );

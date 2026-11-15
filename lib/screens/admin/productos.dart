@@ -359,6 +359,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       image: image.text.trim().isEmpty ? null : image.text.trim(),
       box: box,
       unitInStock: widget.product?.unitInStock ?? 0,
+      unitInTerraceStock: widget.product?.unitInTerraceStock ?? 0,
     );
 
     final validationError = product.validationError;

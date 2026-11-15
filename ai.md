@@ -88,7 +88,7 @@ lib/
       admin.dart         "Admin": pestañas Calendario, Productos, Inventario e Incidencias.
       calendario.dart    "Calendario": mes, días trabajados, excepciones, detalle del día y previsión.
       productos.dart     "Productos": CRUD de catálogo (diálogo de alta/edición).
-      inventario.dart    "Inventario": listado del catálogo, stock disponible y ajuste manual.
+      inventario.dart    "Inventario": catálogo con stock general o de terraza (selector) y ajuste manual.
   widgets/
     app_ui.dart          Componentes compartidos: AppSectionCard, MutedText, WarningLine, AppErrorState, AppStatsRow, snack y confirmación.
     shift_ui.dart        floorIcon, ShiftStatusChip y FloorShiftTabs (pestañas por planta).
@@ -171,7 +171,9 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   esperan los `fromRow`: `product_view`, `product_group_view`,
   `subcategory_view`, `user_view`, `incident_view`.
 - `product` guarda referencias: `box_id`, `group_id`, `subcategory_id`, `image`,
-  `deleted_at` (borrado lógico).
+  `deleted_at` (borrado lógico) y dos contadores de botellines:
+  `unit_in_stock` (stock general del local, que mueven las listas de planta baja
+  y karaoke) y `unit_in_terrace_stock` (stock propio de la terraza).
 - `consumption` = una fila por (noche, producto); `night` marca qué noches y
   plantas existen. Cada `night` tiene `floor` (`planta_baja`, `karaoke`,
   `terraza`) y UNIQUE(`date`,`floor`): una lista independiente por planta y
@@ -212,12 +214,17 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 - `save_product`, `set_group_image`: catálogo + upsert de categoría/grupo/
   subcategoría/caja en una transacción. `save_product` solo fija el stock al
   crear el producto; al editar lo conserva.
-- `adjust_product_stock(product_id, delta)`: ajuste manual del stock (solo
-  admin). Es la misma operación que usa la lista para descontar consumo.
+- `adjust_product_stock(product_id, delta)`: ajuste manual del stock general
+  (solo admin).
+- `adjust_product_terrace_stock(product_id, delta)`: igual, pero para el stock
+  propio de la terraza (`product.unit_in_terrace_stock`), que arranca en 0 y se
+  carga o corrige desde Inventario → Terraza.
 - `save_night(date, floor, items)`: sustituye la lista de esa noche y planta y
-  descuenta del stock solo la diferencia respecto a la lista anterior. Si el
-  stock disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
-  para …» y no se guarda nada.
+  descuenta del stock solo la diferencia respecto a la lista anterior. Las
+  plantas del local (planta baja, karaoke) mueven `unit_in_stock`; la planta
+  Terraza mueve `unit_in_terrace_stock` y deja el general intacto. Si el stock
+  disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
+  para …» / «Stock insuficiente en terraza para …» y no se guarda nada.
 - `finalize_night(date, floor)`: marca `night.finalized_at` para que la Lista
   deje de precargar esa jornada. No borra consumo ni mueve stock; `save_night`
   vuelve a poner `finalized_at = null` al guardar una lista nueva.
@@ -353,6 +360,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   categoría y estado. Cualquier usuario puede declararlas desde Inicio o desde
   Admin → Incidencias; el autor edita/borra las suyas abiertas y el admin cambia
   el estado. Inicio muestra un resumen de las activas en `IncidentsCard`.
+- **Inventario** (`screens/admin/inventario.dart`): catálogo con un selector
+  **General / Terraza** que cambia tanto el stock que se muestra como el que se
+  ajusta (botones ± y diálogo por cajas/unidades). El de terraza es independiente
+  y solo lo mueven la lista de la planta Terraza y ese ajuste manual.
 - **Paleta de colores** (`widgets/palette_picker.dart`): `PaletteTile` en Cuenta
   y `PaletteButton` para barras de acciones abren `showPalettePicker`, que
   actualiza `selectedPalette` (`theme.dart`).
@@ -445,7 +456,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 
 | Archivo | Cubre |
 |---|---|
-| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, `Forecast.boxes`, `SpecialDay`. |
+| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, cajas del stock general y de terraza, `Forecast.boxes`, `SpecialDay`. |
 | `inventario_test.dart` | Stock en cajas completas + unidades sueltas, agrupación de variantes y `SpecialDay` boolean/entero. |
 | `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes. |
 | `schedule_test.dart` | Formato, `serviceDay`, apertura y excepciones, `nextOpen`, retención. |
