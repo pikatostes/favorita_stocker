@@ -17,7 +17,8 @@ Product _product(
       id: id,
       name: 'Producto $id',
       groupName: 'Grupo $id',
-      box: CrateType(crateName, unitsPerBox, size, height, format, tripCapacity),
+      box:
+          CrateType(crateName, unitsPerBox, size, height, format, tripCapacity),
     );
 
 void main() {
@@ -98,6 +99,28 @@ void main() {
       expect(plan.trips.length, 3);
       expect(plan.trips.every((t) => t.crates.length == 1), isTrue);
       expect(plan.trips.every((t) => t.percent == 100), isTrue);
+    });
+
+    test('las botellas de alcohol no entran en el montaje', () {
+      final bottle = Product(
+        id: 9,
+        name: 'Ron',
+        groupName: 'Ron',
+        box: const CrateType(
+          'Botella',
+          1,
+          1,
+          1,
+          1,
+          24,
+          isBottle: true,
+        ),
+      );
+      final plan = Planner.build([bottle], {9: 3});
+
+      expect(plan.trips, isEmpty);
+      expect(plan.crates, isEmpty);
+      expect(plan.bottles, 0);
     });
   });
 }

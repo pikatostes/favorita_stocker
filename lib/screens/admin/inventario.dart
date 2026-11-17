@@ -38,8 +38,9 @@ class _InventarioScreenState extends State<InventarioScreen> {
         body: ProductCatalog(
           emptyMessage: 'No hay productos.',
           headerBuilder: _header,
-          productSubtitle: (product) =>
-              '${product.crateName} · ${product.unitsPerBox} uds/caja',
+          productSubtitle: (product) => product.isBottle
+              ? 'Botella · se cuenta por unidades'
+              : '${product.crateName} · ${product.unitsPerBox} uds/caja',
           trailingBuilder: (_, product, inOverlay) => _StockTrail(
             product: product,
             compact: inOverlay,
@@ -110,6 +111,9 @@ Widget _groupStockSummary(
   final crates = entry.products
       .map((product) => '${product.crateName}\u0000${product.unitsPerBox}')
       .toSet();
+  if (entry.products.every((product) => product.isBottle)) {
+    return _StockSummary(boxes: total, loose: 0, bottles: true);
+  }
   if (crates.length == 1) {
     final perBox = entry.products.first.unitsPerBox;
     return _StockSummary(
@@ -125,12 +129,19 @@ Widget _groupStockSummary(
   );
 }
 
-/// Cajas completas y unidades sobrantes.
+/// Cajas completas y unidades sobrantes (o botellas sueltas de alcohol).
 class _StockSummary extends StatelessWidget {
   final int boxes;
   final int loose;
 
-  const _StockSummary({required this.boxes, required this.loose});
+  /// `true` para mostrar «N botellas» en lugar de cajas + sueltas.
+  final bool bottles;
+
+  const _StockSummary({
+    required this.boxes,
+    required this.loose,
+    this.bottles = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -140,17 +151,20 @@ class _StockSummary extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          '$boxes ${boxes == 1 ? 'caja' : 'cajas'}',
+          bottles
+              ? '$boxes ${boxes == 1 ? 'botella' : 'botellas'}'
+              : '$boxes ${boxes == 1 ? 'caja' : 'cajas'}',
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
-        Text(
-          '+ $loose uds',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+        if (!bottles)
+          Text(
+            '+ $loose uds',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -181,8 +195,9 @@ class _StockTrailState extends State<_StockTrail> {
   bool _busy = false;
   late int _stock;
 
-  int get _unitsPerBox =>
-      widget.product.unitsPerBox < 1 ? 1 : widget.product.unitsPerBox;
+  int get _unitsPerBox => widget.product.isBottle
+      ? 1
+      : (widget.product.unitsPerBox < 1 ? 1 : widget.product.unitsPerBox);
 
   int get _sourceStock => widget.terrace
       ? widget.product.unitInTerraceStock
@@ -257,6 +272,7 @@ class _StockTrailState extends State<_StockTrail> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final suffix = widget.terrace ? ' de terraza' : '';
+    final what = widget.product.isBottle ? 'una botella' : 'una unidad';
     final summary = Tooltip(
       message: 'Ajustar stock$suffix',
       child: InkWell(
@@ -273,6 +289,7 @@ class _StockTrailState extends State<_StockTrail> {
               _StockSummary(
                 boxes: _stock ~/ _unitsPerBox,
                 loose: _stock % _unitsPerBox,
+                bottles: widget.product.isBottle,
               ),
               if (widget.compact) ...[
                 const SizedBox(width: AppSpacing.xxs),
@@ -295,13 +312,13 @@ class _StockTrailState extends State<_StockTrail> {
       children: [
         _iconButton(
           icon: Icons.remove,
-          tooltip: 'Quitar una unidad$suffix',
+          tooltip: 'Quitar $what$suffix',
           onPressed: _stock > 0 ? () => _apply(-1) : null,
         ),
         summary,
         _iconButton(
           icon: Icons.add,
-          tooltip: 'Añadir una unidad$suffix',
+          tooltip: 'Añadir $what$suffix',
           onPressed: () => _apply(1),
         ),
       ],
@@ -334,22 +351,31 @@ class _StockDialogState extends State<_StockDialog> {
   late int _boxes;
   late int _loose;
 
-  int get _unitsPerBox =>
-      widget.product.unitsPerBox < 1 ? 1 : widget.product.unitsPerBox;
+  int get _unitsPerBox => widget.product.isBottle
+      ? 1
+      : (widget.product.unitsPerBox < 1 ? 1 : widget.product.unitsPerBox);
   int get _total => _boxes * _unitsPerBox + _loose;
   int get _delta => _total - widget.stock;
 
   @override
   void initState() {
     super.initState();
-    _boxes = widget.stock ~/ _unitsPerBox;
-    _loose = widget.stock % _unitsPerBox;
+    if (widget.product.isBottle) {
+      _boxes = 0;
+      _loose = widget.stock;
+    } else {
+      _boxes = widget.stock ~/ _unitsPerBox;
+      _loose = widget.stock % _unitsPerBox;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final suffix = widget.terrace ? ' de terraza' : '';
+    final bottle = widget.product.isBottle;
+    String units(int value) =>
+        bottle ? '$value ${value == 1 ? 'botella' : 'botellas'}' : '$value uds';
     return AlertDialog(
       title: Text('Ajustar stock$suffix'),
       content: SingleChildScrollView(
@@ -360,36 +386,44 @@ class _StockDialogState extends State<_StockDialog> {
             Text(widget.product.name, style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.xxs),
             Text(
-              'Stock actual$suffix: ${widget.stock} uds',
+              'Stock actual$suffix: ${units(widget.stock)}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            Wrap(
-              spacing: AppSpacing.lg,
-              runSpacing: AppSpacing.md,
-              children: [
-                QuantityStepper(
-                  label: 'Cajas',
-                  hint: '$_unitsPerBox uds',
-                  value: _boxes,
-                  onDecrement:
-                      _boxes > 0 ? () => setState(() => _boxes--) : null,
-                  onIncrement: () => setState(() => _boxes++),
-                ),
-                QuantityStepper(
-                  label: 'Sueltas',
-                  value: _loose,
-                  onDecrement:
-                      _loose > 0 ? () => setState(() => _loose--) : null,
-                  onIncrement: () => setState(() => _loose++),
-                ),
-              ],
-            ),
+            if (bottle)
+              QuantityStepper(
+                label: 'Botellas',
+                value: _loose,
+                onDecrement: _loose > 0 ? () => setState(() => _loose--) : null,
+                onIncrement: () => setState(() => _loose++),
+              )
+            else
+              Wrap(
+                spacing: AppSpacing.lg,
+                runSpacing: AppSpacing.md,
+                children: [
+                  QuantityStepper(
+                    label: 'Cajas',
+                    hint: '$_unitsPerBox uds',
+                    value: _boxes,
+                    onDecrement:
+                        _boxes > 0 ? () => setState(() => _boxes--) : null,
+                    onIncrement: () => setState(() => _boxes++),
+                  ),
+                  QuantityStepper(
+                    label: 'Sueltas',
+                    value: _loose,
+                    onDecrement:
+                        _loose > 0 ? () => setState(() => _loose--) : null,
+                    onIncrement: () => setState(() => _loose++),
+                  ),
+                ],
+              ),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'Nuevo total: $_total uds',
+              'Nuevo total: ${units(_total)}',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -399,8 +433,8 @@ class _StockDialogState extends State<_StockDialog> {
               _delta == 0
                   ? 'Sin cambios'
                   : _delta > 0
-                      ? 'Se añaden $_delta uds'
-                      : 'Se quitan ${-_delta} uds',
+                      ? 'Se añaden ${units(_delta)}'
+                      : 'Se quitan ${units(-_delta)}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

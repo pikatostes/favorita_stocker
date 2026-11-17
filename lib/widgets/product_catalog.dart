@@ -242,7 +242,7 @@ class _EntryTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(_groupSubtitle(entry.products.length)),
+      subtitle: Text(_groupSubtitle(entry)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -276,6 +276,9 @@ class _VariantsDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
+    final subgroups = buildProductSubgroups(entry);
+    final sections =
+        subgroups.isEmpty ? [ProductSubgroup('', entry.products)] : subgroups;
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
       clipBehavior: Clip.antiAlias,
@@ -301,7 +304,7 @@ class _VariantsDialog extends StatelessWidget {
                           style: theme.textTheme.titleLarge,
                         ),
                         Text(
-                          _groupSubtitle(entry.products.length),
+                          _groupSubtitle(entry),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -318,39 +321,53 @@ class _VariantsDialog extends StatelessWidget {
               ),
               const Divider(height: 24),
               Flexible(
-                child: ListView.separated(
+                child: ListView(
                   shrinkWrap: true,
-                  itemCount: entry.products.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final product = entry.products[index];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: _ProductThumb(
-                        path: _productImage(product),
-                        isGroup: false,
-                        size: 40,
-                      ),
-                      title: Text(
-                        ProductEntry.label(product),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        variantSubtitle?.call(product) ??
-                            _defaultVariantSubtitle(product),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: trailingBuilder?.call(context, product, true),
-                      onTap: onProductTap == null
-                          ? null
-                          : () {
-                              Navigator.pop(context);
-                              onProductTap!(product);
-                            },
-                    );
-                  },
+                  children: [
+                    for (final section in sections) ...[
+                      if (section.hasName)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
+                          child: Text(
+                            section.name,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      for (final product in section.products) ...[
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: _ProductThumb(
+                            path: _productImage(product),
+                            isGroup: false,
+                            size: 40,
+                          ),
+                          title: Text(
+                            ProductEntry.label(product),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            variantSubtitle?.call(product) ??
+                                _defaultVariantSubtitle(product),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing:
+                              trailingBuilder?.call(context, product, true),
+                          onTap: onProductTap == null
+                              ? null
+                              : () {
+                                  Navigator.pop(context);
+                                  onProductTap!(product);
+                                },
+                        ),
+                        const Divider(height: 1),
+                      ],
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -407,8 +424,20 @@ class _ProductThumb extends StatelessWidget {
   }
 }
 
-String _groupSubtitle(int count) =>
-    '$count ${count == 1 ? 'subcategoría' : 'subcategorías'}';
+String _groupSubtitle(ProductEntry entry) {
+  final count = entry.products.length;
+  if (entry.products.every((product) => product.isBottle)) {
+    final brands = entry.products
+        .map((product) => product.subcategory?.trim() ?? '')
+        .where((brand) => brand.isNotEmpty)
+        .toSet();
+    final bottles = '$count ${count == 1 ? 'botella' : 'botellas'}';
+    if (brands.isEmpty) return bottles;
+    return '$bottles · ${brands.length} '
+        '${brands.length == 1 ? 'marca' : 'marcas'}';
+  }
+  return '$count ${count == 1 ? 'subcategoría' : 'subcategorías'}';
+}
 
 String? _productImage(Product product) {
   final own = product.image?.trim();
@@ -418,8 +447,13 @@ String? _productImage(Product product) {
 }
 
 String _defaultVariantSubtitle(Product product) {
-  final label = ProductEntry.label(product);
-  return label == product.name
-      ? product.boxInfo
-      : '${product.name} · ${product.boxInfo}';
+  final parts = <String>[];
+  if (!product.isBottle) {
+    final subcategory = product.subcategory?.trim() ?? '';
+    if (subcategory.isNotEmpty && subcategory != product.name) {
+      parts.add(subcategory);
+    }
+  }
+  parts.add(product.boxInfo);
+  return parts.join(' · ');
 }

@@ -10,6 +10,7 @@ Product _p(
   String? sub,
   String? image,
   String? groupImage,
+  CrateType? box,
 }) =>
     Product(
       id: id,
@@ -19,7 +20,12 @@ Product _p(
       subcategory: sub,
       image: image,
       groupImage: groupImage,
+      box: box ?? const CrateType('Caja', 24, 1, 1, 1, 5),
     );
+
+/// Tipo de caja de las botellas de alcohol.
+const CrateType _bottleBox =
+    CrateType('Botella', 1, 1, 1, 1, 24, isBottle: true);
 
 void main() {
   group('buildProductEntries', () {
@@ -37,7 +43,7 @@ void main() {
       expect(group.products.length, 3);
       expect(
         group.products.map(ProductEntry.label),
-        ['Limón', 'Naranja', 'Piña'], // ordenado por etiqueta
+        ['Aquarius', 'Aquarius Limón', 'Aquarius Piña'], // ordenado por nombre
       );
     });
 
@@ -51,8 +57,134 @@ void main() {
       final group = entries.single;
       expect(group.isGroup, isTrue);
       expect(group.products.length, 2);
-      // La variante sin subcategoría usa su nombre como etiqueta.
-      expect(group.products.map(ProductEntry.label), ['Aquarius Limón', 'Naranja']);
+      // La etiqueta es siempre el nombre, tenga o no subcategoría.
+      expect(
+        group.products.map(ProductEntry.label),
+        ['Aquarius', 'Aquarius Limón'],
+      );
+    });
+
+    test('las botellas de alcohol se agrupan por tipo (grupo)', () {
+      final entries = buildProductEntries([
+        _p(1, 'Barceló Imperial',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+        _p(2, 'Barceló Añejo',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+        _p(3, 'Havana Club 7',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+        _p(4, 'Havana Club 3',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+      ]);
+
+      expect(entries, hasLength(1));
+      final group = entries.single;
+      expect(group.isGroup, isTrue);
+      expect(group.groupName, 'Ron');
+      expect(group.products, hasLength(4));
+      // Las botellas se titulan con su nombre, no con la marca.
+      expect(
+        group.products.map(ProductEntry.label),
+        containsAll([
+          'Barceló Imperial',
+          'Barceló Añejo',
+          'Havana Club 7',
+          'Havana Club 3',
+        ]),
+      );
+    });
+
+    test('dentro del tipo, las botellas se separan por marca', () {
+      final entry = buildProductEntries([
+        _p(1, 'Barceló Imperial',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+        _p(2, 'Havana Club 7',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+        _p(3, 'Barceló Añejo',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+        _p(4, 'Havana Club 3',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+      ]).single;
+
+      final subgroups = buildProductSubgroups(entry);
+      expect(subgroups.map((subgroup) => subgroup.name),
+          ['Barceló', 'Havana Club']);
+      expect(
+        subgroups.first.products.map(ProductEntry.label),
+        ['Barceló Añejo', 'Barceló Imperial'],
+      );
+      expect(
+        subgroups.last.products.map(ProductEntry.label),
+        ['Havana Club 3', 'Havana Club 7'],
+      );
+    });
+
+    test('las botellas sin marca van al final, sin cabecera', () {
+      final entry = buildProductEntries([
+        _p(1, 'Botella suelta',
+            category: 'Alcohol', group: 'Ron', box: _bottleBox),
+        _p(2, 'Barceló Añejo',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+        _p(3, 'Barceló Imperial',
+            category: 'Alcohol', group: 'Ron', sub: 'Barceló', box: _bottleBox),
+      ]).single;
+
+      final subgroups = buildProductSubgroups(entry);
+      expect(subgroups.map((subgroup) => subgroup.name), ['Barceló', '']);
+      expect(subgroups.last.hasName, isFalse);
+      expect(subgroups.last.products.single.name, 'Botella suelta');
+    });
+
+    test('no se subdivide un grupo que no es de botellas', () {
+      final entry = buildProductEntries([
+        _p(1, 'Coca-Cola Original', group: 'Coca-Cola', sub: 'Original'),
+        _p(2, 'Coca-Cola Zero', group: 'Coca-Cola', sub: 'Zero'),
+      ]).single;
+
+      // Aunque tenga subcategorías, no es alcohol: se muestra la lista normal.
+      expect(buildProductSubgroups(entry), isEmpty);
+    });
+
+    test('la misma marca en tipos distintos no se mezcla', () {
+      final entries = buildProductEntries([
+        _p(1, 'Ron Havana',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+        _p(2, 'Ron Havana 7',
+            category: 'Alcohol',
+            group: 'Ron',
+            sub: 'Havana Club',
+            box: _bottleBox),
+        _p(3, 'Whisky Havana',
+            category: 'Alcohol',
+            group: 'Whisky',
+            sub: 'Havana Club',
+            box: _bottleBox),
+        _p(4, 'Whisky Havana 12',
+            category: 'Alcohol',
+            group: 'Whisky',
+            sub: 'Havana Club',
+            box: _bottleBox),
+      ]);
+
+      expect(entries, hasLength(2));
+      expect(
+        entries.map((e) => e.products.first.groupName).toSet(),
+        {'Ron', 'Whisky'},
+      );
     });
 
     test('un grupo de un solo producto se muestra suelto', () {
@@ -104,8 +236,10 @@ void main() {
 
     test('no mezcla grupos con el mismo nombre en categorías distintas', () {
       final entries = buildProductEntries([
-        _p(1, 'Coca-Cola', category: 'Refrescos', group: 'Cola', sub: 'Original'),
-        _p(2, 'Coca-Cola Zero', category: 'Refrescos', group: 'Cola', sub: 'Zero'),
+        _p(1, 'Coca-Cola',
+            category: 'Refrescos', group: 'Cola', sub: 'Original'),
+        _p(2, 'Coca-Cola Zero',
+            category: 'Refrescos', group: 'Cola', sub: 'Zero'),
         _p(3, 'Cola', category: 'Otra', group: 'Cola', sub: 'Original'),
         _p(4, 'Cola Cero', category: 'Otra', group: 'Cola', sub: 'Zero'),
       ]);
@@ -119,9 +253,13 @@ void main() {
 
     test('imagen: la del grupo para grupos y la propia para sueltos', () {
       final entries = buildProductEntries([
-        _p(1, 'Cruzcampo', group: 'Cruzcampo', sub: 'Pilsen',
+        _p(1, 'Cruzcampo',
+            group: 'Cruzcampo',
+            sub: 'Pilsen',
             groupImage: 'lib/img/cruzcampo.jfif'),
-        _p(2, '1904', group: 'Cruzcampo', sub: '1904',
+        _p(2, '1904',
+            group: 'Cruzcampo',
+            sub: '1904',
             groupImage: 'lib/img/cruzcampo.jfif'),
         _p(3, 'Fanta', image: 'lib/img/fanta.png'),
       ]);

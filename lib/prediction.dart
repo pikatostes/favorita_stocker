@@ -84,6 +84,8 @@ class Predictor {
 
     final items = <Forecast>[];
     for (final p in products) {
+      // Las botellas de alcohol quedan fuera de la previsión de cajas.
+      if (p.isBottle) continue;
       double sum = 0, weights = 0, w = 1;
       for (final d in base) {
         sum += w * (history[d]![p.id] ?? 0);

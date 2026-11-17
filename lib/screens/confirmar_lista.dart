@@ -39,6 +39,9 @@ class ConfirmarListaScreen extends StatelessWidget {
       '$value ${value == 1 ? singular : plural}';
 
   String _detail(LineaPedido line) {
+    if (line.product.isBottle) {
+      return _plural(line.units, 'botella', 'botellas');
+    }
     final unit = line.product.unitsPerBox;
     if (unit <= 1) return 'Botellín suelto';
     final parts = <String>[

@@ -31,6 +31,10 @@ Dashboard → **SQL Editor** → **New query**. Pega y ejecuta, **en este orden*
 10. `supabase/migrations/20261114000200_product_images.sql`
 11. `supabase/migrations/20261114000300_night_finalized.sql`
 12. `supabase/migrations/20261115000100_terrace_stock.sql`
+13. `supabase/migrations/20261115000200_bottle_inventory.sql`
+14. `supabase/migrations/20261116000100_alcohol_categories.sql`
+15. `supabase/migrations/20261117000100_alcohol_as_category.sql`
+16. `supabase/migrations/20261117000200_repair_save_product.sql`
 
 La cuarta crea la columna `profiles.avatar_path`, la actualiza en `user_view`,
 el bucket público `avatars` (2 MB; JPEG/PNG/WebP), sus políticas de Storage y la
@@ -57,6 +61,21 @@ y guardar una lista nueva la reabre. La duodécima añade
 `adjust_product_terrace_stock`: la lista de la planta Terraza descuenta de ese
 contador en vez de `unit_in_stock`, y el resto de plantas sigue igual.
 Inventario → **Terraza** permite verlo y cargarlo o corregirlo (arranca en 0).
+La decimotercera añade `box_type.is_bottle`, el tipo de caja «Botella» (1
+unidad) y la categoría «Alcohol»: las botellas se dan de alta como productos,
+se cuentan y descuentan en Lista e Inventario, pero quedan fuera del montaje de
+cajas y de la previsión. La decimocuarta probó una jerarquía alternativa (cada
+tipo de alcohol como categoría) y la decimoquinta fija el modelo definitivo:
+categoría **Alcohol**, **grupos** = tipo (Ron, Whisky, Ginebra, Vodka, Licor,
+Tequila, Brandy) y **subcategorías** = marca (Havana Club, Barceló, Brugal,
+Johnnie Walker…). La decimoquinta reubica los datos si la decimocuarta o la
+decimotercera ya estaban aplicadas y siembra las marcas habituales. Las botellas
+concretas se crean desde Admin → Productos (categoría Alcohol, grupo = tipo,
+subcategoría = marca); los botones «+» de esos desplegables permiten añadir
+grupos o subcategorías nuevas. La decimosexta repara `save_product` cuando la
+API responde «Could not find the function public.save_product(…) in the schema
+cache»: elimina cualquier versión con otra firma, vuelve a crear la canónica,
+reaplica permisos y pide a PostgREST que recargue el esquema.
 
 Cada archivo debe terminar en `Success`. Si algo falla, corrige y vuelve a
 ejecutarlo: son idempotentes en su mayor parte (`if not exists`,

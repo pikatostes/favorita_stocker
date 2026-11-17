@@ -58,6 +58,8 @@ class Planner {
     var bottles = 0;
 
     for (final p in products) {
+      // Las botellas de alcohol no entran en el montaje de cajas ni en viajes.
+      if (p.isBottle) continue;
       var l = qty[p.id] ?? 0;
       var b = fullBoxes[p.id] ?? 0;
       if (preferFull && p.unitsPerBox > 0) {

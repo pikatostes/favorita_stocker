@@ -28,6 +28,10 @@ class CrateType {
   final int format; // formato
   final int trip; // cajas de este tipo por viaje
 
+  /// `true` para el tipo de caja de las botellas de alcohol: se cuenta de una
+  /// en una y no genera cajas ni viajes en el montaje.
+  final bool isBottle;
+
   const CrateType(
     this.name,
     this.units,
@@ -37,6 +41,7 @@ class CrateType {
     this.trip, {
     this.width = 1,
     this.id,
+    this.isBottle = false,
   });
 
   CrateType copyWith({
@@ -48,6 +53,7 @@ class CrateType {
     double? width,
     int? format,
     int? trip,
+    bool? isBottle,
   }) =>
       CrateType(
         name ?? this.name,
@@ -58,6 +64,7 @@ class CrateType {
         trip ?? this.trip,
         width: width ?? this.width,
         id: id ?? this.id,
+        isBottle: isBottle ?? this.isBottle,
       );
 
   String get info => '${name.isEmpty ? "Caja" : name} · $units uds · '
@@ -103,6 +110,10 @@ class Product {
   int get format => box.format;
   String get crateName => box.name;
   int get tripCapacity => box.trip;
+
+  /// `true` para las botellas de alcohol. Se cuentan por unidades y su lista
+  /// no entra en el plan de montaje ni en la previsión.
+  bool get isBottle => box.isBottle;
 
   /// Cajas completas que se pueden formar con [unitInStock].
   int get stockBoxes => unitsPerBox > 0 ? unitInStock ~/ unitsPerBox : 0;
@@ -169,10 +180,12 @@ class Product {
           (m['format'] as int?) ?? 1,
           (m['trip_capacity'] as int?) ?? 5,
           width: ((m['width'] as num?) ?? 1).toDouble(),
+          isBottle: (m['is_bottle'] as bool?) ?? false,
         ),
       );
 
-  String get boxInfo => box.info;
+  String get boxInfo =>
+      isBottle ? 'Botella · se cuenta por unidades' : box.info;
 }
 
 /// Excepción al calendario habitual: festivo en que SÍ se abre (open=true)

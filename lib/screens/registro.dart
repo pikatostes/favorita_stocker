@@ -87,8 +87,15 @@ class _RegistroScreenState extends State<RegistroScreen> {
         final total = saved[p.id] ?? 0;
         if (total <= 0) continue;
         final size = _boxSize(p);
-        boxes[p.id!] = total ~/ size;
-        loose[p.id!] = total % size;
+        // Las botellas (y cualquier producto de 1 ud/caja) se cuentan como
+        // unidades sueltas: no tiene sentido hablar de cajas.
+        if (size <= 1) {
+          boxes[p.id!] = 0;
+          loose[p.id!] = total;
+        } else {
+          boxes[p.id!] = total ~/ size;
+          loose[p.id!] = total % size;
+        }
       }
       setState(() {
         _finalized = finalized;
@@ -148,7 +155,9 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
           ),
         QuantityStepper(
-          label: unit > 1 ? 'Sueltos' : 'Unidades',
+          label: product.isBottle
+              ? 'Botellas'
+              : (unit > 1 ? 'Sueltos' : 'Unidades'),
           value: loose,
           onDecrement: loose > 0
               ? () =>
@@ -171,9 +180,40 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   String _boxHint(Product product) {
+    if (product.isBottle) return 'Botella';
     final unit = _boxSize(product);
     if (unit <= 1) return 'Unidad suelta';
     return '${product.crateName} · $unit uds/caja';
+  }
+
+  /// Subtítulo de una variante dentro de un grupo.
+  ///
+  /// En las botellas la marca ya aparece como sección y el tipo como título, así
+  /// que solo se muestra la caja. En el resto se añade la subcategoría cuando
+  /// aporta algo (p. ej. dos Cruzcampo con distinto tipo) y el tipo de caja.
+  String _variantHint(Product product) {
+    if (product.isBottle) return _boxHint(product);
+    final subcategory = product.subcategory?.trim() ?? '';
+    final box = _boxHint(product);
+    if (subcategory.isEmpty || subcategory == product.name) return box;
+    return '$subcategory · $box';
+  }
+
+  /// «N botellas · M marcas» para grupos de alcohol, «N variantes» para el
+  /// resto.
+  static String _variantsLabel(List<Product> products) {
+    final count = products.length;
+    if (products.isNotEmpty && products.every((p) => p.isBottle)) {
+      final base = '$count ${count == 1 ? 'botella' : 'botellas'}';
+      final brands = products
+          .map((p) => p.subcategory?.trim() ?? '')
+          .where((brand) => brand.isNotEmpty)
+          .toSet();
+      if (brands.isEmpty) return base;
+      return '$base · ${brands.length} '
+          '${brands.length == 1 ? 'marca' : 'marcas'}';
+    }
+    return '$count ${count == 1 ? 'variante' : 'variantes'}';
   }
 
   /// Miniatura unificada de las filas y tarjetas.
@@ -241,6 +281,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _productTile(
     Product product, {
     String? title,
+    String? subtitle,
     StateSetter? refreshOverlay,
   }) {
     final total = _totalFor(product);
@@ -266,7 +307,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   ),
                   const SizedBox(height: 1),
                   Text(
-                    _boxHint(product),
+                    subtitle ?? _boxHint(product),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -329,6 +370,14 @@ class _RegistroScreenState extends State<RegistroScreen> {
           final height = screen.width < AppBreakpoints.mobileMax
               ? screen.height * 0.82
               : screen.height * 0.72;
+          final sections = buildProductSubgroups(entry);
+          Widget variantTile(Product variant, StateSetter refresh) =>
+              _productTile(
+                variant,
+                title: ProductEntry.label(variant),
+                subtitle: _variantHint(variant),
+                refreshOverlay: refresh,
+              );
           return SizedBox(
             height: height,
             child: Column(
@@ -353,7 +402,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                             Text(
-                              '${variants.length} variantes · ajusta cajas y sueltos',
+                              variants.every((p) => p.isBottle)
+                                  ? _variantsLabel(variants)
+                                  : '${_variantsLabel(variants)} · ajusta '
+                                      'cajas y sueltos',
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
@@ -376,18 +428,23 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: ListView.separated(
+                  child: ListView(
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    itemCount: variants.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final variant = variants[index];
-                      return _productTile(
-                        variant,
-                        title: ProductEntry.label(variant),
-                        refreshOverlay: refreshOverlay,
-                      );
-                    },
+                    children: [
+                      if (sections.isEmpty)
+                        for (final variant in variants) ...[
+                          variantTile(variant, refreshOverlay),
+                          const Divider(height: 1),
+                        ]
+                      else
+                        for (final section in sections) ...[
+                          if (section.hasName) _brandHeader(section.name),
+                          for (final variant in section.products) ...[
+                            variantTile(variant, refreshOverlay),
+                            const Divider(height: 1),
+                          ],
+                        ],
+                    ],
                   ),
                 ),
                 const Divider(height: 1),
@@ -405,6 +462,26 @@ class _RegistroScreenState extends State<RegistroScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// Cabecera de una marca dentro de un grupo de alcohol.
+  Widget _brandHeader(String brand) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        AppSpacing.xs,
+      ),
+      child: Text(
+        brand,
+        style: theme.textTheme.titleSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -441,7 +518,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                       ),
                     ),
                     Text(
-                      '${entry.products.length} variantes',
+                      _variantsLabel(entry.products),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -534,7 +611,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      '${entry.products.length} variantes',
+                      _variantsLabel(entry.products),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1192,7 +1269,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       final loose = _loose[product.id] ?? 0;
       if (productBoxes == 0 && loose == 0) continue;
       selected++;
-      boxes += productBoxes;
+      if (_boxSize(product) > 1) boxes += productBoxes;
       units += productBoxes * _boxSize(product) + loose;
     }
     return (products: selected, boxes: boxes, units: units);

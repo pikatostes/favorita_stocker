@@ -176,6 +176,7 @@ class Db {
           row['trip_capacity'] as int,
           width: (row['width'] as num).toDouble(),
           id: row['id'] as int,
+          isBottle: (row['is_bottle'] as bool?) ?? false,
         ),
     ];
   }

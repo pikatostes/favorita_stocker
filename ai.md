@@ -35,7 +35,7 @@ registrar el consumo de cada noche, **prever** qué reponer y **montar cajas/via
 flutter pub get
 flutter analyze          # debe quedar limpio (flutter_lints)
 flutter test             # toda la suite en test/
-flutter run -d windows --dart-define-from-file=env.json
+flutter run -d chrome --dart-define-from-file=env.json
 ```
 
 `env.json` (ignorado por Git) contiene `SUPABASE_URL` y
@@ -69,7 +69,7 @@ lib/
   seed.dart              Catálogo inicial (initialProducts) en código (referencia histórica).
   prediction.dart        Predictor.forecast(): previsión en 2 pasos (base + temporada + margen).
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
-  product_entries.dart   buildProductEntries(): agrupa variantes para las listas de UI.
+  product_entries.dart   buildProductEntries(): agrupa por grupo; buildProductSubgroups(): marcas dentro del alcohol.
   formats.dart           Fechas en español (larga, corta, mes) y `capitalize`.
   screens/
     home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack.
@@ -174,6 +174,13 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   `deleted_at` (borrado lógico) y dos contadores de botellines:
   `unit_in_stock` (stock general del local, que mueven las listas de planta baja
   y karaoke) y `unit_in_terrace_stock` (stock propio de la terraza).
+- Las **botellas de alcohol** son productos con un `box_type` marcado con
+  `is_bottle` («Botella», 1 ud/caja). Se guardan en la categoría `Alcohol`: el
+  **grupo** es el tipo de bebida (`Ron`, `Whisky`, `Ginebra`, `Vodka`, `Licor`,
+  `Tequila`, `Brandy`) y la **subcategoría** es la marca (`Havana Club`,
+  `Barceló`, `Brugal`, `Johnnie Walker`…). Se cuentan y descuentan como
+  cualquier producto en Lista e Inventario, pero `Planner` y `Predictor` las
+  ignoran: no generan cajas, viajes ni previsión.
 - `consumption` = una fila por (noche, producto); `night` marca qué noches y
   plantas existen. Cada `night` tiene `floor` (`planta_baja`, `karaoke`,
   `terraza`) y UNIQUE(`date`,`floor`): una lista independiente por planta y
@@ -222,8 +229,9 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
 - `save_night(date, floor, items)`: sustituye la lista de esa noche y planta y
   descuenta del stock solo la diferencia respecto a la lista anterior. Las
   plantas del local (planta baja, karaoke) mueven `unit_in_stock`; la planta
-  Terraza mueve `unit_in_terrace_stock` y deja el general intacto. Si el stock
-  disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
+  Terraza mueve `unit_in_terrace_stock` y deja el general intacto. Las botellas
+  de alcohol se guardan y descuentan igual que el resto de productos. Si el
+  stock disponible no cubre la nueva lista, la RPC falla con «Stock insuficiente
   para …» / «Stock insuficiente en terraza para …» y no se guarda nada.
 - `finalize_night(date, floor)`: marca `night.finalized_at` para que la Lista
   deje de precargar esa jornada. No borra consumo ni mueve stock; `save_night`
@@ -287,6 +295,8 @@ en adelante y sin lista guardada, se muestra la previsión y el botón para
 montar cajas según ella.
 
 ### Montaje de cajas (`planner.dart`, `Planner.build`)
+- Las **botellas de alcohol** (`Product.isBottle`) se ignoran: no generan cajas
+  ni viajes. `Predictor.calculate` también las excluye de la previsión.
 - 0) **Cajas dedicadas** (un solo producto): las pedidas en `fullBoxes` y, si
   `preferFull`, las que salen de dividir por `unitsPerBox`.
 - 1) El resto se **mezcla** solo entre productos con igual `size|height|width|format|unitsPerBox`,
@@ -337,10 +347,19 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 
 ### Agrupación para la UI (`product_entries.dart`)
 - Un grupo se despliega **solo si tiene ≥2 productos**; si no, va suelto.
-- Etiqueta de variante = subcategoría o, si falta, su nombre.
+- Todos los productos se agrupan por su **grupo de producto** (`groupName`):
+  refrescos por marca comercial, alcohol por tipo (Ron, Whisky…).
+- **Botellas de alcohol**: dentro del tipo, `buildProductSubgroups` separa las
+  botellas por **marca** (`subcategory`) en secciones; las que no tienen marca
+  van al final, sin cabecera. La misma marca en tipos distintos nunca se mezcla
+  porque el tipo es el grupo exterior.
+- Etiqueta de variante = **siempre el nombre del producto** (la subcategoría ya
+  no se usa como título).
 - Orden: alfabético por el nombre visible (grupo o producto), sin distinguir
   mayúsculas ni tildes. Grupos y sueltos van entremezclados; las variantes de un
   grupo se ordenan por su etiqueta con el mismo criterio.
+- En los grupos de botellas el subtítulo dice «N botellas · M marcas» y la
+  imagen sale de la imagen del tipo o, si no hay, de la primera botella.
 
 ## 8. UI y patrones (`screens/`, `widgets/`)
 
@@ -363,7 +382,10 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **Inventario** (`screens/admin/inventario.dart`): catálogo con un selector
   **General / Terraza** que cambia tanto el stock que se muestra como el que se
   ajusta (botones ± y diálogo por cajas/unidades). El de terraza es independiente
-  y solo lo mueven la lista de la planta Terraza y ese ajuste manual.
+  y solo lo mueven la lista de la planta Terraza y ese ajuste manual. Las
+  botellas viven en la pestaña **Alcohol**, agrupadas por tipo (Ron, Whisky…) y
+  con la marca como subcategoría; se muestran y ajustan como **botellas**, no
+  como cajas.
 - **Paleta de colores** (`widgets/palette_picker.dart`): `PaletteTile` en Cuenta
   y `PaletteButton` para barras de acciones abren `showPalettePicker`, que
   actualiza `selectedPalette` (`theme.dart`).
@@ -411,8 +433,14 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   apertura, y puede editar; el empleado solo ve nombre y apellidos, rol de
   acceso, puesto y estado (`employeeUserSummary`).
 - **Formulario de producto** (`_ProductDialog`): categoría, grupo, subcategoría y tipo
-  de caja son **desplegables estrictos** (solo valores existentes en BD). Los números
-  describen la caja seleccionada, **compartida** por todos los productos de ese tipo.
+  de caja son **desplegables** de valores existentes en BD. Los botones «+» junto a
+  grupo y subcategoría permiten crear un grupo o una subcategoría nuevos
+  (`_NameDialog`); el valor se inserta al guardar el producto porque `save_product`
+  hace upsert del grupo y la subcategoría. Los números describen la caja
+  seleccionada, **compartida** por todos los productos de ese tipo. Si la
+  categoría es **«Alcohol»**, el tipo de caja se fija a «Botella» (1 ud) y los
+  campos de la caja quedan deshabilitados; al salir de esa categoría se elige
+  otra caja automáticamente.
   El diálogo es dueño de sus `TextEditingController` y los destruye en `dispose`
   (no destruirlos antes de que el diálogo se desmonte: provocaba `_dependents.isEmpty`).
 - **Lista por planta** (`screens/registro.dart`): un selector `Planta` permite
@@ -423,7 +451,9 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   guardado falla y no se modifica nada. En móvil (<600 px) los controles de
   fecha, planta y modo de vista son tarjetas compactas de 44 px con el icono y
   el dato apilados (la fecha en dos líneas, la planta con `Floor.short`), dentro
-  de la cabecera a la altura del título (`AppPageHeader.inlineActions`). La
+  de la cabecera a la altura del título (`AppPageHeader.inlineActions`). Las
+  **botellas de alcohol** se muestran con su propia etiqueta («Botellas») y se
+  guardan como unidades sueltas, igual que cualquier producto de 1 ud/caja. La
   acción «Guardar y montar cajas» de la barra inferior también se reduce a un
   botón compacto de 40 px con el color primario (icono y «Guardar», 128 px de
   ancho mínimo) a la derecha del resumen, nunca a todo el ancho. En tablet y escritorio se mantienen los controles y el botón
@@ -456,9 +486,9 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 
 | Archivo | Cubre |
 |---|---|
-| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, cajas del stock general y de terraza, `Forecast.boxes`, `SpecialDay`. |
+| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, cajas del stock general y de terraza, botellas de alcohol, `Forecast.boxes`, `SpecialDay`. |
 | `inventario_test.dart` | Stock en cajas completas + unidades sueltas, agrupación de variantes y `SpecialDay` boolean/entero. |
-| `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes. |
+| `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes y exclusión de botellas. |
 | `schedule_test.dart` | Formato, `serviceDay`, apertura y excepciones, `nextOpen`, retención. |
 | `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |

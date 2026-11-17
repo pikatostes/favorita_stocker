@@ -196,9 +196,10 @@ class _ProductosScreenState extends State<ProductosScreen> {
 /// Formulario de alta/edición. Es dueño de sus [TextEditingController], que
 /// se destruyen en [dispose] (cuando el diálogo ya se ha desmontado).
 ///
-/// Categoría, grupo, subcategoría y tipo de caja solo pueden elegirse entre los
-/// valores existentes en la BD (desplegables estrictos). Los números describen
-/// la caja seleccionada, que es compartida por todos los productos de ese tipo.
+/// Categoría, grupo, subcategoría y tipo de caja se eligen entre los valores
+/// existentes en la BD. Los botones «+» de grupo y subcategoría permiten crear
+/// valores nuevos sin salir del formulario. Los números describen la caja
+/// seleccionada, que es compartida por todos los productos de ese tipo.
 class _ProductDialog extends StatefulWidget {
   final Product? product;
   final _ProductOptions options;
@@ -234,6 +235,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   String? _group;
   String? _subcategory;
   late String _boxType;
+  bool _isBottle = false;
 
   @override
   void initState() {
@@ -295,6 +297,9 @@ class _ProductDialogState extends State<_ProductDialog> {
         (boxName.isNotEmpty && widget.options.boxByName.containsKey(boxName))
             ? boxName
             : (boxes.isNotEmpty ? boxes.first.name : '');
+    // «Alcohol» siempre se cuenta con la caja de botellas.
+    final bottle = _bottleBox;
+    if (_isAlcohol && bottle != null) _boxType = bottle.name;
     _fillBox(widget.options.boxFor(_boxType) ?? p?.box);
   }
 
@@ -311,6 +316,7 @@ class _ProductDialogState extends State<_ProductDialog> {
 
   /// Copia en los campos numéricos los atributos del tipo de caja dado.
   void _fillBox(CrateType? b) {
+    _isBottle = b?.isBottle ?? false;
     units.text = '${b?.units ?? 24}';
     size.text = _n(b?.size ?? 1);
     height.text = _n(b?.height ?? 1);
@@ -318,6 +324,17 @@ class _ProductDialogState extends State<_ProductDialog> {
     format.text = '${b?.format ?? 1}';
     trip.text = '${b?.trip ?? 5}';
   }
+
+  /// Tipo de caja de las botellas («Botella»), si existe en el catálogo.
+  CrateType? get _bottleBox {
+    for (final box in widget.options.boxes) {
+      if (box.isBottle) return box;
+    }
+    return widget.options.boxByName['Botella'];
+  }
+
+  /// La categoría «Alcohol» obliga a usar la caja de botellas.
+  bool get _isAlcohol => _category.trim().toLowerCase() == 'alcohol';
 
   void _showError(String message) {
     ScaffoldMessenger.of(context)
@@ -349,6 +366,7 @@ class _ProductDialogState extends State<_ProductDialog> {
       productFormat,
       tripCapacity,
       width: productWidth,
+      isBottle: _isBottle,
     );
     final product = Product(
       id: widget.product?.id,
@@ -377,12 +395,36 @@ class _ProductDialogState extends State<_ProductDialog> {
     Navigator.pop(context, (product: product, groupImage: groupImagePath));
   }
 
+  /// Pide un nombre nuevo (grupo o subcategoría) y lo deja seleccionado. El
+  /// valor se crea en la BD al guardar el producto, porque `save_product` hace
+  /// upsert del grupo y de la subcategoría.
+  Future<void> _addName({
+    required String title,
+    required String label,
+    required ValueChanged<String> onSaved,
+  }) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _NameDialog(title: title, label: label),
+    );
+    final value = name?.trim();
+    if (value == null || value.isEmpty || !mounted) return;
+    onSaved(value);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final groups = widget.options.groupsFor(_category);
+    // Se incluye el valor elegido aunque todavía no exista en la BD: al pulsar
+    // «+» se puede crear un grupo o una subcategoría nueva y se guarda al
+    // aceptar.
+    final groups = <String>[...widget.options.groupsFor(_category)];
+    if (_group != null && !groups.contains(_group)) groups.add(_group!);
     final subcategories = _group == null
-        ? const <String>[]
-        : widget.options.subcategoriesFor(_category, _group!);
+        ? <String>[]
+        : <String>[...widget.options.subcategoriesFor(_category, _group!)];
+    if (_subcategory != null && !subcategories.contains(_subcategory)) {
+      subcategories.add(_subcategory!);
+    }
 
     return AlertDialog(
       title:
@@ -403,42 +445,97 @@ class _ProductDialogState extends State<_ProductDialog> {
             ],
             onChanged: (v) {
               if (v == null) return;
+              final bottle = _bottleBox;
               setState(() {
                 _category = v;
                 _group = null;
                 _subcategory = null;
+                if (_isAlcohol) {
+                  // Categoría Alcohol: caja de botellas fija.
+                  if (bottle != null) {
+                    _boxType = bottle.name;
+                    _fillBox(bottle);
+                  }
+                } else if (_isBottle) {
+                  // Al salir de Alcohol no se queda con la caja de botella.
+                  final other =
+                      widget.options.boxes.where((box) => !box.isBottle);
+                  if (other.isNotEmpty) {
+                    _boxType = other.first.name;
+                    _fillBox(other.first);
+                  }
+                }
               });
             },
           ),
-          DropdownButtonFormField<String>(
-            initialValue: _group,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Grupo de variantes'),
-            items: [
-              for (final g in groups)
-                DropdownMenuItem<String>(
-                    value: g, child: Text(g, overflow: TextOverflow.ellipsis)),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _group,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Grupo de variantes'),
+                  items: [
+                    for (final g in groups)
+                      DropdownMenuItem<String>(
+                          value: g,
+                          child: Text(g, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: groups.isEmpty
+                      ? null
+                      : (v) => setState(() {
+                            _group = v;
+                            _subcategory = null;
+                          }),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Añadir un grupo',
+                icon: const Icon(Icons.add),
+                onPressed: () => _addName(
+                  title: 'Nuevo grupo de variantes',
+                  label: 'Nombre del grupo',
+                  onSaved: (name) => setState(() {
+                    _group = name;
+                    _subcategory = null;
+                  }),
+                ),
+              ),
             ],
-            onChanged: groups.isEmpty
-                ? null
-                : (v) => setState(() {
-                      _group = v;
-                      _subcategory = null;
-                    }),
           ),
-          DropdownButtonFormField<String>(
-            initialValue: _subcategory,
-            isExpanded: true,
-            decoration:
-                const InputDecoration(labelText: 'Subcategoría (opcional)'),
-            items: [
-              for (final s in subcategories)
-                DropdownMenuItem<String>(
-                    value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _subcategory,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                      labelText: 'Subcategoría (opcional)'),
+                  items: [
+                    for (final s in subcategories)
+                      DropdownMenuItem<String>(
+                          value: s,
+                          child: Text(s, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: _group == null || subcategories.isEmpty
+                      ? null
+                      : (v) => setState(() => _subcategory = v),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Añadir una subcategoría',
+                icon: const Icon(Icons.add),
+                onPressed: _group == null
+                    ? null
+                    : () => _addName(
+                          title: 'Nueva subcategoría',
+                          label: 'Nombre de la subcategoría',
+                          onSaved: (name) =>
+                              setState(() => _subcategory = name),
+                        ),
+              ),
             ],
-            onChanged: _group == null || subcategories.isEmpty
-                ? null
-                : (v) => setState(() => _subcategory = v),
           ),
           TextField(
               controller: image,
@@ -459,16 +556,31 @@ class _ProductDialogState extends State<_ProductDialog> {
                     value: b.name,
                     child: Text(b.name, overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: (v) {
-              if (v == null) return;
-              setState(() {
-                _boxType = v;
-                _fillBox(widget.options.boxFor(v));
-              });
-            },
+            onChanged: _isAlcohol
+                ? null
+                : (v) {
+                    if (v == null) return;
+                    setState(() {
+                      _boxType = v;
+                      _fillBox(widget.options.boxFor(v));
+                    });
+                  },
           ),
+          if (_isBottle)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Se cuenta por botellas y no entra en el montaje ni en la '
+                'previsión. Categoría «Alcohol», grupo = tipo (Ron, Whisky…) '
+                'y subcategoría = marca (Barceló, Brugal…).',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
           TextField(
               controller: units,
+              enabled: !_isBottle,
               keyboardType: TextInputType.number,
               decoration:
                   const InputDecoration(labelText: 'Unidades por caja')),
@@ -476,18 +588,21 @@ class _ProductDialogState extends State<_ProductDialog> {
             Expanded(
                 child: TextField(
                     controller: size,
+                    enabled: !_isBottle,
                     keyboardType: _decimal,
                     decoration: const InputDecoration(labelText: 'Tamaño'))),
             const SizedBox(width: 8),
             Expanded(
                 child: TextField(
                     controller: height,
+                    enabled: !_isBottle,
                     keyboardType: _decimal,
                     decoration: const InputDecoration(labelText: 'Altura'))),
             const SizedBox(width: 8),
             Expanded(
                 child: TextField(
                     controller: width,
+                    enabled: !_isBottle,
                     keyboardType: _decimal,
                     decoration: const InputDecoration(labelText: 'Ancho'))),
           ]),
@@ -495,19 +610,24 @@ class _ProductDialogState extends State<_ProductDialog> {
             Expanded(
                 child: TextField(
                     controller: format,
+                    enabled: !_isBottle,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(labelText: 'Formato'))),
             const SizedBox(width: 8),
             Expanded(
                 child: TextField(
                     controller: trip,
+                    enabled: !_isBottle,
                     keyboardType: TextInputType.number,
                     decoration:
                         const InputDecoration(labelText: 'Cajas por viaje'))),
           ]),
           const SizedBox(height: 4),
           Text(
-            'Los datos de la caja se comparten entre todos los productos de ese tipo.',
+            _isBottle
+                ? 'Las botellas se cuentan de una en una: el tipo de caja '
+                    '«Botella» no se puede cambiar.'
+                : 'Los datos de la caja se comparten entre todos los productos de ese tipo.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ]),
@@ -520,4 +640,52 @@ class _ProductDialogState extends State<_ProductDialog> {
       ],
     );
   }
+}
+
+/// Diálogo de una línea para crear un grupo o una subcategoría nueva sin salir
+/// del formulario de producto.
+class _NameDialog extends StatefulWidget {
+  final String title;
+  final String label;
+
+  const _NameDialog({required this.title, required this.label});
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) return;
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(widget.title),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(labelText: widget.label),
+          onSubmitted: (_) => _submit(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(onPressed: _submit, child: const Text('Añadir')),
+        ],
+      );
 }

@@ -115,6 +115,33 @@ void main() {
       expect(p.stockLooseUnits, 0);
     });
 
+    test('detecta las botellas de alcohol desde la vista', () {
+      final p = Product.fromRow({
+        'id': 9,
+        'name': 'Ron',
+        'category': 'Alcohol',
+        'group_name': 'Ron',
+        'subcategory': null,
+        'image': null,
+        'box_name': 'Botella',
+        'units_per_box': 1,
+        'size': 1.0,
+        'height': 1.0,
+        'width': 1.0,
+        'format': 1,
+        'trip_capacity': 24,
+        'unit_in_stock': 6,
+        'unit_in_terrace_stock': 2,
+        'is_bottle': true,
+      });
+
+      expect(p.isBottle, isTrue);
+      expect(p.boxInfo, 'Botella · se cuenta por unidades');
+      expect(p.unitInStock, 6);
+      expect(p.stockBoxes, 6);
+      expect(p.stockLooseUnits, 0);
+    });
+
     test('calcula cajas completas y unidades sobrantes', () {
       final p = Product(
         name: 'Coca-Cola',
@@ -180,6 +207,16 @@ void main() {
       expect(crate.width, 2);
       expect(crate.format, 1);
       expect(crate.trip, 6);
+      expect(crate.isBottle, isFalse);
+    });
+
+    test('copyWith conserva el tipo de botella', () {
+      const bottle = CrateType('Botella', 1, 1, 1, 1, 24, isBottle: true);
+
+      final copy = bottle.copyWith(units: 2);
+
+      expect(copy.isBottle, isTrue);
+      expect(copy.units, 2);
     });
   });
 

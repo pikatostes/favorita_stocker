@@ -51,8 +51,9 @@ void main() {
   group('agrupación del catálogo', () {
     test('las variantes de un mismo grupo se muestran juntas', () {
       final entries = buildProductEntries([
-        _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Zero'),
-        _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Original'),
+        _product('Coca-Cola Original',
+            group: 'Coca-Cola', subcategory: 'Original'),
+        _product('Coca-Cola Zero', group: 'Coca-Cola', subcategory: 'Zero'),
       ]);
 
       expect(entries, hasLength(1));
@@ -60,7 +61,7 @@ void main() {
       expect(entries.single.groupName, 'Coca-Cola');
       expect(
         entries.single.products.map(ProductEntry.label),
-        ['Original', 'Zero'],
+        ['Coca-Cola Original', 'Coca-Cola Zero'],
       );
     });
 
@@ -75,11 +76,12 @@ void main() {
 
     test('ordena alfabéticamente mezclando grupos y productos sueltos', () {
       final entries = buildProductEntries([
-        _product('Zumos', group: 'Zumos', subcategory: 'Piña'),
+        _product('Zumos Piña', group: 'Zumos', subcategory: 'Piña'),
         _product('Agua', group: null),
-        _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Zero'),
-        _product('Coca-Cola', group: 'Coca-Cola', subcategory: 'Original'),
-        _product('Zumos', group: 'Zumos', subcategory: 'Naranja'),
+        _product('Coca-Cola Zero', group: 'Coca-Cola', subcategory: 'Zero'),
+        _product('Coca-Cola Original',
+            group: 'Coca-Cola', subcategory: 'Original'),
+        _product('Zumos Naranja', group: 'Zumos', subcategory: 'Naranja'),
       ]);
 
       expect(entries, hasLength(3));
@@ -91,7 +93,7 @@ void main() {
       expect(entries.last.isGroup, isTrue);
       expect(
         entries.last.products.map(ProductEntry.label),
-        ['Naranja', 'Piña'],
+        ['Zumos Naranja', 'Zumos Piña'],
       );
     });
 
@@ -144,10 +146,10 @@ void main() {
       );
     });
 
-    test('la etiqueta usa la subcategoría y, si falta, el nombre', () {
+    test('la etiqueta es siempre el nombre del producto', () {
       expect(
-        ProductEntry.label(_product('Coca-Cola', subcategory: 'Zero')),
-        'Zero',
+        ProductEntry.label(_product('Coca-Cola Zero', subcategory: 'Zero')),
+        'Coca-Cola Zero',
       );
       expect(ProductEntry.label(_product('Agua')), 'Agua');
     });
