@@ -33,6 +33,11 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// siempre en botellines (cajas × unidades por caja + sueltos).
   final Map<int, int> _boxes = {};
   final Map<int, int> _loose = {};
+
+  /// Consumo ya guardado de la noche y planta actuales. El stock de la BD ya lo
+  /// tiene descontado, así que se suma para calcular el máximo editable: al
+  /// guardar, la RPC devuelve ese consumo antes de descontar la lista nueva.
+  final Map<int, int> _savedQuantities = {};
   bool _gridView = false;
 
   /// La jornada cargada ya se finalizó: su lista no se precarga y la pantalla
@@ -55,6 +60,40 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// Total de botellines de un producto (cajas completas + sueltos).
   int _totalFor(Product p) =>
       (_boxes[p.id] ?? 0) * _boxSize(p) + (_loose[p.id] ?? 0);
+
+  /// Unidades que se pueden pedir como máximo en esta planta.
+  ///
+  /// Se parte del stock de la BD y se devuelve lo que ya consumía esta misma
+  /// lista (si se está editando), porque ese consumo ya está descontado.
+  int _availableStock(Product product) => product.maxUnitsForFloor(
+        terrace: _floor == Floor.terraza,
+        alreadySaved: _savedQuantities[product.id] ?? 0,
+      );
+
+  /// Producto sin stock y sin cantidad pendiente: se muestra desactivado.
+  bool _isDisabled(Product product) =>
+      _availableStock(product) <= 0 && _totalFor(product) == 0;
+
+  /// Grupo sin ninguna variante disponible (ni con cantidad pendiente).
+  bool _entryDisabled(ProductEntry entry) => entry.products.every(_isDisabled);
+
+  /// Texto de disponibilidad para el formulario.
+  String _availabilityLabel(Product product) {
+    final available = _availableStock(product);
+    return available <= 0 ? 'Sin stock' : 'Máx. $available';
+  }
+
+  /// Subtítulo de un producto suelto: caja + disponibilidad.
+  String _productHint(Product product) =>
+      '${_boxHint(product)} · ${_availabilityLabel(product)}';
+
+  /// Subtítulo de un grupo: variantes y cuántas están sin stock.
+  String _entryHint(ProductEntry entry) {
+    final unavailable = entry.products.where(_isDisabled).length;
+    if (unavailable == entry.products.length) return 'Sin stock';
+    final base = _variantsLabel(entry.products);
+    return unavailable == 0 ? base : '$base · $unavailable sin stock';
+  }
 
   @override
   void initState() {
@@ -107,6 +146,9 @@ class _RegistroScreenState extends State<RegistroScreen> {
         _loose
           ..clear()
           ..addAll(loose);
+        _savedQuantities
+          ..clear()
+          ..addAll(saved);
       });
     } catch (error) {
       if (!mounted) return;
@@ -134,10 +176,27 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   /// Controles de cantidad de un producto (cajas completas y sueltos).
+  ///
+  /// El incremento se bloquea al alcanzar el stock disponible. Si el producto
+  /// no tiene stock ni cantidad pendiente, sus controles quedan desactivados.
   Widget _quantityControls(Product product, {StateSetter? refreshOverlay}) {
+    if (_isDisabled(product)) {
+      final theme = Theme.of(context);
+      return Text(
+        'Sin stock',
+        style: theme.textTheme.labelLarge?.copyWith(
+          color: theme.colorScheme.error,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
     final unit = _boxSize(product);
     final boxes = _boxes[product.id] ?? 0;
     final loose = _loose[product.id] ?? 0;
+    final total = _totalFor(product);
+    final available = _availableStock(product);
+    final canAddBox = unit > 1 && total + unit <= available;
+    final canAddLoose = total + 1 <= available;
     return Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
@@ -151,8 +210,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
                 ? () => _setBoxes(product, boxes - 1,
                     refreshOverlay: refreshOverlay)
                 : null,
-            onIncrement: () =>
-                _setBoxes(product, boxes + 1, refreshOverlay: refreshOverlay),
+            onIncrement: canAddBox
+                ? () => _setBoxes(product, boxes + 1,
+                    refreshOverlay: refreshOverlay)
+                : null,
           ),
         QuantityStepper(
           label: product.isBottle
@@ -163,8 +224,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
               ? () =>
                   _setLoose(product, loose - 1, refreshOverlay: refreshOverlay)
               : null,
-          onIncrement: () =>
-              _setLoose(product, loose + 1, refreshOverlay: refreshOverlay),
+          onIncrement: canAddLoose
+              ? () =>
+                  _setLoose(product, loose + 1, refreshOverlay: refreshOverlay)
+              : null,
         ),
       ],
     );
@@ -190,13 +253,15 @@ class _RegistroScreenState extends State<RegistroScreen> {
   ///
   /// En las botellas la marca ya aparece como sección y el tipo como título, así
   /// que solo se muestra la caja. En el resto se añade la subcategoría cuando
-  /// aporta algo (p. ej. dos Cruzcampo con distinto tipo) y el tipo de caja.
+  /// aporta algo (p. ej. dos Cruzcampo con distinto tipo). Siempre termina con
+  /// la disponibilidad máxima de esa planta.
   String _variantHint(Product product) {
-    if (product.isBottle) return _boxHint(product);
+    final base = _boxHint(product);
+    final withStock = '$base · ${_availabilityLabel(product)}';
+    if (product.isBottle) return withStock;
     final subcategory = product.subcategory?.trim() ?? '';
-    final box = _boxHint(product);
-    if (subcategory.isEmpty || subcategory == product.name) return box;
-    return '$subcategory · $box';
+    if (subcategory.isEmpty || subcategory == product.name) return withStock;
+    return '$subcategory · $withStock';
   }
 
   /// «N botellas · M marcas» para grupos de alcohol, «N variantes» para el
@@ -285,74 +350,79 @@ class _RegistroScreenState extends State<RegistroScreen> {
     StateSetter? refreshOverlay,
   }) {
     final total = _totalFor(product);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 620;
-        final identity = Row(
-          children: [
-            _thumb(_productImage(product), Icons.local_drink_outlined),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
+    final disabled = _isDisabled(product);
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 620;
+          final theme = Theme.of(context);
+          final identity = Row(
+            children: [
+              _thumb(_productImage(product), Icons.local_drink_outlined),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title ?? product.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle ?? _productHint(product),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _totalBadge(total),
+            ],
+          );
+
+          if (compact) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.md,
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    title ?? product.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    subtitle ?? _boxHint(product),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
+                  identity,
+                  const SizedBox(height: AppSpacing.md),
+                  _quantityControls(product, refreshOverlay: refreshOverlay),
                 ],
               ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            _totalBadge(total),
-          ],
-        );
+            );
+          }
 
-        if (compact) {
           return Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.lg,
               vertical: AppSpacing.md,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Row(
               children: [
-                identity,
-                const SizedBox(height: AppSpacing.md),
+                Expanded(child: identity),
+                const SizedBox(width: AppSpacing.lg),
                 _quantityControls(product, refreshOverlay: refreshOverlay),
               ],
             ),
           );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
-          ),
-          child: Row(
-            children: [
-              Expanded(child: identity),
-              const SizedBox(width: AppSpacing.lg),
-              _quantityControls(product, refreshOverlay: refreshOverlay),
-            ],
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -492,49 +562,55 @@ class _RegistroScreenState extends State<RegistroScreen> {
       (total, product) => total + _totalFor(product),
     );
     final theme = Theme.of(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _chooseVariants(entry),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
-          ),
-          child: Row(
-            children: [
-              _thumb(entry.image, Icons.inventory_2_outlined),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.groupName!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+    final disabled = _entryDisabled(entry);
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: disabled ? null : () => _chooseVariants(entry),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              children: [
+                _thumb(entry.image, Icons.inventory_2_outlined),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.groupName!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    Text(
-                      _variantsLabel(entry.products),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      Text(
+                        _entryHint(entry),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: disabled
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              if (count > 0) _totalBadge(count),
-              const SizedBox(width: AppSpacing.xs),
-              Icon(
-                Icons.chevron_right,
-                size: 22,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
+                const SizedBox(width: AppSpacing.sm),
+                if (count > 0) _totalBadge(count),
+                const SizedBox(width: AppSpacing.xs),
+                Icon(
+                  disabled ? Icons.block : Icons.chevron_right,
+                  size: 22,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -587,42 +663,48 @@ class _RegistroScreenState extends State<RegistroScreen> {
       (total, product) => total + _totalFor(product),
     );
     final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _chooseVariants(entry),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _gridThumb(entry.image, Icons.inventory_2_outlined),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                entry.groupName!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall,
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _variantsLabel(entry.products),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+    final disabled = _entryDisabled(entry);
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: disabled ? null : () => _chooseVariants(entry),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _gridThumb(entry.image, Icons.inventory_2_outlined),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  entry.groupName!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _entryHint(entry),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: disabled
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                  if (count > 0) _totalBadge(count),
-                ],
-              ),
-            ],
+                    if (count > 0) _totalBadge(count),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -632,45 +714,51 @@ class _RegistroScreenState extends State<RegistroScreen> {
   Widget _productGridCard(Product product) {
     final total = _totalFor(product);
     final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _editQuantity(product),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _gridThumb(
-                  _productImage(product),
-                  Icons.local_drink_outlined,
+    final disabled = _isDisabled(product);
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: disabled ? null : () => _editQuantity(product),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _gridThumb(
+                    _productImage(product),
+                    Icons.local_drink_outlined,
+                  ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                product.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall,
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _boxHint(product),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  product.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _productHint(product),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: disabled
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                  _totalBadge(total),
-                ],
-              ),
-            ],
+                    _totalBadge(total),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -678,6 +766,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   Future<void> _editQuantity(Product product) async {
+    if (_isDisabled(product)) return;
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -714,7 +803,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         Text(
-                          _boxHint(product),
+                          _productHint(product),
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: Theme.of(context)
@@ -805,6 +894,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       // Se limpia lo escrito y se muestra lo guardado de la nueva fecha.
       _boxes.clear();
       _loose.clear();
+      _savedQuantities.clear();
       _finalized = false;
       _hasSavedNight = false;
     });
@@ -818,6 +908,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
       // Se limpia lo escrito y se muestra lo guardado de la nueva planta.
       _boxes.clear();
       _loose.clear();
+      _savedQuantities.clear();
       _finalized = false;
       _hasSavedNight = false;
     });
@@ -835,7 +926,18 @@ class _RegistroScreenState extends State<RegistroScreen> {
       final b = _boxes[p.id] ?? 0;
       final l = _loose[p.id] ?? 0;
       if (b == 0 && l == 0) continue;
-      qty[p.id!] = b * _boxSize(p) + l;
+      final total = b * _boxSize(p) + l;
+      final available = _availableStock(p);
+      if (total > available) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Solo hay $available unidades disponibles de ${p.name}. '
+            'Ajusta la cantidad antes de guardar.',
+          ),
+        ));
+        return;
+      }
+      qty[p.id!] = total;
       if (l > 0) loose[p.id!] = l;
       if (b > 0) boxes[p.id!] = b;
       lines.add(LineaPedido(p, boxes: b, loose: l));
@@ -934,6 +1036,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
     setState(() {
       _boxes.clear();
       _loose.clear();
+      _savedQuantities.clear();
       _finalized = true;
       _finalizeNoticeDismissed = false;
     });

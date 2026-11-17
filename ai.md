@@ -453,8 +453,19 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   el dato apilados (la fecha en dos líneas, la planta con `Floor.short`), dentro
   de la cabecera a la altura del título (`AppPageHeader.inlineActions`). Las
   **botellas de alcohol** se muestran con su propia etiqueta («Botellas») y se
-  guardan como unidades sueltas, igual que cualquier producto de 1 ud/caja. La
-  acción «Guardar y montar cajas» de la barra inferior también se reduce a un
+  guardan como unidades sueltas, igual que cualquier producto de 1 ud/caja.
+
+  Las cantidades están **limitadas por el stock de la planta**: el máximo de
+  unidades de un producto es su stock (general en planta baja/karaoke, propio en
+  terraza) más lo que ya consumía la lista guardada de esa misma noche, porque
+  la RPC devuelve ese consumo antes de descontar la lista nueva
+  (`Product.maxUnitsForFloor`). El subtítulo muestra «Máx. N»; los productos sin
+  stock aparecen atenuados con «Sin stock» y sin controles, y un grupo se
+  desactiva solo si ninguna de sus variantes tiene unidades. Los botones «+» se
+  bloquean al alcanzar el máximo y, si el stock cambió desde otra sesión, el
+  guardado avisa y no envía cantidades por encima de lo disponible.
+
+  La acción «Guardar y montar cajas» de la barra inferior también se reduce a un
   botón compacto de 40 px con el color primario (icono y «Guardar», 128 px de
   ancho mínimo) a la derecha del resumen, nunca a todo el ancho. En tablet y escritorio se mantienen los controles y el botón
   anchos.
@@ -486,7 +497,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 
 | Archivo | Cubre |
 |---|---|
-| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, cajas del stock general y de terraza, botellas de alcohol, `Forecast.boxes`, `SpecialDay`. |
+| `models_test.dart` | Defaults, validación, `fromRow`, `boxInfo`, cajas del stock general y de terraza, máximo por planta de la lista (`stockForFloor`/`maxUnitsForFloor`), botellas de alcohol, `Forecast.boxes`, `SpecialDay`. |
 | `inventario_test.dart` | Stock en cajas completas + unidades sueltas, agrupación de variantes y `SpecialDay` boolean/entero. |
 | `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes y exclusión de botellas. |
 | `schedule_test.dart` | Formato, `serviceDay`, apertura y excepciones, `nextOpen`, retención. |
@@ -496,6 +507,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `admin_tabs_test.dart` | Pestañas internas de Admin (Calendario, Productos, Inventario e Incidencias). |
 | `incidents_test.dart` | Lectura de incidencias, categorías, estados, autoría y validación. |
 | `confirmar_lista_test.dart` | Widget: resumen del pedido y resultado de confirmar/volver. |
+| `home_cards_test.dart` | Tarjetas de Inicio, `QuantityStepper` (áreas táctiles y bloqueo del incremento sin stock). |
 | `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
 

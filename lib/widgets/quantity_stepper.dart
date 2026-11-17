@@ -10,7 +10,7 @@ class QuantityStepper extends StatelessWidget {
   final String label;
   final int value;
   final VoidCallback? onDecrement;
-  final VoidCallback onIncrement;
+  final VoidCallback? onIncrement;
   final String? hint;
 
   const QuantityStepper({
@@ -96,7 +96,7 @@ class QuantityStepper extends StatelessWidget {
                 _StepButton(
                   icon: Icons.add,
                   tooltip: 'Añadir $label',
-                  enabled: true,
+                  enabled: onIncrement != null,
                   onTap: onIncrement,
                 ),
               ],

@@ -130,6 +130,20 @@ class Product {
   int get terraceStockLooseUnits =>
       unitsPerBox > 0 ? unitInTerraceStock % unitsPerBox : unitInTerraceStock;
 
+  /// Stock que corresponde a una planta concreta.
+  int stockForFloor({required bool terrace}) =>
+      terrace ? unitInTerraceStock : unitInStock;
+
+  /// Máximo de unidades que se pueden pedir en una lista de esa planta.
+  ///
+  /// [alreadySaved] es lo que ya consumía la lista guardada de esa misma noche
+  /// y planta. Se suma porque la BD ya lo descontó del stock: al guardar, la RPC
+  /// lo devuelve antes de descontar la lista nueva.
+  int maxUnitsForFloor({required bool terrace, int alreadySaved = 0}) {
+    final available = stockForFloor(terrace: terrace) + alreadySaved;
+    return available < 0 ? 0 : available;
+  }
+
   String? get validationError {
     if (name.trim().isEmpty) return 'El nombre es obligatorio.';
     if (category.trim().isEmpty) return 'La categoría es obligatoria.';

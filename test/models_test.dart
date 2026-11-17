@@ -115,6 +115,33 @@ void main() {
       expect(p.stockLooseUnits, 0);
     });
 
+    test('el máximo de la lista usa el stock de su planta', () {
+      final p = Product(
+        name: 'Coca-Cola',
+        unitInStock: 24,
+        unitInTerraceStock: 8,
+      );
+
+      expect(p.stockForFloor(terrace: false), 24);
+      expect(p.stockForFloor(terrace: true), 8);
+      expect(p.maxUnitsForFloor(terrace: false), 24);
+      expect(p.maxUnitsForFloor(terrace: true), 8);
+    });
+
+    test('el máximo devuelve lo ya guardado en esa lista', () {
+      final p = Product(
+        name: 'Coca-Cola',
+        unitInStock: 14,
+        unitInTerraceStock: 0,
+      );
+
+      // La lista guardada consumió 10: quedan 14 en BD, pero el máximo
+      // editable de esa misma lista sigue siendo 24.
+      expect(p.maxUnitsForFloor(terrace: false, alreadySaved: 10), 24);
+      expect(p.maxUnitsForFloor(terrace: true, alreadySaved: 10), 10);
+      expect(p.maxUnitsForFloor(terrace: false, alreadySaved: -5), 9);
+    });
+
     test('detecta las botellas de alcohol desde la vista', () {
       final p = Product.fromRow({
         'id': 9,

@@ -215,5 +215,32 @@ void main() {
       expect(tester.takeException(), isNull);
       semantics.dispose();
     });
+
+    testWidgets('desactiva el incremento cuando no quedan unidades',
+        (tester) async {
+      await _setViewport(tester, 375, 812);
+      var value = 1;
+      await tester.pumpWidget(MaterialApp(
+        theme: AppPalettes.favorita.dark,
+        home: Scaffold(
+          body: Center(
+            child: StatefulBuilder(
+              builder: (context, setState) => QuantityStepper(
+                label: 'Botellas',
+                value: value,
+                onDecrement:
+                    value > 0 ? () => setState(() => value -= 1) : null,
+                onIncrement: null,
+              ),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.byTooltip('Añadir Botellas'));
+      await tester.pump();
+      expect(find.text('1'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
