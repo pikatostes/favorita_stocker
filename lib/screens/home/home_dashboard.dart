@@ -2,15 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../../app_design.dart';
 import '../../auth_controller.dart';
+import '../../data/home_data.dart';
+import '../../data/home_repository.dart';
 import '../../db.dart';
 import '../../formats.dart';
-import '../../shifts.dart';
 import '../../widgets/app_ui.dart';
 import '../plan.dart';
-import 'home_cards.dart';
-import 'home_data.dart';
+import 'home_content.dart';
 
-/// Panel de Inicio: carga los datos y compone las tarjetas según el rol.
+/// Panel de Inicio.
+///
+/// Mantiene la carga, el refresco y las acciones de planificación. La
+/// composición visual vive en [HomeContent] y cada tarjeta en su propio
+/// archivo, dentro de `screens/home/widgets/`.
 class HomeDashboard extends StatefulWidget {
   const HomeDashboard({super.key});
 
@@ -19,15 +23,15 @@ class HomeDashboard extends StatefulWidget {
 }
 
 class _HomeDashboardState extends State<HomeDashboard> {
-  late Future<HomeData> _future = loadHomeData();
+  late Future<HomeData> _future = HomeRepository.i.load();
   bool _working = false;
 
   void _reload() {
-    if (mounted) setState(() => _future = loadHomeData());
+    if (mounted) setState(() => _future = HomeRepository.i.load());
   }
 
   Future<void> _refresh() async {
-    final future = loadHomeData();
+    final future = HomeRepository.i.load();
     setState(() => _future = future);
     await future;
   }
@@ -68,26 +72,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
       if (!ok || !mounted) return;
     }
 
-    setState(() => _working = true);
-    try {
-      final count = await Db.i.generateMonthShifts(month);
-      if (!mounted) return;
-      showAppSnack(context, 'Generados $count turnos.', tone: AppTone.success);
-    } catch (error) {
-      if (!mounted) return;
-      showAppSnack(
-        context,
-        'No se pudo generar el horario: $error',
-        tone: AppTone.danger,
-      );
-    } finally {
-      if (mounted) setState(() => _working = false);
-    }
+    await _runPlanning(
+      action: () async {
+        final count = await Db.i.generateMonthShifts(month);
+        return 'Generados $count turnos.';
+      },
+      failure: 'No se pudo generar el horario',
+    );
   }
 
   Future<void> _publishMonth(HomeData data) async {
     if (_working) return;
-    final drafts = data.countShifts(ShiftStatus.draft);
+    final drafts = data.shiftCounts.drafts;
     if (drafts == 0) {
       showAppSnack(
         context,
@@ -106,18 +102,29 @@ class _HomeDashboardState extends State<HomeDashboard> {
     );
     if (!ok || !mounted) return;
 
+    await _runPlanning(
+      action: () async {
+        await Db.i.publishMonth(month);
+        return 'Turnos publicados.';
+      },
+      failure: 'No se pudieron publicar los turnos',
+    );
+  }
+
+  /// Ejecuta una acción de planificación con el indicador de trabajo y el
+  /// mismo tratamiento de errores. [action] devuelve el mensaje de éxito.
+  Future<void> _runPlanning({
+    required Future<String> Function() action,
+    required String failure,
+  }) async {
     setState(() => _working = true);
     try {
-      await Db.i.publishMonth(month);
+      final message = await action();
       if (!mounted) return;
-      showAppSnack(context, 'Turnos publicados.', tone: AppTone.success);
+      showAppSnack(context, message, tone: AppTone.success);
     } catch (error) {
       if (!mounted) return;
-      showAppSnack(
-        context,
-        'No se pudieron publicar los turnos: $error',
-        tone: AppTone.danger,
-      );
+      showAppSnack(context, '$failure: $error', tone: AppTone.danger);
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -153,128 +160,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
         }
 
         final data = snapshot.data!;
-        final user = AuthController.i.user;
-        final isAdmin = user?.role == UserRole.admin;
-
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide =
-                  constraints.maxWidth >= AppBreakpoints.twoColumnContent;
-              final horizontal =
-                  constraints.maxWidth >= AppBreakpoints.desktopMin
-                      ? AppSpacing.xl
-                      : constraints.maxWidth >= AppBreakpoints.tabletMin
-                          ? AppSpacing.xl
-                          : AppSpacing.lg;
-              final padding = EdgeInsets.fromLTRB(
-                horizontal,
-                AppSpacing.lg,
-                horizontal,
-                AppSpacing.xl,
-              );
-
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.zero,
-                children: [
-                  AppContentFrame(
-                    padding: padding.copyWith(bottom: AppSpacing.lg),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        HomeHeader(data: data, user: user),
-                        if (user?.isMaintenance == true) ...[
-                          MaintenanceListCard(
-                            data: data,
-                            onOpen: _openNightPlan,
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-                        ],
-                        if (isAdmin)
-                          wide
-                              ? _WideColumns(
-                                  left: AdminTonightCard(data: data),
-                                  right: AdminPlanningCard(
-                                    data: data,
-                                    working: _working,
-                                    onGenerate: () => _generateMonth(data),
-                                    onPublish: () => _publishMonth(data),
-                                  ),
-                                )
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    AdminTonightCard(data: data),
-                                    const SizedBox(height: AppSpacing.lg),
-                                    AdminPlanningCard(
-                                      data: data,
-                                      working: _working,
-                                      onGenerate: () => _generateMonth(data),
-                                      onPublish: () => _publishMonth(data),
-                                    ),
-                                  ],
-                                )
-                        else
-                          wide
-                              ? _WideColumns(
-                                  left: MyDayCard(data: data, user: user),
-                                  right: EmployeeTonightCard(data: data),
-                                  leftFlex: 2,
-                                  rightFlex: 3,
-                                )
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    MyDayCard(data: data, user: user),
-                                    const SizedBox(height: AppSpacing.lg),
-                                    EmployeeTonightCard(data: data),
-                                  ],
-                                ),
-                      ],
-                    ),
-                  ),
-                  // Tarjeta separada del resto para que el listado de
-                  // incidencias solo consulte la base de datos cuando entra en
-                  // pantalla, no al abrir Inicio.
-                  AppContentFrame(
-                    padding: padding.copyWith(top: 0),
-                    child: const IncidentsCard(),
-                  ),
-                ],
-              );
-            },
+          child: HomeContent(
+            data: data,
+            user: AuthController.i.user,
+            working: _working,
+            onGenerate: () => _generateMonth(data),
+            onPublish: () => _publishMonth(data),
+            onOpenPlan: _openNightPlan,
           ),
         );
       },
     );
   }
-}
-
-/// Dos columnas equilibradas para escritorio, con separación consistente.
-class _WideColumns extends StatelessWidget {
-  final Widget left;
-  final Widget right;
-  final int leftFlex;
-  final int rightFlex;
-
-  const _WideColumns({
-    required this.left,
-    required this.right,
-    this.leftFlex = 3,
-    this.rightFlex = 2,
-  });
-
-  @override
-  Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(flex: leftFlex, child: left),
-          const SizedBox(width: AppSpacing.lg),
-          Expanded(flex: rightFlex, child: right),
-        ],
-      );
 }

@@ -71,15 +71,44 @@ lib/
   planner.dart           Planner.build(): monta cajas y reparte en viajes.
   product_entries.dart   buildProductEntries(): agrupa por grupo; buildProductSubgroups(): marcas dentro del alcohol.
   formats.dart           Fechas en español (larga, corta, mes) y `capitalize`.
+  data/
+    product_repository.dart Acceso a productos y cálculo del plan (PlanData).
+    home_data.dart       Modelos de lectura de Inicio: HomeData y NightListSummary.
+    home_repository.dart Carga en paralelo de los datos del panel de Inicio.
+    schedule_data.dart   ScheduleData: turnos del mes agrupados por fecha (byDate).
+    schedule_repository.dart Carga en paralelo de turnos, usuarios y excepciones.
   screens/
-    home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack.
+    home.dart            Navegación adaptativa (barra inferior o menú lateral) + IndexedStack; exporta home_tabs.dart.
     home/
-      home_dashboard.dart Panel de Inicio: carga, acciones y composición de tarjetas.
-      home_cards.dart     Tarjetas del Inicio (cabecera, mantenimiento, admin, empleado).
-      home_data.dart      HomeData, NightListSummary y loadHomeData().
+      home_tabs.dart     HomeTab, visibleHomeTabs y modo de navegación por ancho.
+      home_dashboard.dart Estado de Inicio: carga, refresco y acciones de planificación.
+      home_content.dart  Composición responsive de tarjetas según rol y ancho.
+      widgets/
+        home_header.dart           Cabecera: saludo, estado del bar y calendario.
+        maintenance_list_card.dart Aviso de lista para el puesto de mantenimiento.
+        admin_tonight_card.dart    Turnos de la noche (admin).
+        admin_planning_card.dart   Estado del mes, avisos y previsión (admin).
+        my_day_card.dart           Próximo turno y horas del empleado.
+        employee_tonight_card.dart Equipo de la noche (empleado).
+        incidents_card.dart        Resumen de incidencias.
+        team_summary.dart          Métricas compartidas personas/áreas.
     registro.dart        "Lista": entrada de consumo de la noche + botón montar cajas.
     confirmar_lista.dart Pantalla intermedia: resumen del pedido y confirmación antes de guardar.
-    turnos.dart          "Turnos": horario mensual, usuarios y puestos.
+    turnos.dart          "Turnos": shell con TabBar perezoso (LazyTab); exporta turnos_tabs.dart y user_summary.dart.
+    turnos/
+      turnos_tabs.dart   TurnoTab y visibleTurnoTabs.
+      schedule/schedule_tab.dart   Estado: mes/día, carga, generar, publicar y editar turnos.
+      schedule/schedule_view.dart  Calendario, leyenda y composición responsive del horario.
+      schedule/schedule_dates.dart nextOpenDay, firstOpenDay e initialSelectedDay (inyectables).
+      schedule/day_card.dart       Turnos del día agrupados por planta.
+      schedule/shift_timeline.dart Línea temporal 16:00–04:00 con avatares.
+      schedule/shift_dialog.dart   Edición de un turno.
+      users/users_tab.dart         Listado de usuarios y activación.
+      users/user_form_dialog.dart  Alta/edición de usuario.
+      users/user_info_dialog.dart  Ficha pública para empleados.
+      users/user_summary.dart      employeeUserSummary.
+      roles/roles_tab.dart         Catálogo de puestos (admin).
+      roles/role_dialog.dart       Alta/edición de puesto.
     plan.dart            Pantalla "Montar cajas" (compartida por Lista y Calendario).
     cuenta.dart          "Cuenta": datos del usuario, foto de perfil, paleta y contraseña.
     incidents.dart       "Incidencias": listado, filtros, alta/edición y cambio de estado.
@@ -395,11 +424,16 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   `widgets/shift_ui.dart`; `UserAvatar` en `widgets/user_avatar.dart` (foto de
   Storage con la inicial como respaldo). Reutilízalos antes de crear otra
   variante local.
-- **Inicio**: panel contextual por rol, en `screens/home/`. `home_data.dart`
-  concentra la carga (`loadHomeData`) y los datos derivados; `home_cards.dart`
-  las tarjetas (cabecera, mantenimiento, admin y empleado); `home_dashboard.dart`
-  solo orquesta el `FutureBuilder`, las acciones y el refresco. El administrador
-  ve turnos y personal
+- **Inicio** (`screens/home/`): panel contextual por rol.
+  `home_dashboard.dart` solo mantiene el `FutureBuilder`, el refresco y las
+  acciones de generar/publicar; `home_content.dart` decide la composición
+  responsive (dos columnas o apilado) y cada tarjeta vive en
+  `screens/home/widgets/` (cabecera, mantenimiento, admin, empleado,
+  incidencias y `TeamSummary` compartido). La carga está en
+  `data/home_repository.dart` (`HomeRepository.i.load`), que lanza en paralelo
+  las consultas independientes y devuelve un `HomeData` inmutable
+  (`data/home_data.dart`) con los valores derivados (`shiftCounts`,
+  `planningWarnings`, `publishedFocusShifts`…). El administrador ve turnos y personal
   de la noche, estado del mes, previsión y avisos, con acciones para
   generar/publicar. El empleado ve su próximo turno, sus horas, el equipo de la
   noche y avisos; los turnos en borrador no se muestran. Quien tiene el puesto
@@ -414,24 +448,37 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
 - **Carga de datos**: siempre `FutureBuilder` con estados loading/error/vacío.
 - **`CategoryTabs`**: genera las pestañas a partir de las categorías de los productos;
   recrea el `TabController` solo si cambian las categorías (evita la aserción de tabs).
-- **`TurnosScreen`** (`screens/turnos.dart`): `TabBar` con Horario, Usuarios y
-  Puestos (este último solo para administradores). Horario es un calendario
-  mensual: los días con turnos se rellenan, los días que abren sin turnos se
-  marcan con borde y las excepciones con color. En tablet y escritorio el
-  horario usa dos columnas independientes (calendario a la izquierda y turnos
-  del día elegido a la derecha); en móvil se apila en una sola columna. Al tocar
-  un día se muestran sus turnos agrupados en pestañas por planta, con una
-  **línea temporal horizontal** de 16:00 a 04:00: cada fila es un horario exacto
-  y reúne a todas las personas que lo comparten. La barra rotula solo su entrada y su salida (sin eje horario
-  completo ni columna lateral) y lleva los avatares dentro; si no caben, pasan a
-  otra línea y la fila crece en vertical. El admin toca un avatar para editarlo y
-  lo mantiene pulsado para borrarlo (con confirmación); el empleado toca su
-  turno publicado para **confirmarlo** y no puede editar los de nadie. El admin
-  puede generar/publicar el mes. Los formularios de empleado y puesto son
-  diálogos con sus propios controllers (mismo patrón que Productos). En la
-  pestaña Usuarios, el administrador ve email, puesto con planta, días y
-  apertura, y puede editar; el empleado solo ve nombre y apellidos, rol de
-  acceso, puesto y estado (`employeeUserSummary`).
+- **`TurnosScreen`** (`screens/turnos.dart`): shell con `TabBar` perezoso
+  (`LazyTab`) para Horario, Usuarios y Puestos (este último solo para
+  administradores). La configuración de pestañas vive en
+  `screens/turnos/turnos_tabs.dart` y se exporta desde el shell, igual que
+  `employeeUserSummary`.
+  - **Horario** (`screens/turnos/schedule/`): `schedule_tab.dart` mantiene el
+    mes/día, la carga (`ScheduleRepository.loadMonth`) y las acciones
+    (generar, publicar, editar/borrar turno, confirmar el propio);
+    `schedule_view.dart` compone el calendario y la línea temporal sin estado
+    ni acceso a BD. `ScheduleData.byDate` agrupa los turnos por fecha una sola
+    vez al cargar, así que cambiar de día no vuelve a recorrer la lista.
+    `schedule_dates.dart` expone `nextOpenDay`, `firstOpenDay` e
+    `initialSelectedDay` (con `now` inyectable) para poder probarlos.
+    Un día seleccionado muestra sus turnos en pestañas por planta
+    (`day_card.dart`) con una **línea temporal horizontal** de 16:00 a 04:00
+    (`shift_timeline.dart`): cada fila es un horario exacto y reúne a todas las
+    personas que lo comparten. La barra rotula solo su entrada y su salida (sin
+    eje horario completo ni columna lateral) y lleva los avatares dentro; si no
+    caben, pasan a otra línea y la fila crece en vertical. El admin toca un
+    avatar para editarlo (`shift_dialog.dart`) y lo mantiene pulsado para
+    borrarlo (con confirmación); el empleado toca su turno publicado para
+    confirmarlo y no puede editar los de nadie. En tablet y escritorio el
+    horario usa dos columnas independientes (calendario a la izquierda y turnos
+    del día a la derecha); en móvil se apila en una sola columna.
+  - **Usuarios** (`screens/turnos/users/`): el administrador ve email, puesto
+    con planta, días y apertura, y puede editar (`user_form_dialog.dart`) y
+    activar/desactivar; el empleado solo ve nombre, rol de acceso, puesto y
+    estado (`employeeUserSummary`), y una ficha de solo lectura
+    (`user_info_dialog.dart`).
+  - **Puestos** (`screens/turnos/roles/`): catálogo por planta con alta/edición
+    (`role_dialog.dart`); los `StateError` de la BD se muestran tal cual.
 - **Formulario de producto** (`_ProductDialog`): categoría, grupo, subcategoría y tipo
   de caja son **desplegables** de valores existentes en BD. Los botones «+» junto a
   grupo y subcategoría permiten crear un grupo o una subcategoría nuevos
@@ -508,8 +555,11 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `incidents_test.dart` | Lectura de incidencias, categorías, estados, autoría y validación. |
 | `confirmar_lista_test.dart` | Widget: resumen del pedido y resultado de confirmar/volver. |
 | `home_cards_test.dart` | Tarjetas de Inicio, `QuantityStepper` (áreas táctiles y bloqueo del incremento sin stock). |
+| `home_data_test.dart` | `NightListSummary.fromConsumption` y contadores `HomeData.shiftCounts`. |
 | `home_tabs_test.dart` | Pestañas visibles de Inicio según el rol. |
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
+| `schedule_dates_test.dart` | `nextOpenDay`, `firstOpenDay` e `initialSelectedDay`. |
+| `schedule_data_test.dart` | Agrupación `ScheduleData.byDate` y listas inmutables. |
 
 Convención: helpers `_p(...)`/`_product(...)` para construir objetos de prueba.
 Al cambiar dominio o esquema, actualiza/crea el test correspondiente. La capa de

@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:stock_bar/data/home_data.dart';
 import 'package:stock_bar/models.dart';
-import 'package:stock_bar/screens/home/home_cards.dart';
-import 'package:stock_bar/screens/home/home_data.dart';
+import 'package:stock_bar/screens/home/widgets/admin_planning_card.dart';
+import 'package:stock_bar/screens/home/widgets/admin_tonight_card.dart';
+import 'package:stock_bar/screens/home/widgets/employee_tonight_card.dart';
+import 'package:stock_bar/screens/home/widgets/home_header.dart';
+import 'package:stock_bar/screens/home/widgets/maintenance_list_card.dart';
+import 'package:stock_bar/screens/home/widgets/my_day_card.dart';
 import 'package:stock_bar/shifts.dart';
 import 'package:stock_bar/theme.dart';
 import 'package:stock_bar/widgets/quantity_stepper.dart';

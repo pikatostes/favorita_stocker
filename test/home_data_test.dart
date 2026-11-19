@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:stock_bar/data/home_data.dart';
 import 'package:stock_bar/models.dart';
-import 'package:stock_bar/screens/home/home_data.dart';
 import 'package:stock_bar/shifts.dart';
 
 Product _product(int id, int unitsPerBox) => Product(
@@ -56,4 +56,59 @@ void main() {
       expect(summary.qty, isEmpty);
     });
   });
+
+  group('HomeData.shiftCounts', () {
+    test('cuenta los estados del mes en una sola pasada', () {
+      final data = _homeData(
+        monthShifts: [
+          _shift(ShiftStatus.draft),
+          _shift(ShiftStatus.published),
+          _shift(ShiftStatus.published),
+          _shift(ShiftStatus.confirmed),
+        ],
+      );
+
+      expect(
+        data.shiftCounts,
+        (drafts: 1, published: 2, confirmed: 1),
+      );
+    });
+
+    test('sin turnos devuelve contadores a cero', () {
+      expect(
+        _homeData().shiftCounts,
+        (drafts: 0, published: 0, confirmed: 0),
+      );
+    });
+  });
 }
+
+Shift _shift(ShiftStatus status) => Shift(
+      date: '2026-11-09',
+      userId: 1,
+      userName: 'Ana',
+      roleId: 1,
+      roleName: 'Camarero',
+      floor: Floor.plantaBaja,
+      startMin: 16 * 60,
+      endMin: 24 * 60,
+      breakMin: 0,
+      status: status,
+    );
+
+HomeData _homeData({List<Shift> monthShifts = const []}) => HomeData(
+      now: DateTime(2026, 11, 9),
+      serviceDay: DateTime(2026, 11, 9),
+      focusDay: DateTime(2026, 11, 9),
+      nextOpen: DateTime(2026, 11, 10),
+      openNow: true,
+      opensLaterToday: false,
+      special: const {},
+      users: const [],
+      monthShifts: monthShifts,
+      focusShifts: const [],
+      myUpcoming: const [],
+      mySchedulePending: false,
+      forecast: null,
+      nightList: null,
+    );

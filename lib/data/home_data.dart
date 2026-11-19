@@ -1,11 +1,6 @@
-import 'package:flutter/foundation.dart';
-
-import '../../auth_controller.dart';
-import '../../db.dart';
-import '../../models.dart';
-import '../../prediction.dart';
-import '../../schedule.dart';
-import '../../shifts.dart';
+import '../models.dart';
+import '../schedule.dart';
+import '../shifts.dart';
 
 /// Resumen de la última lista de montaje guardada, preparado para abrir
 /// `PlanScreen`: [qty] lleva solo los botellines sueltos y [fullBoxes] las
@@ -62,7 +57,13 @@ class NightListSummary {
   }
 }
 
+/// Contadores de turnos del mes por estado.
+typedef ShiftCounts = ({int drafts, int published, int confirmed});
+
 /// Datos que necesita el panel de Inicio para pintarse.
+///
+/// Es un modelo de lectura: se construye una vez por carga y no depende de
+/// widgets ni de la base de datos, así que se puede probar por separado.
 class HomeData {
   final DateTime now;
   final DateTime serviceDay;
@@ -117,8 +118,24 @@ class HomeData {
   int get activeUsersWithoutRole =>
       activeUsers.where((user) => user.jobRole == null).length;
 
-  int countShifts(ShiftStatus status) =>
-      monthShifts.where((shift) => shift.status == status).length;
+  /// Contadores por estado en una sola pasada; las tarjetas los reutilizan en
+  /// lugar de recorrer la lista varias veces.
+  ShiftCounts get shiftCounts {
+    var drafts = 0;
+    var published = 0;
+    var confirmed = 0;
+    for (final shift in monthShifts) {
+      switch (shift.status) {
+        case ShiftStatus.draft:
+          drafts++;
+        case ShiftStatus.published:
+          published++;
+        case ShiftStatus.confirmed:
+          confirmed++;
+      }
+    }
+    return (drafts: drafts, published: published, confirmed: confirmed);
+  }
 
   /// Plantas que no tienen ningún opener disponible para [focusDay].
   Set<Floor> get floorsWithoutOpener {
@@ -175,118 +192,4 @@ class HomeData {
             : '$activeUsersWithoutRole usuarios activos sin puesto',
     ];
   }
-}
-
-/// Carga en paralelo todo lo que necesita el panel de Inicio.
-Future<HomeData> loadHomeData() async {
-  final now = DateTime.now();
-  final user = AuthController.i.user;
-  final isAdmin = user?.role == UserRole.admin;
-
-  final special = await Db.i.specialDays();
-  final serviceDay = Schedule.serviceDay(now);
-  final serviceOpen = Schedule.isOpen(serviceDay, special);
-  final openNow = serviceOpen &&
-      (now.hour >= Schedule.openHour || now.hour < Schedule.closeHour);
-  final today = Schedule.day(now);
-  final opensLaterToday =
-      Schedule.isOpen(today, special) && now.hour < Schedule.openHour;
-  final nextOpen = Schedule.nextOpen(now, special);
-  final focusDay = openNow ? serviceDay : nextOpen;
-
-  final month = DateTime(now.year, now.month);
-  final monthShifts = await Db.i.shiftsForMonth(month);
-
-  // El foco puede caer en el mes siguiente (o en el anterior si estamos de
-  // madrugada el día 1), así que se consulta su mes cuando hace falta.
-  final focusMonth = DateTime(focusDay.year, focusDay.month);
-  final focusMonthShifts =
-      focusMonth.year == month.year && focusMonth.month == month.month
-          ? monthShifts
-          : await Db.i.shiftsForMonth(focusMonth);
-  final focusKey = Schedule.fmt(focusDay);
-  final focusShifts =
-      focusMonthShifts.where((shift) => shift.date == focusKey).toList();
-
-  final users = await Db.i.users(includeInactive: isAdmin);
-  final nightList =
-      user?.isMaintenance == true ? await _latestNightList() : null;
-
-  ForecastResult? forecast;
-  if (isAdmin) {
-    try {
-      forecast = await Predictor.forecast(nextOpen);
-    } catch (error) {
-      // La previsión es información secundaria: si falla, el resto del Inicio
-      // debe seguir siendo utilizable.
-      debugPrint('No se pudo calcular la previsión de Inicio: $error');
-    }
-  }
-
-  var myUpcoming = <Shift>[];
-  var mySchedulePending = false;
-  if (user != null && !isAdmin) {
-    // Antes de las 04:00 seguimos en la noche de servicio anterior; a partir
-    // de esa hora, el siguiente turno se busca desde el día natural de hoy.
-    final from = now.hour < Schedule.closeHour
-        ? Schedule.fmt(serviceDay)
-        : Schedule.fmt(today);
-    final nextMonth = DateTime(month.year, month.month + 1);
-    final nextMonthShifts = await Db.i.shiftsForMonth(nextMonth);
-    final mySource = <Shift>[...monthShifts, ...nextMonthShifts];
-    // Si estamos de madrugada el día 1, el servicio en curso pertenece al mes
-    // anterior.
-    if (openNow &&
-        (focusMonth.year != month.year || focusMonth.month != month.month)) {
-      mySource.addAll(focusMonthShifts);
-    }
-    final myAll = mySource
-        .where((shift) =>
-            shift.userId == user.id && shift.date.compareTo(from) >= 0)
-        .toList()
-      ..sort((a, b) {
-        final byDate = a.date.compareTo(b.date);
-        return byDate != 0 ? byDate : a.startMin.compareTo(b.startMin);
-      });
-    myUpcoming = myAll
-        .where((shift) => shift.status != ShiftStatus.draft)
-        .toList(growable: false);
-    mySchedulePending = myUpcoming.isEmpty && myAll.isNotEmpty;
-  }
-
-  return HomeData(
-    now: now,
-    serviceDay: serviceDay,
-    focusDay: focusDay,
-    nextOpen: nextOpen,
-    openNow: openNow,
-    opensLaterToday: opensLaterToday,
-    special: special,
-    users: users,
-    monthShifts: monthShifts,
-    focusShifts: focusShifts,
-    myUpcoming: myUpcoming,
-    mySchedulePending: mySchedulePending,
-    forecast: forecast,
-    nightList: nightList,
-  );
-}
-
-/// El puesto de mantenimiento no tiene notificaciones: en Inicio ve un aviso
-/// con la última lista guardada y, si existe, abre directamente el montaje.
-Future<NightListSummary?> _latestNightList() async {
-  final latest = await Db.i.latestNight();
-  if (latest == null) return null;
-  final saved = await Db.i.nightConsumption(latest.date, latest.floor);
-  final products = await Db.i.products();
-  final byId = <int, Product>{
-    for (final product in products)
-      if (product.id != null) product.id!: product,
-  };
-  return NightListSummary.fromConsumption(
-    date: latest.date,
-    floor: latest.floor,
-    saved: saved,
-    productsById: byId,
-  );
 }
