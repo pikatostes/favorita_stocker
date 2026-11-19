@@ -1049,22 +1049,7 @@ class Db {
   /// Sustituye todos los turnos del mes por [shifts].
   Future<void> replaceMonthShifts(DateTime month, List<Shift> shifts) async {
     final first = Schedule.fmt(DateTime(month.year, month.month, 1));
-    final payload = [
-      for (final shift in shifts)
-        {
-          'date': shift.date,
-          'user_id': shift.userId,
-          'user_name': shift.userName,
-          'role_id': shift.roleId,
-          'role_name': shift.roleName,
-          'floor': shift.floor.db,
-          'start_min': shift.startMin,
-          'end_min': shift.endMin,
-          'break_min': shift.breakMin,
-          'status': shift.status.db,
-          'note': shift.note.trim().isEmpty ? null : shift.note.trim(),
-        },
-    ];
+    final payload = [for (final shift in shifts) _shiftPayload(shift)];
     try {
       await _client.rpc('replace_month_shifts', params: {
         'p_month': first,
@@ -1075,6 +1060,37 @@ class Db {
     }
     _changed();
   }
+
+  /// Añade turnos sueltos sin tocar el resto del mes.
+  ///
+  /// Se usa para la asignación manual de personas a una franja horaria desde
+  /// Horario. El administrador puede tener varios turnos el mismo día siempre
+  /// que no se solapen; esa comprobación se hace en la app.
+  Future<void> addShifts(List<Shift> shifts) async {
+    if (shifts.isEmpty) return;
+    try {
+      await _client.from('shift').insert([
+        for (final shift in shifts) _shiftPayload(shift),
+      ]);
+    } catch (error) {
+      throw StateError(_friendly(error));
+    }
+    _changed();
+  }
+
+  Map<String, Object?> _shiftPayload(Shift shift) => {
+        'date': shift.date,
+        'user_id': shift.userId,
+        'user_name': shift.userName,
+        'role_id': shift.roleId,
+        'role_name': shift.roleName,
+        'floor': shift.floor.db,
+        'start_min': shift.startMin,
+        'end_min': shift.endMin,
+        'break_min': shift.breakMin,
+        'status': shift.status.db,
+        'note': shift.note.trim().isEmpty ? null : shift.note.trim(),
+      };
 
   Future<void> updateShift(Shift shift) async {
     final id = shift.id;

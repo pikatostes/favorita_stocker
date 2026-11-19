@@ -18,7 +18,10 @@ class _RolesTabState extends State<RolesTab> {
   late Future<List<JobRole>> _future = Db.i.roles();
 
   void _reload() {
-    if (mounted) setState(() => _future = Db.i.roles());
+    if (!mounted) return;
+    setState(() {
+      _future = Db.i.roles();
+    });
   }
 
   @override

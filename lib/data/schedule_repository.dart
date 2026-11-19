@@ -31,9 +31,10 @@ class ScheduleRepository {
 
     return ScheduleData(
       shifts: shifts,
-      // El horario solo necesita usuarios que puedan tener turno.
-      users:
-          users.where((user) => user.jobRole != null).toList(growable: false),
+      // Se cargan todos los usuarios activos: además de generar el horario,
+      // la asignación manual muestra a todo el equipo (con los que no tienen
+      // puesto deshabilitados).
+      users: users,
       special: special,
     );
   }

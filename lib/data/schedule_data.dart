@@ -18,7 +18,11 @@ class ScheduleData {
     required this.special,
   }) : byDate = _groupByDate(shifts);
 
-  bool get hasUsers => users.isNotEmpty;
+  bool get hasUsers => users.any((user) => user.jobRole?.id != null);
+
+  /// Usuarios activos con puesto: los únicos que pueden entrar en un turno.
+  List<AppUser> get usersWithRole =>
+      users.where((user) => user.jobRole?.id != null).toList(growable: false);
 
   List<Shift> shiftsFor(String date) => byDate[date] ?? const [];
 

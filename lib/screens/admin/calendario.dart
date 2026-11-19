@@ -53,7 +53,10 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (!mounted) return;
+    setState(() {
+      _future = _load();
+    });
   }
 
   @override
@@ -537,7 +540,9 @@ class _ForecastCardState extends State<_ForecastCard> {
                       ),
                       const SizedBox(height: 4),
                       TextButton.icon(
-                        onPressed: () => setState(() => _future = _load()),
+                        onPressed: () => setState(() {
+                          _future = _load();
+                        }),
                         icon: const Icon(Icons.refresh),
                         label: const Text('Reintentar'),
                       ),

@@ -25,6 +25,7 @@ class ScheduleView extends StatelessWidget {
   final VoidCallback onPublish;
   final ValueChanged<Shift> onEditShift;
   final ValueChanged<Shift> onDeleteShift;
+  final Future<void> Function(List<Shift> shifts) onCreateShifts;
 
   const ScheduleView({
     super.key,
@@ -39,6 +40,7 @@ class ScheduleView extends StatelessWidget {
     required this.onPublish,
     required this.onEditShift,
     required this.onDeleteShift,
+    required this.onCreateShifts,
   });
 
   CalendarDayStyle _dayStyle(BuildContext context, DateTime day) {
@@ -133,10 +135,12 @@ class ScheduleView extends StatelessWidget {
       return DayCard(
         date: key,
         shifts: shifts,
+        users: data.users,
         avatars: AppUser.avatarPaths(data.users),
         isAdmin: isAdmin,
         onEdit: onEditShift,
         onDelete: onDeleteShift,
+        onAddShifts: onCreateShifts,
       );
     }
 

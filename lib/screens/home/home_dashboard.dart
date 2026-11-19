@@ -27,12 +27,17 @@ class _HomeDashboardState extends State<HomeDashboard> {
   bool _working = false;
 
   void _reload() {
-    if (mounted) setState(() => _future = HomeRepository.i.load());
+    if (!mounted) return;
+    setState(() {
+      _future = HomeRepository.i.load();
+    });
   }
 
   Future<void> _refresh() async {
     final future = HomeRepository.i.load();
-    setState(() => _future = future);
+    setState(() {
+      _future = future;
+    });
     await future;
   }
 

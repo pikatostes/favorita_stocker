@@ -71,7 +71,10 @@ class _ProductCatalogState extends State<ProductCatalog> {
   late Future<List<Product>> _future = Db.i.products();
 
   void _reload() {
-    if (mounted) setState(() => _future = Db.i.products());
+    if (!mounted) return;
+    setState(() {
+      _future = Db.i.products();
+    });
   }
 
   @override
@@ -88,7 +91,9 @@ class _ProductCatalogState extends State<ProductCatalog> {
 
   Future<void> _refresh() async {
     final future = Db.i.products();
-    setState(() => _future = future);
+    setState(() {
+      _future = future;
+    });
     await future;
   }
 

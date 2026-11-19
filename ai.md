@@ -100,7 +100,11 @@ lib/
       schedule/schedule_tab.dart   Estado: mes/día, carga, generar, publicar y editar turnos.
       schedule/schedule_view.dart  Calendario, leyenda y composición responsive del horario.
       schedule/schedule_dates.dart nextOpenDay, firstOpenDay e initialSelectedDay (inyectables).
-      schedule/day_card.dart       Turnos del día agrupados por planta.
+      schedule/day_card.dart       Turnos del día por planta y acciones de admin.
+      schedule/new_slot_dialog.dart    Crear una franja con al menos una persona.
+      schedule/add_people_dialog.dart  Asignar personas a una franja existente.
+      schedule/shift_overlap.dart  Detección de solapes con la madrugada.
+      schedule/user_option_list.dart Selector de personas con avisos de solape.
       schedule/shift_timeline.dart Línea temporal 16:00–04:00 con avatares.
       schedule/shift_dialog.dart   Edición de un turno.
       users/users_tab.dart         Listado de usuarios y activación.
@@ -219,8 +223,10 @@ Tablas en inglés singular: `category`, `box_type`, `product_group`,
   `working_days` (`"5,6"`; vacío = cualquiera), `must_change_password` y
   `avatar_path` (ruta del objeto en el bucket `avatars` de Storage; `null` =
   sin foto); `shift` referencia `profiles`/`job_role`, guarda copia de
-  `role_name`, `floor` y `note`, y UNIQUE(`user_id`, `date`). Estados:
-  `borrador`, `publicado`, `confirmado`.
+  `role_name`, `floor` y `note`. La migración `20261119000100` retira
+  UNIQUE(`user_id`, `date`) para permitir varios turnos no solapados de la
+  misma persona en una noche (por ejemplo, 17:00–20:00 y 21:00–03:00); la app
+  valida los solapes. Estados: `borrador`, `publicado`, `confirmado`.
 - `incident` = incidencia declarada por un usuario (`user_id` obligatorio, 1:N)
   en una planta, con `category` (`electrodomestico`, `electricidad`,
   `fontaneria`, `mobiliario`, `limpieza`, `stock`, `otro`), `title`,
@@ -339,7 +345,9 @@ montar cajas según ella.
   los cierres de `SpecialDay` (`open=false`); las aperturas extra no se generan.
 - Tres tipos de turno: apertura **16:00–21:00** (5 h), segundo **21:00–04:00**
   (7 h) y completo **16:00–04:00** (12 h) cuando hace falta cubrir ambos
-  tramos. Cada empleado activo hace un turno por noche; no hay turno partido.
+  tramos. El generador crea un turno por empleado y noche (no crea turnos
+  partidos). La asignación manual desde Horario sí permite que una misma
+  persona tenga varios turnos en la noche si no se solapan.
 - **Descanso** solo si se entra antes de las 21:00: >8 h → 40 min; >6 h →
   25 min. Se guarda en `shift.break_min` y no se cuenta como trabajado.
 - **Terraza**: los **viernes abre a las 21:00**, así que todo su personal
@@ -444,7 +452,11 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   sistema de notificaciones.
 - **Recarga reactiva**: cada pantalla hace en `initState`
   `Db.i.version.addListener(_reload)` y lo quita en `dispose`. `_reload` vuelve a
-  lanzar el `Future` y hace `setState`. **Mantén este patrón.**
+  lanzar el `Future` y hace `setState`. **Mantén este patrón.** El callback de
+  `setState` debe devolver `void`: usa cuerpo de bloque
+  (`setState(() { _future = _load(); })`) y no una flecha que asigne el
+  `Future`, porque Flutter lanza «setState() callback argument returned a
+  Future».
 - **Carga de datos**: siempre `FutureBuilder` con estados loading/error/vacío.
 - **`CategoryTabs`**: genera las pestañas a partir de las categorías de los productos;
   recrea el `TabController` solo si cambian las categorías (evita la aserción de tabs).
@@ -472,6 +484,16 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
     confirmarlo y no puede editar los de nadie. En tablet y escritorio el
     horario usa dos columnas independientes (calendario a la izquierda y turnos
     del día a la derecha); en móvil se apila en una sola columna.
+    El administrador tiene dos acciones por planta: **Nueva franja**
+    (`new_slot_dialog.dart`) elige horas y exige al menos una persona, y
+    **Añadir personas** (`add_people_dialog.dart`) elige una franja existente y
+    asigna gente. Una franja no se guarda aparte: son los turnos agrupados por
+    `(start_min, end_min)`, así que al borrar a su última persona desaparece.
+    Ambos diálogos muestran a todo el equipo activo y desactivan a quien ya
+    tiene un turno que **se solapa** (`shift_overlap.dart`, con la madrugada en
+    un eje continuo); se permite asignar a alguien que ese día tenga otro turno
+    en horas distintas. Los turnos nuevos se insertan con `Db.addShifts` y, al
+    añadir a una franja ya publicada, nacen publicados.
   - **Usuarios** (`screens/turnos/users/`): el administrador ve email, puesto
     con planta, días y apertura, y puede editar (`user_form_dialog.dart`) y
     activar/desactivar; el empleado solo ve nombre, rol de acceso, puesto y
@@ -560,6 +582,7 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `turnos_tabs_test.dart` | Pestañas internas de Turnos y acceso a Puestos. |
 | `schedule_dates_test.dart` | `nextOpenDay`, `firstOpenDay` e `initialSelectedDay`. |
 | `schedule_data_test.dart` | Agrupación `ScheduleData.byDate` y listas inmutables. |
+| `shift_overlap_test.dart` | Solapes de franjas (incluida la madrugada) y filtrado por persona. |
 
 Convención: helpers `_p(...)`/`_product(...)` para construir objetos de prueba.
 Al cambiar dominio o esquema, actualiza/crea el test correspondiente. La capa de

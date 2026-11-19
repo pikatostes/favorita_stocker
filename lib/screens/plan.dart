@@ -78,7 +78,10 @@ class _PlanScreenState extends State<PlanScreen> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (!mounted) return;
+    setState(() {
+      _future = _load();
+    });
   }
 
   void _setPreferFull(bool value) {

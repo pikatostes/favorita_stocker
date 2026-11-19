@@ -49,17 +49,24 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
       );
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (!mounted) return;
+    setState(() {
+      _future = _load();
+    });
   }
 
   Future<void> _refresh() async {
     final future = _load();
-    setState(() => _future = future);
+    setState(() {
+      _future = future;
+    });
     await future;
   }
 
   void _applyFilters() {
-    setState(() => _future = _load());
+    setState(() {
+      _future = _load();
+    });
   }
 
   @override

@@ -34,7 +34,10 @@ class _ScheduleTabState extends State<ScheduleTab> {
   Future<ScheduleData> _load() => ScheduleRepository.i.loadMonth(_month);
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (!mounted) return;
+    setState(() {
+      _future = _load();
+    });
   }
 
   @override
@@ -79,10 +82,12 @@ class _ScheduleTabState extends State<ScheduleTab> {
       return;
     }
     if (!mounted) return;
-    if (data.users.isEmpty) {
+    final eligibleUsers = data.usersWithRole;
+    if (eligibleUsers.isEmpty) {
       showAppSnack(
         context,
-        'Añade al menos un usuario en la pestaña «Usuarios» para generar.',
+        'Añade al menos un usuario con puesto en la pestaña «Usuarios» '
+        'para generar.',
       );
       return;
     }
@@ -100,7 +105,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
 
     final generated = ShiftGenerator.generateMonth(
       month: _month,
-      users: data.users,
+      users: eligibleUsers,
       specialDays: data.special,
     );
     if (generated.isNotEmpty && mounted) {
@@ -219,6 +224,27 @@ class _ScheduleTabState extends State<ScheduleTab> {
     }
   }
 
+  /// Guarda los turnos creados desde los diálogos de franja del [DayCard].
+  Future<void> _createShifts(List<Shift> shifts) async {
+    if (shifts.isEmpty) return;
+    try {
+      await Db.i.addShifts(shifts);
+    } catch (error) {
+      if (!mounted) return;
+      showAppSnack(
+        context,
+        'No se pudieron añadir los turnos: ${describeDbError(error)}',
+      );
+      return;
+    }
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      '${shifts.length} turno${shifts.length == 1 ? '' : 's'} añadido'
+      '${shifts.length == 1 ? '' : 's'}.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<ScheduleData>(
         future: _future,
@@ -245,6 +271,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
             onPublish: _publish,
             onEditShift: _onShiftTap,
             onDeleteShift: _onShiftLongPress,
+            onCreateShifts: _createShifts,
           );
         },
       );

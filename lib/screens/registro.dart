@@ -52,7 +52,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
   late Future<List<Product>> _future = Db.i.products();
 
   void _reload() {
-    if (mounted) setState(() => _future = Db.i.products());
+    if (!mounted) return;
+    setState(() {
+      _future = Db.i.products();
+    });
   }
 
   int _boxSize(Product p) => p.unitsPerBox < 1 ? 1 : p.unitsPerBox;

@@ -26,9 +26,10 @@ class _UsersTabState extends State<UsersTab> {
   late Future<List<AppUser>> _future = Db.i.users(includeInactive: true);
 
   void _reload() {
-    if (mounted) {
-      setState(() => _future = Db.i.users(includeInactive: true));
-    }
+    if (!mounted) return;
+    setState(() {
+      _future = Db.i.users(includeInactive: true);
+    });
   }
 
   @override

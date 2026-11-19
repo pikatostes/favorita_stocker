@@ -22,7 +22,10 @@ class _IncidentsCardState extends State<IncidentsCard> {
   late Future<List<Incident>> _future = Db.i.incidents();
 
   void _reload() {
-    if (mounted) setState(() => _future = Db.i.incidents());
+    if (!mounted) return;
+    setState(() {
+      _future = Db.i.incidents();
+    });
   }
 
   @override

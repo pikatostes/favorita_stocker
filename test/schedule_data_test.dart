@@ -69,6 +69,31 @@ void main() {
         ).hasUsers,
         isFalse,
       );
+      expect(
+        ScheduleData(
+          shifts: const [],
+          users: const [AppUser(name: 'Sin puesto')],
+          special: const {},
+        ).hasUsers,
+        isFalse,
+      );
+    });
+
+    test('usersWithRole deja fuera a quien no tiene puesto', () {
+      final data = ScheduleData(
+        shifts: const [],
+        users: const [
+          AppUser(name: 'Ana'),
+          AppUser(
+            name: 'Luis',
+            jobRole: JobRole(id: 1, name: 'Camarero'),
+          ),
+        ],
+        special: const {},
+      );
+
+      expect(data.hasUsers, isTrue);
+      expect(data.usersWithRole.map((user) => user.name), ['Luis']);
     });
   });
 }
