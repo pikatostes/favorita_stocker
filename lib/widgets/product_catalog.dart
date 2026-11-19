@@ -69,6 +69,7 @@ class ProductCatalog extends StatefulWidget {
 
 class _ProductCatalogState extends State<ProductCatalog> {
   late Future<List<Product>> _future = Db.i.products();
+  late final VoidCallback _stopWatching;
 
   void _reload() {
     if (!mounted) return;
@@ -80,16 +81,17 @@ class _ProductCatalogState extends State<ProductCatalog> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(Db.productTables, _reload);
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 
   Future<void> _refresh() async {
+    Db.i.invalidateCache(Db.productTables);
     final future = Db.i.products();
     setState(() {
       _future = future;

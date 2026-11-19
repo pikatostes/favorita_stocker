@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth.dart';
+import 'data/read_cache.dart';
 import 'incidents.dart';
 import 'models.dart';
 import 'schedule.dart';
@@ -22,17 +23,85 @@ String describeDbError(Object error) {
 /// Acceso a Supabase.
 ///
 /// Mantiene la misma API pública que la antigua capa SQLite (`Db.i`), de modo
-/// que las pantallas siguen usando `FutureBuilder` y `Db.i.version` sin
-/// cambios. Las escrituras transaccionales se delegan a funciones RPC y la
-/// lectura usa vistas que reproducen las columnas planas de los modelos.
+/// que las pantallas siguen usando `FutureBuilder` sin cambios. Las escrituras
+/// transaccionales se delegan a funciones RPC y la lectura usa vistas que
+/// reproducen las columnas planas de los modelos.
+///
+/// Las lecturas se guardan en una caché en memoria (`data/read_cache.dart`)
+/// con invalidación por tabla: repetir una consulta ya hecha no vuelve a
+/// llamar a Supabase. Cada pantalla se suscribe solo a las tablas que usa con
+/// [watchTables], que devuelve la función para cancelar la suscripción.
 class Db {
   Db._();
   static final Db i = Db._();
 
   /// Se incrementa con cada escritura local o evento de Realtime. Las pantallas
-  /// escuchan para refrescarse, igual que con SQLite.
+  /// se suscriben solo a las tablas que usan mediante [watchTables].
   final ValueNotifier<int> version = ValueNotifier(0);
-  void _changed() => version.value++;
+
+  /// Tablas afectadas por el último cambio. Una lista vacía significa «no se
+  /// sabe qué cambió», y en ese caso se invalida toda la caché.
+  Set<String> _lastChangedTables = const {};
+
+  /// Caché de lecturas en memoria.
+  ///
+  /// Evita repetir la misma consulta al volver a una pantalla o pestaña. Cada
+  /// entrada declara las tablas de las que depende y se descarta en cuanto una
+  /// de ellas cambia.
+  final ReadCache _readCache = ReadCache();
+
+  /// Tablas del catálogo: cualquier cambio en ellas puede alterar un producto.
+  static const Set<String> productTables = {
+    'product',
+    'category',
+    'subcategory',
+    'product_group',
+    'box_type',
+  };
+
+  /// Tablas que alimentan las fichas de usuario.
+  static const Set<String> userTables = {'profiles', 'job_role'};
+
+  /// Tablas del histórico de consumo.
+  static const Set<String> nightTables = {'night', 'consumption'};
+
+  void _changed([Iterable<String>? tables]) {
+    final changed =
+        tables == null ? const <String>{} : Set<String>.unmodifiable(tables);
+    _lastChangedTables = changed;
+    _readCache.invalidate(changed);
+    version.value++;
+  }
+
+  /// Escucha los cambios de [tables] y devuelve la función para dejar de
+  /// escuchar. Una escritura sin tabla conocida notifica a todos los oyentes.
+  VoidCallback watchTables(Iterable<String> tables, VoidCallback listener) {
+    final wanted = Set<String>.unmodifiable(tables);
+    void onChange() {
+      final changed = _lastChangedTables;
+      if (changed.isEmpty || changed.any(wanted.contains)) listener();
+    }
+
+    version.addListener(onChange);
+    return () => version.removeListener(onChange);
+  }
+
+  /// Descarta todas las lecturas en memoria (por ejemplo, al cambiar de
+  /// sesión, porque RLS puede devolver datos distintos).
+  void clearCache() => _readCache.clear();
+
+  /// Invalida las lecturas de [tables] (o todas si se omite) para forzar una
+  /// recarga manual, como el gesto de tirar para refrescar.
+  void invalidateCache([Iterable<String>? tables]) =>
+      _readCache.invalidate(tables ?? const []);
+
+  /// Devuelve el resultado cacheado de [load] o lo ejecuta y lo guarda.
+  Future<T> _cached<T>({
+    required String key,
+    required Iterable<String> tables,
+    required Future<T> Function() load,
+  }) =>
+      _readCache.read(key: key, tables: tables, load: load);
 
   SupabaseClient get _client => Supabase.instance.client;
   RealtimeChannel? _channel;
@@ -55,13 +124,15 @@ class Db {
   /// Se suscribe a los cambios de las tablas que alimentan la UI.
   Future<void> connectRealtime() async {
     if (_channel != null) return;
+    // Al empezar una sesión nueva no debe reutilizarse lo que se leyó con otra.
+    clearCache();
     final channel = _client.channel('db-changes');
     for (final table in _watchedTables) {
       channel.onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: table,
-        callback: (_) => _changed(),
+        callback: (_) => _changed({table}),
       );
     }
     _channel = channel;
@@ -145,76 +216,103 @@ class Db {
   // ---------------------------------------------------------------------------
 
   /// Productos vivos (o todos, con [includeDeleted]) con su grupo y caja.
-  Future<List<Product>> products({bool includeDeleted = false}) async {
-    var query = _client.from('product_view').select();
-    if (!includeDeleted) {
-      query = query.isFilter('deleted_at', null);
-    }
-    final rows = await query.order('category').order('name');
-    return [
-      for (final row in rows) Product.fromRow(Map<String, Object?>.from(row)),
-    ];
-  }
+  Future<List<Product>> products({bool includeDeleted = false}) => _cached(
+        key: 'products:deleted=$includeDeleted',
+        tables: productTables,
+        load: () async {
+          var query = _client.from('product_view').select();
+          if (!includeDeleted) {
+            query = query.isFilter('deleted_at', null);
+          }
+          final rows = await query.order('category').order('name');
+          return [
+            for (final row in rows)
+              Product.fromRow(Map<String, Object?>.from(row)),
+          ];
+        },
+      );
 
   /// Categorías existentes.
-  Future<List<String>> categories() async {
-    final rows = await _client.from('category').select('name').order('name');
-    return [for (final row in rows) row['name'] as String];
-  }
+  Future<List<String>> categories() => _cached(
+        key: 'categories',
+        tables: const {'category'},
+        load: () async {
+          final rows =
+              await _client.from('category').select('name').order('name');
+          return [for (final row in rows) row['name'] as String];
+        },
+      );
 
   /// Tipos de caja existentes (tabla `box_type`).
-  Future<List<CrateType>> boxTypes() async {
-    final rows = await _client.from('box_type').select().order('type');
-    return [
-      for (final row in rows)
-        CrateType(
-          row['type'] as String,
-          row['units_per_box'] as int,
-          (row['size'] as num).toDouble(),
-          (row['height'] as num).toDouble(),
-          row['format'] as int,
-          row['trip_capacity'] as int,
-          width: (row['width'] as num).toDouble(),
-          id: row['id'] as int,
-          isBottle: (row['is_bottle'] as bool?) ?? false,
-        ),
-    ];
-  }
+  Future<List<CrateType>> boxTypes() => _cached(
+        key: 'boxTypes',
+        tables: const {'box_type'},
+        load: () async {
+          final rows = await _client.from('box_type').select().order('type');
+          return [
+            for (final row in rows)
+              CrateType(
+                row['type'] as String,
+                row['units_per_box'] as int,
+                (row['size'] as num).toDouble(),
+                (row['height'] as num).toDouble(),
+                row['format'] as int,
+                row['trip_capacity'] as int,
+                width: (row['width'] as num).toDouble(),
+                id: row['id'] as int,
+                isBottle: (row['is_bottle'] as bool?) ?? false,
+              ),
+          ];
+        },
+      );
 
   /// Grupos de variantes (categoría y nombre) existentes en la BD.
-  Future<List<({String category, String name})>> productGroups() async {
-    final rows = await _client
-        .from('product_group_view')
-        .select('category, name')
-        .order('category')
-        .order('name');
-    return [
-      for (final row in rows)
-        (
-          category: row['category'] as String,
-          name: row['name'] as String,
-        ),
-    ];
-  }
+  Future<List<({String category, String name})>> productGroups() => _cached(
+        key: 'productGroups',
+        tables: const {'product_group', 'category', 'subcategory', 'product'},
+        load: () async {
+          final rows = await _client
+              .from('product_group_view')
+              .select('category, name')
+              .order('category')
+              .order('name');
+          return [
+            for (final row in rows)
+              (
+                category: row['category'] as String,
+                name: row['name'] as String,
+              ),
+          ];
+        },
+      );
 
   /// Subcategorías con su categoría y grupo.
   Future<List<({String category, String group, String name})>>
-      subcategories() async {
-    final rows = await _client
-        .from('subcategory_view')
-        .select('category, grp, name')
-        .order('category')
-        .order('grp')
-        .order('name');
-    return [
-      for (final row in rows)
-        (
-          category: row['category'] as String,
-          group: row['grp'] as String,
-          name: row['name'] as String,
-        ),
-    ];
-  }
+      subcategories() => _cached(
+            key: 'subcategories',
+            tables: const {
+              'subcategory',
+              'product_group',
+              'category',
+              'product',
+            },
+            load: () async {
+              final rows = await _client
+                  .from('subcategory_view')
+                  .select('category, grp, name')
+                  .order('category')
+                  .order('grp')
+                  .order('name');
+              return [
+                for (final row in rows)
+                  (
+                    category: row['category'] as String,
+                    group: row['grp'] as String,
+                    name: row['name'] as String,
+                  ),
+              ];
+            },
+          );
 
   Map<String, dynamic> _productParams(Product p, String? groupImage) => {
         'p_id': p.id,
@@ -246,7 +344,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(productTables);
   }
 
   Future<void> updateProduct(Product p, {required String? groupImage}) async {
@@ -262,21 +360,26 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(productTables);
   }
 
   Future<String?> productGroupImage({
     required String category,
     required String name,
-  }) async {
-    final row = await _client
-        .from('product_group_view')
-        .select('image')
-        .eq('category', category.trim())
-        .eq('name', name.trim())
-        .maybeSingle();
-    return row == null ? null : row['image'] as String?;
-  }
+  }) =>
+      _cached(
+        key: 'productGroupImage:${category.trim()}:${name.trim()}',
+        tables: const {'product_group'},
+        load: () async {
+          final row = await _client
+              .from('product_group_view')
+              .select('image')
+              .eq('category', category.trim())
+              .eq('name', name.trim())
+              .maybeSingle();
+          return row == null ? null : row['image'] as String?;
+        },
+      );
 
   Future<void> setProductGroupImage({
     required String category,
@@ -296,7 +399,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'product_group'});
   }
 
   /// Borrado lógico: el producto deja de mostrarse pero se conserva el histórico.
@@ -310,7 +413,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(productTables);
   }
 
   /// Suma [delta] unidades al stock de un producto (negativo para quitarlas) y
@@ -332,7 +435,7 @@ class Db {
           'p_delta': delta,
         },
       );
-      _changed();
+      _changed(const {'product'});
       return (stock as num).toInt();
     } catch (error) {
       throw StateError(_friendly(error));
@@ -358,7 +461,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'night', 'consumption', 'product'});
   }
 
   /// Marca la jornada de esa fecha y planta como finalizada.
@@ -375,22 +478,27 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
+    _changed(const {'night'});
   }
 
   /// Indica si la jornada de esa fecha y planta ya se finalizó.
   ///
   /// Se lee con `select *` para que la app siga funcionando si la migración
   /// que añade `finalized_at` todavía no se ha aplicado en el proyecto.
-  Future<bool> nightFinalized(String date, Floor floor) async {
-    final rows = await _client
-        .from('night')
-        .select()
-        .eq('date', date)
-        .eq('floor', floor.db)
-        .limit(1);
-    if (rows.isEmpty) return false;
-    return rows.first['finalized_at'] != null;
-  }
+  Future<bool> nightFinalized(String date, Floor floor) => _cached(
+        key: 'nightFinalized:$date:${floor.db}',
+        tables: const {'night'},
+        load: () async {
+          final rows = await _client
+              .from('night')
+              .select()
+              .eq('date', date)
+              .eq('floor', floor.db)
+              .limit(1);
+          if (rows.isEmpty) return false;
+          return rows.first['finalized_at'] != null;
+        },
+      );
 
   /// Filas crudas de consumo, opcionalmente filtradas por fecha y planta.
   Future<List<Map<String, dynamic>>> _consumptionRows({
@@ -416,81 +524,106 @@ class Db {
   Future<Map<String, Map<int, int>>> nights({
     String? since,
     Floor? floor,
-  }) async {
-    final rows = await _consumptionRows(since: since, floor: floor);
-    final out = <String, Map<int, int>>{};
-    for (final row in rows) {
-      final night = row['night'];
-      final date = night is Map ? night['date'] as String : night as String;
-      final productId = row['product_id'] as int;
-      final quantity = row['quantity'] as int;
-      final day = out.putIfAbsent(date, () => {});
-      day[productId] = (day[productId] ?? 0) + quantity;
-    }
-    return out;
-  }
+  }) =>
+      _cached(
+        key: 'nights:since=${since ?? ''}:floor=${floor?.db ?? ''}',
+        tables: nightTables,
+        load: () async {
+          final rows = await _consumptionRows(since: since, floor: floor);
+          final out = <String, Map<int, int>>{};
+          for (final row in rows) {
+            final night = row['night'];
+            final date =
+                night is Map ? night['date'] as String : night as String;
+            final productId = row['product_id'] as int;
+            final quantity = row['quantity'] as int;
+            final day = out.putIfAbsent(date, () => {});
+            day[productId] = (day[productId] ?? 0) + quantity;
+          }
+          return out;
+        },
+      );
 
   /// date -> planta -> (productId -> cantidad).
   Future<Map<String, Map<Floor, Map<int, int>>>> nightsByFloor([
     String? since,
-  ]) async {
-    final rows = await _consumptionRows(since: since);
-    final out = <String, Map<Floor, Map<int, int>>>{};
-    for (final row in rows) {
-      final night = row['night'];
-      final date = night is Map ? night['date'] as String : night as String;
-      final floor = Floor.fromDb(
-        night is Map ? night['floor'] as String? : null,
+  ]) =>
+      _cached(
+        key: 'nightsByFloor:since=${since ?? ''}',
+        tables: nightTables,
+        load: () async {
+          final rows = await _consumptionRows(since: since);
+          final out = <String, Map<Floor, Map<int, int>>>{};
+          for (final row in rows) {
+            final night = row['night'];
+            final date =
+                night is Map ? night['date'] as String : night as String;
+            final floor = Floor.fromDb(
+              night is Map ? night['floor'] as String? : null,
+            );
+            final productId = row['product_id'] as int;
+            final quantity = row['quantity'] as int;
+            final byFloor = out.putIfAbsent(date, () => {});
+            final day = byFloor.putIfAbsent(floor, () => {});
+            day[productId] = (day[productId] ?? 0) + quantity;
+          }
+          return out;
+        },
       );
-      final productId = row['product_id'] as int;
-      final quantity = row['quantity'] as int;
-      final byFloor = out.putIfAbsent(date, () => {});
-      final day = byFloor.putIfAbsent(floor, () => {});
-      day[productId] = (day[productId] ?? 0) + quantity;
-    }
-    return out;
-  }
 
   /// Botellines guardados de una noche y planta (productId -> cantidad).
-  Future<Map<int, int>> nightConsumption(String date, Floor floor) async {
-    final rows = await _client
-        .from('consumption')
-        .select('product_id, quantity, night!inner(date, floor)')
-        .eq('night.date', date)
-        .eq('night.floor', floor.db);
-    return {
-      for (final row in rows) row['product_id'] as int: row['quantity'] as int,
-    };
-  }
+  Future<Map<int, int>> nightConsumption(String date, Floor floor) => _cached(
+        key: 'nightConsumption:$date:${floor.db}',
+        tables: nightTables,
+        load: () async {
+          final rows = await _client
+              .from('consumption')
+              .select('product_id, quantity, night!inner(date, floor)')
+              .eq('night.date', date)
+              .eq('night.floor', floor.db);
+          return {
+            for (final row in rows)
+              row['product_id'] as int: row['quantity'] as int,
+          };
+        },
+      );
 
   /// Última lista guardada, con su fecha y planta, o `null` si no hay ninguna.
-  Future<({String date, Floor floor})?> latestNight() async {
-    final rows = await _client
-        .from('night')
-        .select('date, floor, consumption!inner(id)')
-        .order('date', ascending: false)
-        .order('created_at', ascending: false)
-        .limit(1);
-    if (rows.isEmpty) return null;
-    final row = rows.first;
-    return (
-      date: row['date'] as String,
-      floor: Floor.fromDb(row['floor'] as String?),
-    );
-  }
+  Future<({String date, Floor floor})?> latestNight() => _cached(
+        key: 'latestNight',
+        tables: nightTables,
+        load: () async {
+          final rows = await _client
+              .from('night')
+              .select('date, floor, consumption!inner(id)')
+              .order('date', ascending: false)
+              .order('created_at', ascending: false)
+              .limit(1);
+          if (rows.isEmpty) return null;
+          final row = rows.first;
+          return (
+            date: row['date'] as String,
+            floor: Floor.fromDb(row['floor'] as String?),
+          );
+        },
+      );
 
   // ---------------------------------------------------------------------------
   // Calendario de excepciones
   // ---------------------------------------------------------------------------
 
-  Future<Map<String, SpecialDay>> specialDays() async {
-    final rows = await _client.from('special_day').select();
-    return {
-      for (final row in rows)
-        row['date'] as String:
-            SpecialDay.fromMap(Map<String, Object?>.from(row)),
-    };
-  }
+  Future<Map<String, SpecialDay>> specialDays() => _cached(
+        key: 'specialDays',
+        tables: const {'special_day'},
+        load: () async {
+          final rows = await _client.from('special_day').select();
+          return {
+            for (final row in rows)
+              row['date'] as String:
+                  SpecialDay.fromMap(Map<String, Object?>.from(row)),
+          };
+        },
+      );
 
   Future<void> setSpecialDay(SpecialDay s) async {
     try {
@@ -502,7 +635,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'special_day'});
   }
 
   Future<void> deleteSpecialDay(String date) async {
@@ -511,7 +644,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'special_day'});
   }
 
   // ---------------------------------------------------------------------------
@@ -526,16 +659,23 @@ class Db {
     Floor? floor,
     IncidentStatus? status,
     IncidentCategory? category,
-  }) async {
-    var query = _client.from('incident_view').select();
-    if (floor != null) query = query.eq('floor', floor.db);
-    if (status != null) query = query.eq('status', status.db);
-    if (category != null) query = query.eq('category', category.db);
-    final rows = await query.order('created_at', ascending: false);
-    return [
-      for (final row in rows) Incident.fromRow(Map<String, Object?>.from(row)),
-    ];
-  }
+  }) =>
+      _cached(
+        key: 'incidents:floor=${floor?.db ?? ''}:'
+            'status=${status?.db ?? ''}:category=${category?.db ?? ''}',
+        tables: const {'incident'},
+        load: () async {
+          var query = _client.from('incident_view').select();
+          if (floor != null) query = query.eq('floor', floor.db);
+          if (status != null) query = query.eq('status', status.db);
+          if (category != null) query = query.eq('category', category.db);
+          final rows = await query.order('created_at', ascending: false);
+          return [
+            for (final row in rows)
+              Incident.fromRow(Map<String, Object?>.from(row)),
+          ];
+        },
+      );
 
   /// Crea una incidencia ([Incident.id] nulo) o actualiza la existente.
   ///
@@ -553,7 +693,7 @@ class Db {
         'p_description': incident.description.trim(),
         'p_status': incident.status.db,
       });
-      _changed();
+      _changed(const {'incident'});
       return (id as num).toInt();
     } catch (error) {
       throw StateError(_friendly(error));
@@ -568,7 +708,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'incident'});
   }
 
   // ---------------------------------------------------------------------------
@@ -576,18 +716,24 @@ class Db {
   // ---------------------------------------------------------------------------
 
   /// Puestos configurados, ordenados por planta y nombre.
-  Future<List<JobRole>> roles() async {
-    final rows = await _client.from('job_role').select();
-    final list = [
-      for (final row in rows) JobRole.fromRow(Map<String, Object?>.from(row)),
-    ];
-    const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
-    list.sort((a, b) {
-      final floor = (order[a.floor.db] ?? 2).compareTo(order[b.floor.db] ?? 2);
-      return floor != 0 ? floor : a.name.compareTo(b.name);
-    });
-    return list;
-  }
+  Future<List<JobRole>> roles() => _cached(
+        key: 'roles',
+        tables: const {'job_role'},
+        load: () async {
+          final rows = await _client.from('job_role').select();
+          final list = [
+            for (final row in rows)
+              JobRole.fromRow(Map<String, Object?>.from(row)),
+          ];
+          const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
+          list.sort((a, b) {
+            final floor =
+                (order[a.floor.db] ?? 2).compareTo(order[b.floor.db] ?? 2);
+            return floor != 0 ? floor : a.name.compareTo(b.name);
+          });
+          return list;
+        },
+      );
 
   Future<void> addRole(JobRole role) async {
     final name = normalizeRoleName(role.name);
@@ -607,7 +753,7 @@ class Db {
       }
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'job_role'});
   }
 
   Future<void> updateRole(JobRole role) async {
@@ -631,7 +777,7 @@ class Db {
       }
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'job_role'});
   }
 
   /// Borra un puesto solo si no tiene usuarios ni turnos asignados.
@@ -650,37 +796,52 @@ class Db {
       throw StateError('No se puede borrar un puesto con turnos históricos.');
     }
     await _client.from('job_role').delete().eq('id', id);
-    _changed();
+    _changed(const {'job_role'});
   }
 
   /// Usuarios (solo activos salvo [includeInactive]), con su puesto habitual.
-  Future<List<AppUser>> users({bool includeInactive = false}) async {
-    var query = _client.from('user_view').select();
-    if (!includeInactive) {
-      query = query.eq('active', 1);
-    }
-    final rows = await query;
-    final list = [
-      for (final row in rows) AppUser.fromRow(Map<String, Object?>.from(row)),
-    ];
-    const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
-    list.sort((a, b) {
-      final floor = (order[a.jobRole?.floor.db] ?? 2)
-          .compareTo(order[b.jobRole?.floor.db] ?? 2);
-      if (floor != 0) return floor;
-      final role = (a.jobRole?.name ?? '').compareTo(b.jobRole?.name ?? '');
-      if (role != 0) return role;
-      final name = a.name.compareTo(b.name);
-      return name != 0 ? name : a.surname.compareTo(b.surname);
-    });
-    return list;
-  }
+  Future<List<AppUser>> users({bool includeInactive = false}) => _cached(
+        key: 'users:inactive=$includeInactive',
+        tables: userTables,
+        load: () async {
+          var query = _client.from('user_view').select();
+          if (!includeInactive) {
+            query = query.eq('active', 1);
+          }
+          final rows = await query;
+          final list = [
+            for (final row in rows)
+              AppUser.fromRow(Map<String, Object?>.from(row)),
+          ];
+          const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
+          list.sort((a, b) {
+            final floor = (order[a.jobRole?.floor.db] ?? 2)
+                .compareTo(order[b.jobRole?.floor.db] ?? 2);
+            if (floor != 0) return floor;
+            final role =
+                (a.jobRole?.name ?? '').compareTo(b.jobRole?.name ?? '');
+            if (role != 0) return role;
+            final name = a.name.compareTo(b.name);
+            return name != 0 ? name : a.surname.compareTo(b.surname);
+          });
+          return list;
+        },
+      );
 
-  Future<AppUser?> userById(int id) async {
-    final row =
-        await _client.from('user_view').select().eq('id', id).maybeSingle();
-    return row == null ? null : AppUser.fromRow(Map<String, Object?>.from(row));
-  }
+  Future<AppUser?> userById(int id) => _cached(
+        key: 'userById:$id',
+        tables: userTables,
+        load: () async {
+          final row = await _client
+              .from('user_view')
+              .select()
+              .eq('id', id)
+              .maybeSingle();
+          return row == null
+              ? null
+              : AppUser.fromRow(Map<String, Object?>.from(row));
+        },
+      );
 
   Future<AppUser?> _profileByAuthId(String authId) async {
     final row = await _client
@@ -728,7 +889,7 @@ class Db {
     if (id is! num) {
       throw StateError('No se pudo crear la cuenta.');
     }
-    _changed();
+    _changed(userTables);
     return id.toInt();
   }
 
@@ -754,7 +915,7 @@ class Db {
       'opener': user.opener,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
     });
-    _changed();
+    _changed(userTables);
   }
 
   /// Baja lógica: conserva los turnos históricos.
@@ -764,7 +925,7 @@ class Db {
       'id': id,
       'active': active,
     });
-    _changed();
+    _changed(const {'profiles'});
   }
 
   // ---------------------------------------------------------------------------
@@ -823,7 +984,7 @@ class Db {
         // la app.
       }
     }
-    _changed();
+    _changed(const {'profiles'});
     return path;
   }
 
@@ -846,7 +1007,7 @@ class Db {
         // El perfil ya no apunta a la imagen; el archivo sobrante no afecta.
       }
     }
-    _changed();
+    _changed(const {'profiles'});
   }
 
   // ---------------------------------------------------------------------------
@@ -858,6 +1019,9 @@ class Db {
   /// Devuelve `null` si las credenciales no coinciden. Lanza [StateError] si
   /// la cuenta existe pero está desactivada.
   Future<AppUser?> authenticate(String email, String password) async {
+    // No reutilizar lecturas de una sesión anterior: RLS puede devolver otros
+    // datos para esta cuenta.
+    clearCache();
     try {
       final response = await _client.auth.signInWithPassword(
         email: _normalizeEmail(email),
@@ -893,6 +1057,7 @@ class Db {
     required String email,
     required String password,
   }) async {
+    clearCache();
     _validatePassword(password);
     final normalized = _normalizeEmail(email);
     if (!isValidEmail(normalized)) {
@@ -939,6 +1104,7 @@ class Db {
 
   Future<void> logout() async {
     await _client.auth.signOut();
+    clearCache();
     await disconnectRealtime();
   }
 
@@ -973,7 +1139,7 @@ class Db {
     } on AuthException catch (error) {
       throw StateError(error.message);
     }
-    _changed();
+    _changed(const {'profiles'});
   }
 
   /// Cambia la contraseña sin pedir la actual. Solo se usa en el cambio
@@ -990,7 +1156,7 @@ class Db {
     } on AuthException catch (error) {
       throw StateError(error.message);
     }
-    _changed();
+    _changed(const {'profiles'});
   }
 
   static void _validateUser(AppUser user) {
@@ -1013,21 +1179,27 @@ class Db {
   // ---------------------------------------------------------------------------
 
   /// Turnos de un mes completo, ordenados por fecha y planta.
-  Future<List<Shift>> shiftsForMonth(DateTime month) async {
+  Future<List<Shift>> shiftsForMonth(DateTime month) {
     final first = Schedule.fmt(DateTime(month.year, month.month, 1));
     final last = Schedule.fmt(DateTime(month.year, month.month + 1, 0));
-    final rows = await _client
-        .from('shift')
-        .select()
-        .gte('date', first)
-        .lte('date', last)
-        .order('date')
-        .order('floor')
-        .order('role_name')
-        .order('user_name');
-    return [
-      for (final row in rows) Shift.fromRow(Map<String, Object?>.from(row)),
-    ];
+    return _cached(
+      key: 'shiftsForMonth:${month.year}-${month.month}',
+      tables: const {'shift'},
+      load: () async {
+        final rows = await _client
+            .from('shift')
+            .select()
+            .gte('date', first)
+            .lte('date', last)
+            .order('date')
+            .order('floor')
+            .order('role_name')
+            .order('user_name');
+        return [
+          for (final row in rows) Shift.fromRow(Map<String, Object?>.from(row)),
+        ];
+      },
+    );
   }
 
   /// Genera y guarda el horario de [month] a partir de los usuarios activos
@@ -1058,7 +1230,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 
   /// Añade turnos sueltos sin tocar el resto del mes.
@@ -1075,7 +1247,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 
   Map<String, Object?> _shiftPayload(Shift shift) => {
@@ -1109,7 +1281,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 
   Future<void> deleteShift(int id) async {
@@ -1118,7 +1290,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 
   /// Pasa a publicado todos los borradores del mes.
@@ -1129,7 +1301,7 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 
   Future<void> confirmShift(int id) async {
@@ -1138,6 +1310,6 @@ class Db {
     } catch (error) {
       throw StateError(_friendly(error));
     }
-    _changed();
+    _changed(const {'shift'});
   }
 }

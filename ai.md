@@ -75,6 +75,7 @@ lib/
     product_repository.dart Acceso a productos y cálculo del plan (PlanData).
     home_data.dart       Modelos de lectura de Inicio: HomeData y NightListSummary.
     home_repository.dart Carga en paralelo de los datos del panel de Inicio.
+    read_cache.dart      Caché de lecturas con invalidación por tabla.
     schedule_data.dart   ScheduleData: turnos del mes agrupados por fecha (byDate).
     schedule_repository.dart Carga en paralelo de turnos, usuarios y excepciones.
   screens/
@@ -450,13 +451,22 @@ anteriores a hoy − 2 años (`Schedule.retentionYears`).
   fecha y la planta, resume productos/botellines y abre `PlanScreen` con los
   sueltos y las cajas completas reconstruidos. Es el sustituto provisional del
   sistema de notificaciones.
-- **Recarga reactiva**: cada pantalla hace en `initState`
-  `Db.i.version.addListener(_reload)` y lo quita en `dispose`. `_reload` vuelve a
-  lanzar el `Future` y hace `setState`. **Mantén este patrón.** El callback de
-  `setState` debe devolver `void`: usa cuerpo de bloque
-  (`setState(() { _future = _load(); })`) y no una flecha que asigne el
-  `Future`, porque Flutter lanza «setState() callback argument returned a
-  Future».
+- **Recarga reactiva y caché**: `Db.i` guarda las lecturas en memoria
+  (`data/read_cache.dart`). Cada consulta declara sus tablas de dependencia y
+  solo se descarta cuando una de ellas cambia; así, volver a una pestaña o
+  cambiar de pantalla no repite las consultas. Cada pantalla se suscribe con
+  `Db.i.watchTables({...}, _reload)`, que devuelve la función para cancelar la
+  suscripción en `dispose`; ya no se usa `Db.i.version.addListener` directo.
+  Una escritura sin tabla conocida invalida toda la caché, y al iniciar o cerrar
+  sesión se vacía por completo (RLS puede devolver datos distintos). Las
+  pestañas ya abiertas se mantienen vivas (`LazyTab` + keep-alive) para
+  conservar estado y no repetir la primera carga. Las escrituras de `Db`
+  indican las tablas afectadas (`_changed({'shift'})`); al añadir una consulta
+  nueva, pásale su conjunto de tablas y añade esas tablas al `watchTables` de
+  las pantallas que la usen. El callback de `setState` debe devolver `void`: usa
+  cuerpo de bloque (`setState(() { _future = _load(); })`) y no una flecha que
+  asigne el `Future`, porque Flutter lanza «setState() callback argument
+  returned a Future».
 - **Carga de datos**: siempre `FutureBuilder` con estados loading/error/vacío.
 - **`CategoryTabs`**: genera las pestañas a partir de las categorías de los productos;
   recrea el `TabController` solo si cambian las categorías (evita la aserción de tabs).
@@ -583,6 +593,8 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `schedule_dates_test.dart` | `nextOpenDay`, `firstOpenDay` e `initialSelectedDay`. |
 | `schedule_data_test.dart` | Agrupación `ScheduleData.byDate` y listas inmutables. |
 | `shift_overlap_test.dart` | Solapes de franjas (incluida la madrugada) y filtrado por persona. |
+| `read_cache_test.dart` | Reutilización, consultas concurrentes, invalidación por tabla y errores. |
+| `lazy_tab_test.dart` | Construcción perezosa y conservación del estado de pestañas ya abiertas. |
 
 Convención: helpers `_p(...)`/`_product(...)` para construir objetos de prueba.
 Al cambiar dominio o esquema, actualiza/crea el test correspondiente. La capa de

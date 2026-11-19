@@ -16,6 +16,7 @@ class RolesTab extends StatefulWidget {
 
 class _RolesTabState extends State<RolesTab> {
   late Future<List<JobRole>> _future = Db.i.roles();
+  late final VoidCallback _stopWatching;
 
   void _reload() {
     if (!mounted) return;
@@ -27,12 +28,12 @@ class _RolesTabState extends State<RolesTab> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(const {'job_role'}, _reload);
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

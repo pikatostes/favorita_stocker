@@ -20,6 +20,7 @@ class IncidentsCard extends StatefulWidget {
 
 class _IncidentsCardState extends State<IncidentsCard> {
   late Future<List<Incident>> _future = Db.i.incidents();
+  late final VoidCallback _stopWatching;
 
   void _reload() {
     if (!mounted) return;
@@ -31,12 +32,12 @@ class _IncidentsCardState extends State<IncidentsCard> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(const {'incident'}, _reload);
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

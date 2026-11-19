@@ -30,6 +30,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime _selected = initialSelectedDay();
   late Future<ScheduleData> _future = _load();
+  late final VoidCallback _stopWatching;
 
   Future<ScheduleData> _load() => ScheduleRepository.i.loadMonth(_month);
 
@@ -43,12 +44,15 @@ class _ScheduleTabState extends State<ScheduleTab> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(
+      {'shift', 'special_day', ...Db.userTables},
+      _reload,
+    );
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

@@ -38,6 +38,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
   IncidentCategory? _category;
   IncidentStatus? _status;
   late Future<List<Incident>> _future = _load();
+  late final VoidCallback _stopWatching;
 
   bool get _isAdmin => AuthController.i.user?.role == UserRole.admin;
   int? get _currentUserId => AuthController.i.user?.id;
@@ -56,6 +57,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
   }
 
   Future<void> _refresh() async {
+    Db.i.invalidateCache(const {'incident'});
     final future = _load();
     setState(() {
       _future = future;
@@ -72,7 +74,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(const {'incident'}, _reload);
     if (widget.startNew) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openForm();
@@ -82,7 +84,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

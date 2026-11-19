@@ -38,6 +38,7 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   DateTime _selected = Schedule.day(DateTime.now());
   Floor _floor = Floor.plantaBaja;
   late Future<_CalData> _future = _load();
+  late final VoidCallback _stopWatching;
 
   Future<_CalData> _load() async {
     // Las tres consultas son independientes: se lanzan a la vez.
@@ -62,12 +63,15 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(
+      {'special_day', ...Db.nightTables, ...Db.productTables},
+      _reload,
+    );
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

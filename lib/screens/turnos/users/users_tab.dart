@@ -24,6 +24,7 @@ class UsersTab extends StatefulWidget {
 
 class _UsersTabState extends State<UsersTab> {
   late Future<List<AppUser>> _future = Db.i.users(includeInactive: true);
+  late final VoidCallback _stopWatching;
 
   void _reload() {
     if (!mounted) return;
@@ -35,12 +36,12 @@ class _UsersTabState extends State<UsersTab> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(Db.userTables, _reload);
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

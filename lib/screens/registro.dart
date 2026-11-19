@@ -50,6 +50,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   /// Esa fecha y planta tienen una lista guardada que se puede finalizar.
   bool _hasSavedNight = false;
   late Future<List<Product>> _future = Db.i.products();
+  late final VoidCallback _stopWatching;
 
   void _reload() {
     if (!mounted) return;
@@ -101,7 +102,10 @@ class _RegistroScreenState extends State<RegistroScreen> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(
+      {...Db.productTables, ...Db.nightTables},
+      _reload,
+    );
     _loadNight(); // muestra la lista ya guardada de la fecha de servicio actual
   }
 
@@ -164,7 +168,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

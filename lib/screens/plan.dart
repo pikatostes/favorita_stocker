@@ -47,6 +47,7 @@ class _PlanScreenState extends State<PlanScreen> {
   _PlanView _view = _PlanView.montaje;
   final Set<int> _checked = <int>{};
   late Future<PlanData> _future = _load();
+  late final VoidCallback _stopWatching;
 
   bool get _canSwitchFloor => widget.date != null && _floor != null;
 
@@ -68,12 +69,15 @@ class _PlanScreenState extends State<PlanScreen> {
   void initState() {
     super.initState();
     _floor = widget.floor;
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(
+      {...Db.productTables, ...Db.nightTables},
+      _reload,
+    );
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     super.dispose();
   }
 

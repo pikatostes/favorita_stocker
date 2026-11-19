@@ -24,6 +24,7 @@ class HomeDashboard extends StatefulWidget {
 
 class _HomeDashboardState extends State<HomeDashboard> {
   late Future<HomeData> _future = HomeRepository.i.load();
+  late final VoidCallback _stopWatching;
   bool _working = false;
 
   void _reload() {
@@ -34,6 +35,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   Future<void> _refresh() async {
+    Db.i.invalidateCache();
     final future = HomeRepository.i.load();
     setState(() {
       _future = future;
@@ -44,13 +46,22 @@ class _HomeDashboardState extends State<HomeDashboard> {
   @override
   void initState() {
     super.initState();
-    Db.i.version.addListener(_reload);
+    _stopWatching = Db.i.watchTables(
+      {
+        'special_day',
+        'shift',
+        ...Db.userTables,
+        ...Db.nightTables,
+        ...Db.productTables,
+      },
+      _reload,
+    );
     AuthController.i.addListener(_reload);
   }
 
   @override
   void dispose() {
-    Db.i.version.removeListener(_reload);
+    _stopWatching();
     AuthController.i.removeListener(_reload);
     super.dispose();
   }
