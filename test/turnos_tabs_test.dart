@@ -23,11 +23,8 @@ void main() {
       active: false,
       opener: true,
       workingDays: {1, 2},
-      jobRole: JobRole(
-        id: 1,
-        name: 'Camarero',
-        floor: Floor.plantaBaja,
-      ),
+      floor: Floor.plantaBaja,
+      jobPosition: JobPosition.camarero,
     );
 
     expect(employeeUserSummary(user), 'Administrador · Camarero · Inactivo');

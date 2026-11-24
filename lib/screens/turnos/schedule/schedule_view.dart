@@ -218,8 +218,8 @@ class ScheduleView extends StatelessWidget {
                 padding: const EdgeInsets.all(AppSpacing.lg),
                 child: Text(
                   isAdmin
-                      ? 'Añade puestos en «Puestos» y usuarios en '
-                          '«Usuarios» para poder generar el horario.'
+                      ? 'Añade usuarios con puesto en «Usuarios» para poder '
+                          'generar el horario.'
                       : 'Todavía no hay usuarios con un puesto asignado.',
                 ),
               ),

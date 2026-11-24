@@ -14,7 +14,7 @@ class UserInfoDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final jobRole = user.jobRole;
+    final position = user.jobPosition;
     return AlertDialog(
       title: Row(
         children: [
@@ -35,7 +35,12 @@ class UserInfoDialog extends StatelessWidget {
             _InfoRow(
               icon: Icons.work_outline,
               label: 'Puesto habitual',
-              value: jobRole == null ? 'Sin puesto' : jobRole.name,
+              value: position == null ? 'Sin puesto' : position.label,
+            ),
+            _InfoRow(
+              icon: Icons.storefront_outlined,
+              label: 'Planta habitual',
+              value: user.effectiveFloor.label,
             ),
             _InfoRow(
               icon: Icons.verified_user_outlined,

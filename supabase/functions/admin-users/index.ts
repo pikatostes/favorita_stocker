@@ -5,9 +5,9 @@
 // administrador activo y solo entonces usa el cliente privilegiado.
 //
 // Acciones:
-//   create     { email, name, surname, password?, role?, job_role_id?,
+//   create     { email, name, surname, password?, role?, floor?, job_position?,
 //                active?, opener?, working_days? }
-//   update     { id, email, name, surname, password?, role?, job_role_id?,
+//   update     { id, email, name, surname, password?, role?, floor?, job_position?,
 //                active?, opener?, working_days? }
 //   setActive  { id, active }
 
@@ -28,7 +28,8 @@ type Payload = {
   surname?: string;
   password?: string;
   role?: 'admin' | 'employee';
-  job_role_id?: number | null;
+  floor?: 'planta_baja' | 'karaoke' | 'terraza';
+  job_position?: 'camarero' | 'manteni' | null;
   active?: boolean;
   opener?: boolean;
   working_days?: string;
@@ -60,7 +61,10 @@ function profileValues(payload: Payload): Record<string, unknown> {
   if (payload.surname !== undefined) values.surname = payload.surname.trim();
   if (payload.email !== undefined) values.email = payload.email.trim().toLowerCase();
   if (payload.role !== undefined) values.role = payload.role;
-  if (payload.job_role_id !== undefined) values.job_role_id = payload.job_role_id;
+  if (payload.floor !== undefined) values.floor = payload.floor;
+  if (payload.job_position !== undefined) values.job_position = payload.job_position;
+  // El puesto de mantenimiento trabaja siempre en planta baja.
+  if (payload.job_position === 'manteni') values.floor = 'planta_baja';
   if (payload.active !== undefined) values.active = payload.active;
   if (payload.opener !== undefined) values.opener = payload.opener;
   if (payload.working_days !== undefined) values.working_days = payload.working_days;

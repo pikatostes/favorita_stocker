@@ -79,8 +79,8 @@ class _AddPeopleDialogState extends State<AddPeopleDialog> {
       ];
 
   UserOption _optionFor(AppUser user) {
-    final jobRole = user.jobRole;
-    if (user.id == null || jobRole == null || jobRole.id == null) {
+    final position = user.jobPosition;
+    if (user.id == null || position == null) {
       return UserOption(
         user: user,
         enabled: false,
@@ -115,14 +115,14 @@ class _AddPeopleDialogState extends State<AddPeopleDialog> {
       return UserOption(
         user: user,
         enabled: true,
-        detail: '${jobRole.name} · ${jobRole.floor.label}',
+        detail: '${position.label} · ${user.effectiveFloor.label}',
       );
     }
     final summary = others.map((shift) => shift.timeLabel).join(', ');
     return UserOption(
       user: user,
       enabled: true,
-      detail: '${jobRole.name} · sin solape; ese día también $summary',
+      detail: '${position.label} · sin solape; ese día también $summary',
     );
   }
 
@@ -157,8 +157,8 @@ class _AddPeopleDialogState extends State<AddPeopleDialog> {
         date: widget.date,
         userId: user.id!,
         userName: user.fullName,
-        roleId: user.jobRole!.id!,
-        roleName: user.jobRole!.name,
+        position: user.jobPosition!,
+        positionName: user.jobPosition!.label,
         floor: widget.floor,
         startMin: slot.startMin,
         endMin: slot.endMin,
@@ -167,7 +167,6 @@ class _AddPeopleDialogState extends State<AddPeopleDialog> {
           endMin: slot.endMin,
         ),
         status: status,
-        note: user.jobRole!.note.trim(),
       );
 
   @override

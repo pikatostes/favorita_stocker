@@ -91,8 +91,8 @@ order by table_name;
 ```
 
 Deben aparecer `category`, `box_type`, `product_group`, `subcategory`,
-`product`, `night`, `consumption`, `special_day`, `job_role`, `profiles` y
-`shift` (además de las cuatro vistas `*_view`).
+`product`, `night`, `consumption`, `special_day`, `floor`, `job_position`,
+`profiles` y `shift` (además de las cuatro vistas `*_view`).
 
 ### Catálogo inicial (opcional)
 

@@ -47,11 +47,12 @@ void main() {
       Future<int> load() async => ++calls;
 
       final cache = ReadCache();
-      await cache.read(key: 'roles', tables: ['job_role'], load: load);
+      await cache.read(key: 'positions', tables: ['job_position'], load: load);
       cache.invalidate(['incident']);
 
       expect(
-        await cache.read(key: 'roles', tables: ['job_role'], load: load),
+        await cache.read(
+            key: 'positions', tables: ['job_position'], load: load),
         1,
       );
       expect(calls, 1);
@@ -62,11 +63,12 @@ void main() {
       Future<int> load() async => ++calls;
 
       final cache = ReadCache();
-      await cache.read(key: 'roles', tables: ['job_role'], load: load);
-      cache.invalidate(['job_role']);
+      await cache.read(key: 'positions', tables: ['job_position'], load: load);
+      cache.invalidate(['job_position']);
 
       expect(
-        await cache.read(key: 'roles', tables: ['job_role'], load: load),
+        await cache.read(
+            key: 'positions', tables: ['job_position'], load: load),
         2,
       );
       expect(calls, 2);

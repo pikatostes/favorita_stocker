@@ -47,11 +47,9 @@ class _UsersTabState extends State<UsersTab> {
 
   Future<void> _edit([AppUser? user]) async {
     if (!widget.isAdmin) return;
-    final roles = await Db.i.roles();
-    if (!mounted) return;
     final result = await showDialog<UserFormResult>(
       context: context,
-      builder: (_) => UserFormDialog(user: user, roles: roles),
+      builder: (_) => UserFormDialog(user: user),
     );
     if (result == null) return;
     try {
@@ -119,7 +117,7 @@ class _UsersTabState extends State<UsersTab> {
               itemCount: users.length,
               itemBuilder: (context, index) {
                 final user = users[index];
-                final jobRole = user.jobRole;
+                final position = user.jobPosition?.label ?? 'Sin puesto';
                 return ListTile(
                   leading: UserAvatar(user: user),
                   title: Text(
@@ -134,7 +132,7 @@ class _UsersTabState extends State<UsersTab> {
                       ? Text(
                           '${user.email}\n'
                           '${user.role.label}'
-                          ' · ${jobRole == null ? 'Sin puesto' : '${jobRole.name} · ${jobRole.floor.label}'}'
+                          ' · $position · ${user.effectiveFloor.label}'
                           ' · ${user.workingDaysLabel}'
                           '${user.opener ? ' · Puede abrir' : ''}',
                         )

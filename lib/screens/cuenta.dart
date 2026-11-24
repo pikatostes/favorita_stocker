@@ -218,7 +218,7 @@ class _CuentaScreenState extends State<CuentaScreen> {
               title: 'No hay una sesión iniciada',
             );
           }
-          final jobRole = user.jobRole;
+          final position = user.jobPosition;
 
           final profile = Card(
             child: Padding(
@@ -311,9 +311,9 @@ class _CuentaScreenState extends State<CuentaScreen> {
                       Chip(
                         avatar: const Icon(Icons.work_outline, size: 17),
                         label: Text(
-                          jobRole == null
+                          position == null
                               ? 'Sin puesto asignado'
-                              : '${jobRole.name} · ${jobRole.floor.label}',
+                              : '${position.label} · ${user.effectiveFloor.label}',
                         ),
                       ),
                       Chip(

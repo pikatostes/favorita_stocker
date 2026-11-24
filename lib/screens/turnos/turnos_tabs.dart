@@ -1,11 +1,11 @@
 import '../../shifts.dart';
 
-/// Pestañas internas de Turnos. [roles] (Puestos) solo está disponible para
+/// Pestañas internas de Turnos. [positions] (Puestos) solo está disponible para
 /// administradores.
 enum TurnoTab {
   schedule('Horario'),
   users('Usuarios'),
-  roles('Puestos', adminOnly: true);
+  positions('Puestos', adminOnly: true);
 
   final String label;
   final bool adminOnly;

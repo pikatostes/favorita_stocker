@@ -60,7 +60,7 @@ class Db {
   };
 
   /// Tablas que alimentan las fichas de usuario.
-  static const Set<String> userTables = {'profiles', 'job_role'};
+  static const Set<String> userTables = {'profiles', 'floor', 'job_position'};
 
   /// Tablas del histórico de consumo.
   static const Set<String> nightTables = {'night', 'consumption'};
@@ -115,7 +115,8 @@ class Db {
     'night',
     'consumption',
     'special_day',
-    'job_role',
+    'floor',
+    'job_position',
     'profiles',
     'shift',
     'incident',
@@ -715,91 +716,8 @@ class Db {
   // Turnos: puestos, usuarios y turnos
   // ---------------------------------------------------------------------------
 
-  /// Puestos configurados, ordenados por planta y nombre.
-  Future<List<JobRole>> roles() => _cached(
-        key: 'roles',
-        tables: const {'job_role'},
-        load: () async {
-          final rows = await _client.from('job_role').select();
-          final list = [
-            for (final row in rows)
-              JobRole.fromRow(Map<String, Object?>.from(row)),
-          ];
-          const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
-          list.sort((a, b) {
-            final floor =
-                (order[a.floor.db] ?? 2).compareTo(order[b.floor.db] ?? 2);
-            return floor != 0 ? floor : a.name.compareTo(b.name);
-          });
-          return list;
-        },
-      );
-
-  Future<void> addRole(JobRole role) async {
-    final name = normalizeRoleName(role.name);
-    if (name.isEmpty) {
-      throw ArgumentError('El nombre del puesto es obligatorio.');
-    }
-    try {
-      await _client.from('job_role').insert({
-        'name': name,
-        'name_key': roleNameKey(name),
-        'floor': role.floor.db,
-        'note': role.note.trim(),
-      });
-    } on PostgrestException catch (error) {
-      if (error.code == '23505') {
-        throw StateError('Ya existe un puesto con ese nombre.');
-      }
-      throw StateError(_friendly(error));
-    }
-    _changed(const {'job_role'});
-  }
-
-  Future<void> updateRole(JobRole role) async {
-    if (role.id == null) {
-      throw ArgumentError('El puesto debe tener un id.');
-    }
-    final name = normalizeRoleName(role.name);
-    if (name.isEmpty) {
-      throw ArgumentError('El nombre del puesto es obligatorio.');
-    }
-    try {
-      await _client.from('job_role').update({
-        'name': name,
-        'name_key': roleNameKey(name),
-        'floor': role.floor.db,
-        'note': role.note.trim(),
-      }).eq('id', role.id!);
-    } on PostgrestException catch (error) {
-      if (error.code == '23505') {
-        throw StateError('Ya existe un puesto con ese nombre.');
-      }
-      throw StateError(_friendly(error));
-    }
-    _changed(const {'job_role'});
-  }
-
-  /// Borra un puesto solo si no tiene usuarios ni turnos asignados.
-  Future<void> deleteRole(int id) async {
-    final users = await _client
-        .from('profiles')
-        .select('id')
-        .eq('job_role_id', id)
-        .limit(1);
-    if (users.isNotEmpty) {
-      throw StateError('No se puede borrar un puesto con usuarios asignados.');
-    }
-    final shifts =
-        await _client.from('shift').select('id').eq('role_id', id).limit(1);
-    if (shifts.isNotEmpty) {
-      throw StateError('No se puede borrar un puesto con turnos históricos.');
-    }
-    await _client.from('job_role').delete().eq('id', id);
-    _changed(const {'job_role'});
-  }
-
-  /// Usuarios (solo activos salvo [includeInactive]), con su puesto habitual.
+  /// Usuarios (solo activos salvo [includeInactive]), con su planta y puesto
+  /// habituales.
   Future<List<AppUser>> users({bool includeInactive = false}) => _cached(
         key: 'users:inactive=$includeInactive',
         tables: userTables,
@@ -815,12 +733,12 @@ class Db {
           ];
           const order = {'planta_baja': 0, 'karaoke': 1, 'terraza': 2};
           list.sort((a, b) {
-            final floor = (order[a.jobRole?.floor.db] ?? 2)
-                .compareTo(order[b.jobRole?.floor.db] ?? 2);
+            final floor = (order[a.effectiveFloor.db] ?? 2)
+                .compareTo(order[b.effectiveFloor.db] ?? 2);
             if (floor != 0) return floor;
-            final role =
-                (a.jobRole?.name ?? '').compareTo(b.jobRole?.name ?? '');
-            if (role != 0) return role;
+            final position = (a.jobPosition?.db ?? '')
+                .compareTo(b.jobPosition?.db ?? '');
+            if (position != 0) return position;
             final name = a.name.compareTo(b.name);
             return name != 0 ? name : a.surname.compareTo(b.surname);
           });
@@ -880,7 +798,8 @@ class Db {
       'surname': user.surname.trim(),
       'password': password,
       'role': user.role.db,
-      'job_role_id': user.jobRole?.id,
+      'floor': user.effectiveFloor.db,
+      'job_position': user.jobPosition?.db,
       'active': user.active,
       'opener': user.opener,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
@@ -910,7 +829,8 @@ class Db {
       'surname': user.surname.trim(),
       if (password != null && password.isNotEmpty) 'password': password,
       'role': user.role.db,
-      'job_role_id': user.jobRole?.id,
+      'floor': user.effectiveFloor.db,
+      'job_position': user.jobPosition?.db,
       'active': user.active,
       'opener': user.opener,
       'working_days': AppUser.formatWorkingDays(user.workingDays),
@@ -1193,7 +1113,7 @@ class Db {
             .lte('date', last)
             .order('date')
             .order('floor')
-            .order('role_name')
+            .order('position_name')
             .order('user_name');
         return [
           for (final row in rows) Shift.fromRow(Map<String, Object?>.from(row)),
@@ -1206,7 +1126,7 @@ class Db {
   /// con puesto. Devuelve cuántos turnos se han creado.
   Future<int> generateMonthShifts(DateTime month) async {
     final users = (await this.users())
-        .where((user) => user.jobRole != null)
+        .where((user) => user.jobPosition != null)
         .toList(growable: false);
     final special = await specialDays();
     final generated = ShiftGenerator.generateMonth(
@@ -1254,8 +1174,8 @@ class Db {
         'date': shift.date,
         'user_id': shift.userId,
         'user_name': shift.userName,
-        'role_id': shift.roleId,
-        'role_name': shift.roleName,
+        'position': shift.position.db,
+        'position_name': shift.positionName,
         'floor': shift.floor.db,
         'start_min': shift.startMin,
         'end_min': shift.endMin,
@@ -1272,6 +1192,9 @@ class Db {
     final note = shift.note.trim();
     try {
       await _client.from('shift').update({
+        'floor': shift.floor.db,
+        'position': shift.position.db,
+        'position_name': shift.positionName,
         'start_min': shift.startMin,
         'end_min': shift.endMin,
         'break_min': shift.breakMin,

@@ -85,8 +85,8 @@ class _NewSlotDialogState extends State<NewSlotDialog> {
   }
 
   UserOption _optionFor(AppUser user) {
-    final jobRole = user.jobRole;
-    if (user.id == null || jobRole == null || jobRole.id == null) {
+    final position = user.jobPosition;
+    if (user.id == null || position == null) {
       return UserOption(
         user: user,
         enabled: false,
@@ -107,7 +107,7 @@ class _NewSlotDialogState extends State<NewSlotDialog> {
     return UserOption(
       user: user,
       enabled: true,
-      detail: '${jobRole.name} · ${jobRole.floor.label}',
+      detail: '${position.label} · ${user.effectiveFloor.label}',
     );
   }
 
@@ -130,14 +130,13 @@ class _NewSlotDialogState extends State<NewSlotDialog> {
         date: widget.date,
         userId: user.id!,
         userName: user.fullName,
-        roleId: user.jobRole!.id!,
-        roleName: user.jobRole!.name,
+        position: user.jobPosition!,
+        positionName: user.jobPosition!.label,
         floor: widget.floor,
         startMin: _start,
         endMin: _end,
         breakMin: breakMinutesFor(startMin: _start, endMin: _end),
         status: ShiftStatus.draft,
-        note: user.jobRole!.note.trim(),
       );
 
   @override

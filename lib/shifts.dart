@@ -1,7 +1,8 @@
 import 'models.dart';
 import 'schedule.dart';
 
-/// Plantas del local. El puesto de cada empleado pertenece a una sola planta.
+/// Plantas del local. Cada usuario tiene una planta habitual y los turnos se
+/// agrupan por la planta en la que se trabaja.
 enum Floor {
   plantaBaja('planta_baja', 'Planta baja', 'P.B.'),
   karaoke('karaoke', 'Karaoke', 'Kar.'),
@@ -18,6 +19,26 @@ enum Floor {
         (f) => f.db == value,
         orElse: () => Floor.plantaBaja,
       );
+}
+
+/// Puesto habitual de un empleado. El catálogo es fijo: solo existen camarero
+/// y manteni. Los usuarios con puesto `manteni` trabajan siempre en planta
+/// baja, independientemente de la planta que tengan configurada.
+enum JobPosition {
+  camarero('camarero', 'Camarero'),
+  manteni('manteni', 'Manteni');
+
+  const JobPosition(this.db, this.label);
+  final String db;
+  final String label;
+
+  static JobPosition? fromDb(String? value) {
+    if (value == null) return null;
+    for (final position in values) {
+      if (position.db == value) return position;
+    }
+    return null;
+  }
 }
 
 /// Estado de un turno. El generador crea borradores; publicar los hace
@@ -37,51 +58,8 @@ enum ShiftStatus {
       );
 }
 
-/// Equivalencias de acentos usadas para comparar nombres sin distinguir
-/// mayúsculas, acentos ni espacios sobrantes.
-const Map<String, String> kAccentFolding = {
-  'á': 'a',
-  'à': 'a',
-  'ä': 'a',
-  'â': 'a',
-  'é': 'e',
-  'è': 'e',
-  'ë': 'e',
-  'ê': 'e',
-  'í': 'i',
-  'ì': 'i',
-  'ï': 'i',
-  'î': 'i',
-  'ó': 'o',
-  'ò': 'o',
-  'ö': 'o',
-  'ô': 'o',
-  'ú': 'u',
-  'ù': 'u',
-  'ü': 'u',
-  'û': 'u',
-  'ñ': 'n',
-  'ç': 'c',
-};
-
-/// Nombre de puesto listo para mostrar: sin espacios en los extremos y con
-/// los espacios interiores colapsados.
-String normalizeRoleName(String name) =>
-    name.trim().replaceAll(RegExp(r'\s+'), ' ');
-
-/// Clave de comparación de puestos. No se muestra: sirve para que «Camarero»,
-/// «camarero » y «CÁMARERO» cuenten como el mismo puesto.
-String roleNameKey(String name) {
-  final folded = StringBuffer();
-  for (final rune in normalizeRoleName(name).toLowerCase().runes) {
-    final char = String.fromCharCode(rune);
-    folded.write(kAccentFolding[char] ?? char);
-  }
-  return folded.toString();
-}
-
-/// Rol de acceso a la aplicación. No confundir con [JobRole], que es el puesto
-/// habitual (camarero, cocina, etc.).
+/// Rol de acceso a la aplicación. No confundir con [JobPosition], que es el
+/// puesto habitual de trabajo.
 enum UserRole {
   admin('admin', 'Administrador'),
   employee('employee', 'Empleado');
@@ -97,69 +75,17 @@ enum UserRole {
       );
 }
 
-/// Puesto de trabajo configurable. Todos los empleados de un puesto comparten
-/// planta y nota (por ejemplo, un evento privado en el karaoke).
-class JobRole {
-  final int? id;
-  final String name;
-  final Floor floor;
-  final String note;
-
-  const JobRole({
-    this.id,
-    required this.name,
-    this.floor = Floor.plantaBaja,
-    this.note = '',
-  });
-
-  factory JobRole.fromRow(Map<String, Object?> m) => JobRole(
-        id: m['id'] as int,
-        name: m['name'] as String,
-        floor: Floor.fromDb(m['floor'] as String?),
-        note: (m['note'] as String?) ?? '',
-      );
-
-  String? get validationError =>
-      name.trim().isEmpty ? 'El nombre del puesto es obligatorio.' : null;
-
-  JobRole copyWith({
-    int? id,
-    String? name,
-    Floor? floor,
-    String? note,
-  }) =>
-      JobRole(
-        id: id ?? this.id,
-        name: name ?? this.name,
-        floor: floor ?? this.floor,
-        note: note ?? this.note,
-      );
-}
-
-/// Devuelve la instancia de [roles] que corresponde a [jobRole] por id.
-///
-/// Los desplegables de Flutter comparan el valor seleccionado por identidad
-/// (`==`), y los `JobRole` que vienen de un usuario y de la lista de puestos son
-/// objetos distintos aunque representen el mismo puesto. Sin esta conversión el
-/// `DropdownButton` no encuentra el elemento y lanza una assertion.
-JobRole? roleFromList(List<JobRole> roles, JobRole? jobRole) {
-  final id = jobRole?.id;
-  if (id == null) return null;
-  for (final candidate in roles) {
-    if (candidate.id == id) return candidate;
-  }
-  return null;
-}
-
-/// Usuario del local. [jobRole] es el puesto habitual (puede no tenerlo
-/// todavía, por ejemplo al registrarse) y [role] es el permiso de acceso
-/// (`admin` o `employee`). Solo se le asignan turnos si está activo.
+/// Usuario del local. [floor] es la planta habitual y [jobPosition] el puesto
+/// habitual (puede no tenerlo todavía, por ejemplo al registrarse). [role] es
+/// el permiso de acceso (`admin` o `employee`). Solo se le asignan turnos si
+/// está activo.
 class AppUser {
   final int? id;
   final String name;
   final String surname;
   final String email;
-  final JobRole? jobRole;
+  final Floor floor;
+  final JobPosition? jobPosition;
   final UserRole role;
   final bool active;
 
@@ -183,7 +109,8 @@ class AppUser {
     required this.name,
     this.surname = '',
     this.email = '',
-    this.jobRole,
+    this.floor = Floor.plantaBaja,
+    this.jobPosition,
     this.role = UserRole.employee,
     this.active = true,
     this.avatarPath,
@@ -193,7 +120,6 @@ class AppUser {
   });
 
   factory AppUser.fromRow(Map<String, Object?> m) {
-    final roleId = m['role_id'] as int?;
     final avatarPath = (m['avatar_path'] as String?)?.trim();
     return AppUser(
       id: m['id'] as int,
@@ -207,14 +133,8 @@ class AppUser {
           m['must_change_password'] == true || m['must_change_password'] == 1,
       workingDays: parseWorkingDays(m['working_days']),
       role: UserRole.fromDb(m['role'] as String?),
-      jobRole: roleId == null
-          ? null
-          : JobRole(
-              id: roleId,
-              name: m['role_name'] as String,
-              floor: Floor.fromDb(m['floor'] as String?),
-              note: (m['role_note'] as String?) ?? '',
-            ),
+      floor: Floor.fromDb(m['floor'] as String?),
+      jobPosition: JobPosition.fromDb(m['job_position'] as String?),
     );
   }
 
@@ -233,12 +153,13 @@ class AppUser {
           if (user.id != null) user.id!: user.avatarPath,
       };
 
-  /// Puesto de mantenimiento. Se compara con [roleNameKey] para tolerar
-  /// mayúsculas, espacios y acentos («Manteni», «Mantenimiento»...).
-  bool get isMaintenance {
-    final key = roleNameKey(jobRole?.name ?? '');
-    return key == 'manteni' || key == 'mantenimiento';
-  }
+  /// Planta en la que se le asignan los turnos. El puesto de mantenimiento
+  /// siempre trabaja en planta baja.
+  Floor get effectiveFloor =>
+      jobPosition == JobPosition.manteni ? Floor.plantaBaja : floor;
+
+  /// Puesto de mantenimiento. Manteni siempre se asigna a planta baja.
+  bool get isMaintenance => jobPosition == JobPosition.manteni;
 
   /// Días de la semana (1 = lunes .. 7 = domingo) guardados como "5,6".
   /// Un valor vacío o nulo significa "cualquier día".
@@ -281,8 +202,9 @@ class AppUser {
     String? name,
     String? surname,
     String? email,
-    JobRole? jobRole,
-    bool clearJobRole = false,
+    Floor? floor,
+    JobPosition? jobPosition,
+    bool clearJobPosition = false,
     UserRole? role,
     bool? active,
     String? avatarPath,
@@ -296,7 +218,9 @@ class AppUser {
         name: name ?? this.name,
         surname: surname ?? this.surname,
         email: email ?? this.email,
-        jobRole: clearJobRole ? null : (jobRole ?? this.jobRole),
+        floor: floor ?? this.floor,
+        jobPosition:
+            clearJobPosition ? null : (jobPosition ?? this.jobPosition),
         role: role ?? this.role,
         active: active ?? this.active,
         avatarPath: clearAvatar ? null : (avatarPath ?? this.avatarPath),
@@ -313,8 +237,8 @@ class Shift {
   final String date;
   final int userId;
   final String userName;
-  final int roleId;
-  final String roleName;
+  final JobPosition position;
+  final String positionName;
   final Floor floor;
   final int startMin; // minutos desde medianoche
   final int endMin; // si es menor que startMin, termina al día siguiente
@@ -327,8 +251,8 @@ class Shift {
     required this.date,
     required this.userId,
     required this.userName,
-    required this.roleId,
-    required this.roleName,
+    required this.position,
+    required this.positionName,
     required this.floor,
     required this.startMin,
     required this.endMin,
@@ -337,20 +261,24 @@ class Shift {
     this.note = '',
   });
 
-  factory Shift.fromRow(Map<String, Object?> m) => Shift(
-        id: m['id'] as int,
-        date: m['date'] as String,
-        userId: m['user_id'] as int,
-        userName: m['user_name'] as String,
-        roleId: m['role_id'] as int,
-        roleName: m['role_name'] as String,
-        floor: Floor.fromDb(m['floor'] as String?),
-        startMin: m['start_min'] as int,
-        endMin: m['end_min'] as int,
-        breakMin: m['break_min'] as int,
-        status: ShiftStatus.fromDb(m['status'] as String?),
-        note: (m['note'] as String?) ?? '',
-      );
+  factory Shift.fromRow(Map<String, Object?> m) {
+    final position =
+        JobPosition.fromDb(m['position'] as String?) ?? JobPosition.camarero;
+    return Shift(
+      id: m['id'] as int,
+      date: m['date'] as String,
+      userId: m['user_id'] as int,
+      userName: m['user_name'] as String,
+      position: position,
+      positionName: (m['position_name'] as String?) ?? position.label,
+      floor: Floor.fromDb(m['floor'] as String?),
+      startMin: m['start_min'] as int,
+      endMin: m['end_min'] as int,
+      breakMin: m['break_min'] as int,
+      status: ShiftStatus.fromDb(m['status'] as String?),
+      note: (m['note'] as String?) ?? '',
+    );
+  }
 
   int get durationMinutes => shiftDurationMinutes(startMin, endMin);
   int get workedMinutes => durationMinutes - breakMin;
@@ -360,6 +288,9 @@ class Shift {
 
   Shift copyWith({
     int? id,
+    JobPosition? position,
+    String? positionName,
+    Floor? floor,
     int? startMin,
     int? endMin,
     int? breakMin,
@@ -371,9 +302,9 @@ class Shift {
         date: date,
         userId: userId,
         userName: userName,
-        roleId: roleId,
-        roleName: roleName,
-        floor: floor,
+        position: position ?? this.position,
+        positionName: positionName ?? this.positionName,
+        floor: floor ?? this.floor,
         startMin: startMin ?? this.startMin,
         endMin: endMin ?? this.endMin,
         breakMin: breakMin ?? this.breakMin,
@@ -440,6 +371,10 @@ String weekdayShort(int weekday) => weekdayShortNames[weekday - 1];
 /// horas, dentro de cada planta se asignan los turnos más largos a quienes
 /// llevan menos horas acumuladas en el mes.
 ///
+/// Cada persona se agrupa por su planta habitual ([AppUser.effectiveFloor]) y
+/// el turno conserva su puesto habitual ([AppUser.jobPosition]). Los empleados
+/// con puesto `manteni` se agrupan siempre en planta baja.
+///
 /// La terraza abre a las 21:00 los viernes y a las 16:00 los sábados; en ambos
 /// casos necesita al menos dos personas desde la hora de apertura. Si no hay
 /// suficientes empleados disponibles, se programa a todos y la terraza queda
@@ -462,13 +397,13 @@ class ShiftGenerator {
   }) {
     final active = [
       for (final e in users)
-        if (e.active && e.id != null && e.jobRole?.id != null) e,
+        if (e.active && e.id != null && e.jobPosition != null) e,
     ];
     if (active.isEmpty) return const [];
 
     final byFloor = <Floor, List<AppUser>>{};
     for (final e in active) {
-      byFloor.putIfAbsent(e.jobRole!.floor, () => []).add(e);
+      byFloor.putIfAbsent(e.effectiveFloor, () => []).add(e);
     }
 
     // Horas acumuladas en el mes por empleado, para repartir los turnos largos.
@@ -640,13 +575,12 @@ class ShiftGenerator {
         date: Schedule.fmt(date),
         userId: e.id!,
         userName: e.fullName,
-        roleId: e.jobRole!.id!,
-        roleName: e.jobRole!.name,
-        floor: e.jobRole!.floor,
+        position: e.jobPosition!,
+        positionName: e.jobPosition!.label,
+        floor: e.effectiveFloor,
         startMin: start,
         endMin: end,
         breakMin: breakMinutesFor(startMin: start, endMin: end),
         status: ShiftStatus.draft,
-        note: e.jobRole!.note.trim(),
       );
 }

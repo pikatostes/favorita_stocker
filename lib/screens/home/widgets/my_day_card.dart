@@ -60,7 +60,7 @@ class MyDayCard extends StatelessWidget {
             ),
           ),
           Text(
-            '${next.roleName} · ${next.floor.label}',
+            '${next.positionName} · ${next.floor.label}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

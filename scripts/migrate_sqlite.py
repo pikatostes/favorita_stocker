@@ -33,6 +33,7 @@ DEFAULT_DB = ROOT / "privado" / "stock_bar.db"
 DEFAULT_JSON = ROOT / "privado" / "export.json"
 
 # Orden de inserción respetando las claves foráneas.
+# `floor` y `job_position` los siembra la migración; no se importan.
 TABLES = [
     "category",
     "box_type",
@@ -42,7 +43,6 @@ TABLES = [
     "night",
     "consumption",
     "special_day",
-    "job_role",
     "profiles",
     "shift",
 ]
@@ -56,7 +56,6 @@ COUNT_TABLES = [
     "night",
     "consumption",
     "special_day",
-    "job_role",
     "profiles",
     "shift",
 ]
@@ -91,6 +90,20 @@ def as_float(value: object, default: float = 1.0) -> float:
     except (TypeError, ValueError):
         return default
     return result if result > 0 else default
+
+
+FLOORS = ("planta_baja", "karaoke", "terraza")
+
+
+def role_floor(role: dict | None) -> str:
+    floor = (role or {}).get("floor") or "planta_baja"
+    return floor if floor in FLOORS else "planta_baja"
+
+
+def role_position(role: dict | None) -> str:
+    key = ((role or {}).get("name_key") or (role or {}).get("name") or "")
+    key = key.strip().lower()
+    return "manteni" if key in ("manteni", "mantenimiento") else "camarero"
 
 
 def rows(conn: sqlite3.Connection, sql: str) -> list[dict]:
@@ -187,18 +200,10 @@ def export(db_path: Path, out_path: Path) -> dict:
             for r in rows(conn, "SELECT * FROM special_day ORDER BY date")
         ]
 
-        job_role = [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "name_key": r["name_key"] or r["name"].strip().lower(),
-                "floor": r["floor"],
-                "note": r["note"] or "",
-                "created_at": iso_from_ms(r["created_at"]),
-                "updated_at": iso_from_ms(r["updated_at"]),
-            }
+        roles_by_id = {
+            r["id"]: dict(r)
             for r in rows(conn, "SELECT * FROM role ORDER BY id")
-        ]
+        }
 
         users = [
             {
@@ -207,7 +212,12 @@ def export(db_path: Path, out_path: Path) -> dict:
                 "surname": r["surname"] or "",
                 "email": (r["email"] or "").strip().lower(),
                 "role": r["role"] or "employee",
-                "job_role_id": r["role_id"],
+                "floor": role_floor(roles_by_id.get(r["role_id"])),
+                "job_position": (
+                    role_position(roles_by_id.get(r["role_id"]))
+                    if r["role_id"] is not None
+                    else None
+                ),
                 "active": as_bool(r["active"]),
                 "opener": as_bool(r["opener"]),
                 "working_days": r["working_days"] or "",
@@ -223,9 +233,9 @@ def export(db_path: Path, out_path: Path) -> dict:
                 "date": r["date"],
                 "old_user_id": r["user_id"],
                 "user_name": r["user_name"],
-                "role_id": r["role_id"],
-                "role_name": r["role_name"],
-                "floor": r["floor"],
+                "position": role_position(roles_by_id.get(r["role_id"])),
+                "position_name": r["role_name"] or "Camarero",
+                "floor": r["floor"] or role_floor(roles_by_id.get(r["role_id"])),
                 "start_min": as_int(r["start_min"]),
                 "end_min": as_int(r["end_min"]),
                 "break_min": as_int(r["break_min"]),
@@ -252,7 +262,6 @@ def export(db_path: Path, out_path: Path) -> dict:
                 "night": len(night),
                 "consumption": len(consumption),
                 "special_day": len(special_day),
-                "job_role": len(job_role),
                 "users": len(users),
                 "shift": len(shift),
             },
@@ -265,7 +274,6 @@ def export(db_path: Path, out_path: Path) -> dict:
         "night": night,
         "consumption": consumption,
         "special_day": special_day,
-        "job_role": job_role,
         "users": users,
         "shift": shift,
     }
@@ -427,7 +435,8 @@ def push(json_path: Path, password: str) -> None:
                 "surname": user["surname"],
                 "email": user["email"],
                 "role": user["role"],
-                "job_role_id": user["job_role_id"],
+                "floor": user["floor"],
+                "job_position": user["job_position"],
                 "active": user["active"],
                 "opener": user["opener"],
                 "working_days": user["working_days"],

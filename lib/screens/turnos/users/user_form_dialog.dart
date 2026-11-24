@@ -13,9 +13,8 @@ typedef UserFormResult = ({AppUser user, String? password});
 /// Formulario de alta y edición de usuarios (solo administradores).
 class UserFormDialog extends StatefulWidget {
   final AppUser? user;
-  final List<JobRole> roles;
 
-  const UserFormDialog({super.key, required this.user, required this.roles});
+  const UserFormDialog({super.key, required this.user});
 
   @override
   State<UserFormDialog> createState() => _UserFormDialogState();
@@ -30,20 +29,27 @@ class _UserFormDialogState extends State<UserFormDialog> {
   late final TextEditingController _email =
       TextEditingController(text: widget.user?.email ?? '');
   final _password = TextEditingController();
-  JobRole? _jobRole;
+  late Floor _floor = widget.user?.floor ?? Floor.plantaBaja;
+  JobPosition? _jobPosition;
   late UserRole _accessRole = widget.user?.role ?? UserRole.employee;
   late bool _active = widget.user?.active ?? true;
   late bool _opener = widget.user?.opener ?? false;
   late final Set<int> _workingDays = {...?widget.user?.workingDays};
   bool _obscure = true;
 
+  /// El puesto de mantenimiento trabaja siempre en planta baja.
+  bool get _isMaintenance => _jobPosition == JobPosition.manteni;
+
+  Floor get _effectiveFloor =>
+      _isMaintenance ? Floor.plantaBaja : _floor;
+
   @override
   void initState() {
     super.initState();
-    // El usuario trae una instancia de JobRole distinta a la de la lista de
-    // puestos. El DropdownButton compara por identidad, así que hay que usar
-    // exactamente el objeto que aparece en sus items.
-    _jobRole = roleFromList(widget.roles, widget.user?.jobRole);
+    _jobPosition = widget.user?.jobPosition;
+    if (_jobPosition == JobPosition.manteni) {
+      _floor = Floor.plantaBaja;
+    }
   }
 
   @override
@@ -66,7 +72,8 @@ class _UserFormDialogState extends State<UserFormDialog> {
           name: _name.text.trim(),
           surname: _surname.text.trim(),
           email: _email.text.trim().toLowerCase(),
-          jobRole: _jobRole,
+          floor: _effectiveFloor,
+          jobPosition: _jobPosition,
           role: _accessRole,
           active: _active,
           opener: _opener,
@@ -162,32 +169,57 @@ class _UserFormDialogState extends State<UserFormDialog> {
                   subtitle: Text(_accessRole.label),
                   trailing: const Icon(Icons.lock_outline, size: 18),
                 ),
-              DropdownButtonFormField<JobRole>(
-                initialValue: _jobRole,
+              DropdownButtonFormField<JobPosition>(
+                initialValue: _jobPosition,
                 isExpanded: true,
                 hint: const Text('Sin puesto'),
                 decoration: const InputDecoration(labelText: 'Puesto habitual'),
                 items: [
-                  for (final role in widget.roles)
-                    DropdownMenuItem<JobRole>(
-                      value: role,
-                      child: Text(
-                        '${role.name} · ${role.floor.label}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                  for (final position in JobPosition.values)
+                    DropdownMenuItem<JobPosition>(
+                      value: position,
+                      child: Text(position.label),
                     ),
                 ],
-                onChanged: (value) => setState(() => _jobRole = value),
+                onChanged: (value) => setState(() {
+                  _jobPosition = value;
+                  if (value == JobPosition.manteni) {
+                    _floor = Floor.plantaBaja;
+                  }
+                }),
               ),
-              if (_jobRole != null)
+              if (_jobPosition != null)
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
-                    onPressed: () => setState(() => _jobRole = null),
+                    onPressed: () => setState(() => _jobPosition = null),
                     icon: const Icon(Icons.clear, size: 18),
                     label: const Text('Dejar sin puesto'),
                   ),
                 ),
+              DropdownButtonFormField<Floor>(
+                initialValue: _effectiveFloor,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Planta habitual',
+                  helperText: _isMaintenance
+                      ? 'Manteni trabaja siempre en planta baja.'
+                      : null,
+                ),
+                items: [
+                  for (final floor in Floor.values)
+                    DropdownMenuItem<Floor>(
+                      value: floor,
+                      enabled: !_isMaintenance || floor == Floor.plantaBaja,
+                      child: Text(floor.label),
+                    ),
+                ],
+                onChanged: _isMaintenance
+                    ? null
+                    : (value) => setState(
+                          () => _floor = value ?? Floor.plantaBaja,
+                        ),
+              ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Activo'),

@@ -4,7 +4,7 @@ import '../../widgets/app_logo.dart';
 import '../../widgets/lazy_tab.dart';
 import '../../auth_controller.dart';
 import '../../shifts.dart';
-import 'turnos/roles/roles_tab.dart';
+import 'turnos/positions/positions_tab.dart';
 import 'turnos/schedule/schedule_tab.dart';
 import 'turnos/turnos_tabs.dart';
 import 'turnos/users/users_tab.dart';
@@ -65,7 +65,7 @@ class _TurnosScreenState extends State<TurnosScreen>
   Widget _pageFor(TurnoTab tab) => switch (tab) {
         TurnoTab.schedule => ScheduleTab(isAdmin: _isAdmin),
         TurnoTab.users => UsersTab(isAdmin: _isAdmin),
-        TurnoTab.roles => const RolesTab(),
+        TurnoTab.positions => const PositionsTab(),
       };
 
   @override

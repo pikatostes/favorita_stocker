@@ -171,7 +171,7 @@ class _MemberTile extends StatelessWidget {
     final theme = Theme.of(context);
     final name = shift.userName.trim();
     return Semantics(
-      label: '${name.isEmpty ? 'Sin nombre' : name}, ${shift.roleName}',
+      label: '${name.isEmpty ? 'Sin nombre' : name}, ${shift.positionName}',
       child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         children: [

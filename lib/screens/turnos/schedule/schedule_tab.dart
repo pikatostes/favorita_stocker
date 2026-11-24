@@ -169,7 +169,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
       context,
       title: 'Confirmar turno',
       message: '${formatLongDateIso(shift.date)} · ${shift.timeLabel}\n'
-          '${shift.roleName} (${shift.floor.label})',
+          '${shift.positionName} (${shift.floor.label})',
       confirmLabel: 'Confirmar',
     );
     if (!ok || !mounted) return;

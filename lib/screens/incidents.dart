@@ -89,7 +89,7 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
   }
 
   Floor get _defaultFloor =>
-      _floor ?? AuthController.i.user?.jobRole?.floor ?? Floor.plantaBaja;
+      _floor ?? AuthController.i.user?.effectiveFloor ?? Floor.plantaBaja;
 
   Future<void> _openForm([Incident? incident]) async {
     final result = await showDialog<Incident>(

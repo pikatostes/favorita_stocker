@@ -482,9 +482,9 @@ class _ProfileFooter extends StatelessWidget {
     final name = user?.fullName.trim().isNotEmpty == true
         ? user!.fullName.trim()
         : 'Mi cuenta';
-    final role = user?.jobRole == null
+    final role = user?.jobPosition == null
         ? (user?.role.label ?? 'Sin sesión')
-        : '${user!.jobRole!.name} · ${user!.jobRole!.floor.label}';
+        : '${user!.jobPosition!.label} · ${user!.effectiveFloor.label}';
 
     if (!expanded) {
       return Padding(

@@ -71,7 +71,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
     if (!data.hasEligibleUsers) {
       showAppSnack(
         context,
-        'Añade puestos y usuarios activos para poder generar el horario.',
+        'Añade usuarios activos con puesto para poder generar el horario.',
         tone: AppTone.warning,
       );
       return;

@@ -6,6 +6,6 @@ import '../../../shifts.dart';
 /// Deja fuera el email, los días de trabajo y si puede abrir, que son datos de
 /// gestión reservados al administrador.
 String employeeUserSummary(AppUser user) {
-  final jobRole = user.jobRole?.name ?? 'Sin puesto';
-  return '${user.role.label} · $jobRole · ${user.active ? 'Activo' : 'Inactivo'}';
+  final position = user.jobPosition?.label ?? 'Sin puesto';
+  return '${user.role.label} · $position · ${user.active ? 'Activo' : 'Inactivo'}';
 }

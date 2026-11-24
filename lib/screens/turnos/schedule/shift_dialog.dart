@@ -4,7 +4,7 @@ import '../../../formats.dart';
 import '../../../shifts.dart';
 import '../../../widgets/app_ui.dart';
 
-/// Diálogo de edición de un turno: horas, estado y nota.
+/// Diálogo de edición de un turno: horas, planta, puesto, estado y nota.
 class ShiftDialog extends StatefulWidget {
   final Shift shift;
 
@@ -18,8 +18,15 @@ class _ShiftDialogState extends State<ShiftDialog> {
   late int _start = widget.shift.startMin;
   late int _end = widget.shift.endMin;
   late ShiftStatus _status = widget.shift.status;
+  late Floor _floor = widget.shift.position == JobPosition.manteni
+      ? Floor.plantaBaja
+      : widget.shift.floor;
+  late JobPosition _position = widget.shift.position;
   late final TextEditingController _note =
       TextEditingController(text: widget.shift.note);
+
+  /// El puesto de mantenimiento trabaja siempre en planta baja.
+  bool get _isMaintenance => _position == JobPosition.manteni;
 
   @override
   void dispose() {
@@ -56,9 +63,9 @@ class _ShiftDialogState extends State<ShiftDialog> {
         date: widget.shift.date,
         userId: widget.shift.userId,
         userName: widget.shift.userName,
-        roleId: widget.shift.roleId,
-        roleName: widget.shift.roleName,
-        floor: widget.shift.floor,
+        position: _position,
+        positionName: _position.label,
+        floor: _isMaintenance ? Floor.plantaBaja : _floor,
         startMin: _start,
         endMin: _end,
         breakMin: breakMinutesFor(startMin: _start, endMin: _end),
@@ -81,7 +88,7 @@ class _ShiftDialogState extends State<ShiftDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.shift.userName} · ${widget.shift.roleName}',
+              '${widget.shift.userName} · ${widget.shift.positionName}',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             Text(
@@ -114,6 +121,51 @@ class _ShiftDialogState extends State<ShiftDialog> {
               'Descanso: ${breakMin == 0 ? 'ninguno' : '$breakMin min'} · '
               'Trabajado: ${formatHours(worked)}',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<JobPosition>(
+              initialValue: _position,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Puesto'),
+              items: [
+                for (final position in JobPosition.values)
+                  DropdownMenuItem<JobPosition>(
+                    value: position,
+                    child: Text(position.label),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _position = value;
+                  if (value == JobPosition.manteni) {
+                    _floor = Floor.plantaBaja;
+                  }
+                });
+              },
+            ),
+            DropdownButtonFormField<Floor>(
+              initialValue: _floor,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Planta',
+                helperText: _isMaintenance
+                    ? 'Manteni trabaja siempre en planta baja.'
+                    : null,
+              ),
+              items: [
+                for (final floor in Floor.values)
+                  DropdownMenuItem<Floor>(
+                    value: floor,
+                    enabled: !_isMaintenance || floor == Floor.plantaBaja,
+                    child: Text(floor.label),
+                  ),
+              ],
+              onChanged: _isMaintenance
+                  ? null
+                  : (value) {
+                      if (value != null) setState(() => _floor = value);
+                    },
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<ShiftStatus>(

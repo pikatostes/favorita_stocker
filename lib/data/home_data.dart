@@ -110,13 +110,17 @@ class HomeData {
 
   /// Usuarios activos que ya tienen un puesto asignado y pueden entrar en el
   /// generador de horarios.
-  List<AppUser> get eligibleUsers =>
-      activeUsers.where((user) => user.jobRole != null).toList(growable: false);
+  List<AppUser> get eligibleUsers => activeUsers
+      .where((user) => user.jobPosition != null)
+      .toList(growable: false);
 
   bool get hasEligibleUsers => eligibleUsers.isNotEmpty;
 
   int get activeUsersWithoutRole =>
-      activeUsers.where((user) => user.jobRole == null).length;
+      activeUsers.where((user) => user.jobPosition == null).length;
+
+  /// Nombre nuevo del mismo contador.
+  int get activeUsersWithoutPosition => activeUsersWithoutRole;
 
   /// Contadores por estado en una sola pasada; las tarjetas los reutilizan en
   /// lugar de recorrer la lista varias veces.
@@ -143,7 +147,7 @@ class HomeData {
     for (final floor in Floor.values) {
       final hasOpener = eligibleUsers.any(
         (user) =>
-            user.jobRole!.floor == floor &&
+            user.effectiveFloor == floor &&
             user.opener &&
             (user.workingDays.isEmpty ||
                 user.workingDays.contains(focusDay.weekday)),
@@ -181,7 +185,7 @@ class HomeData {
     final pendingDays = openDaysWithoutShifts;
     return [
       if (!hasEligibleUsers)
-        'Añade puestos y usuarios activos para generar el horario',
+        'Añade usuarios activos con puesto para generar el horario',
       if (pendingDays > 0)
         pendingDays == 1
             ? '1 día de apertura sin turnos'

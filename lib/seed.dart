@@ -221,107 +221,106 @@ final List<Product> initialProducts = [
       image: 'lib/img/agua-cristal.webp'),
 ];
 
-/// Puestos iniciales del local. El nombre es único: la planta y la nota se
-/// guardan en el propio puesto.
+/// Puestos y plantas iniciales del local.
 ///
-/// Se declaran como constantes para que [initialUsers] guarde una referencia al
-/// puesto de esta lista y no un nombre suelto.
-const _camarero = JobRole(name: 'camarero', floor: Floor.plantaBaja);
-const _manteni = JobRole(name: 'manteni', floor: Floor.plantaBaja);
-const _camareroKaraoke = JobRole(name: 'camareroo', floor: Floor.karaoke);
-const _bandeja = JobRole(name: 'bandeja', floor: Floor.terraza);
-const _camareroTerraza = JobRole(name: 'camarerooo', floor: Floor.terraza);
+/// El catálogo de puestos es fijo (`camarero` y `manteni`) y las plantas son
+/// `planta_baja`, `karaoke` y `terraza`. Cada usuario guarda su planta habitual
+/// y su puesto habitual por separado.
+const List<JobPosition> initialPositions = JobPosition.values;
 
-const List<JobRole> initialRoles = [
-  _camarero,
-  _manteni,
-  _camareroKaraoke,
-  _bandeja,
-  _camareroTerraza,
-];
-
-/// Usuarios iniciales: nombre, apellidos, email, puesto habitual ([JobRole]) y
-/// rol de acceso.
+/// Usuarios iniciales: nombre, apellidos, email, planta habitual, puesto
+/// habitual ([JobPosition]) y rol de acceso.
 ///
-/// Las cuentas se crean con la contraseña temporal «favorita» y el puesto
-/// «camarero». Alejandro es el único administrador inicial; el resto son
-/// empleados. Todos los datos se pueden editar desde la pestaña Usuarios.
+/// Las cuentas se crean con la contraseña temporal «favorita». Alejandro es el
+/// único administrador inicial; el resto son empleados. Todos los datos se
+/// pueden editar desde la pestaña Usuarios.
 const List<
     ({
       String name,
       String surname,
       String email,
-      JobRole jobRole,
+      Floor floor,
+      JobPosition jobPosition,
       UserRole role,
     })> initialUsers = [
   (
     name: 'Carmen',
     surname: '',
     email: 'carmen@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Lucía',
     surname: '',
     email: 'lucia@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Moreno',
     email: 'maria.moreno@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'María',
     surname: 'Hidalgo',
     email: 'maria.hidalgo@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Elena',
     surname: '',
     email: 'elena@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Jesús',
     surname: '',
     email: 'jesus@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Alejandro',
     surname: '',
     email: 'alejandro@favorita.local',
-    jobRole: _manteni,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.manteni,
     role: UserRole.admin,
   ),
   (
     name: 'Alfonso',
     surname: '',
     email: 'alfonso@favorita.local',
-    jobRole: _bandeja,
+    floor: Floor.terraza,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Antonio',
     surname: '',
     email: 'antonio@favorita.local',
-    jobRole: _camareroTerraza,
+    floor: Floor.terraza,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
   (
     name: 'Juanma',
     surname: '',
     email: 'juanma@favorita.local',
-    jobRole: _camarero,
+    floor: Floor.plantaBaja,
+    jobPosition: JobPosition.camarero,
     role: UserRole.employee,
   ),
 ];
