@@ -363,22 +363,161 @@ const List<String> weekdayShortNames = [
 
 String weekdayShort(int weekday) => weekdayShortNames[weekday - 1];
 
+/// Personas mínimas por tramo en una planta.
+///
+/// [open] es el mínimo del primer tramo (desde la apertura hasta el cambio de
+/// turno) y [peak] el del segundo (hasta el cierre). Un turno completo cuenta
+/// para los dos.
+class FloorMinimums {
+  final int open;
+  final int peak;
+
+  const FloorMinimums({this.open = 1, this.peak = 1});
+
+  FloorMinimums copyWith({int? open, int? peak}) =>
+      FloorMinimums(open: open ?? this.open, peak: peak ?? this.peak);
+
+  @override
+  bool operator ==(Object other) =>
+      other is FloorMinimums && other.open == open && other.peak == peak;
+
+  @override
+  int get hashCode => Object.hash(open, peak);
+
+  @override
+  String toString() => 'FloorMinimums(open: $open, peak: $peak)';
+}
+
+/// Cómo se estructura el horario de un mes.
+///
+/// Los valores por defecto reproducen el comportamiento histórico: viernes y
+/// sábado, tramos 16:00–21:00 y 21:00–04:00, turnos completos permitidos,
+/// terraza a las 21:00 los viernes y dos personas en la terraza.
+class ShiftPlanConfig {
+  /// Días de la semana que se generan (1 = lunes .. 7 = domingo).
+  final Set<int> weekdays;
+
+  /// Inicio del primer tramo, en minutos desde medianoche.
+  final int openingStart;
+
+  /// Cambio de turno: fin del primer tramo e inicio del segundo. Debe ser
+  /// posterior a [openingStart] el mismo día.
+  final int openingEnd;
+
+  /// Cierre del segundo tramo. Si es menor que [openingEnd], termina al día
+  /// siguiente.
+  final int closingEnd;
+
+  /// Si se permite el turno completo (apertura + segundo tramo) cuando no hay
+  /// personas suficientes para cubrir ambos por separado.
+  final bool allowFullShifts;
+
+  /// Si la terraza empieza directamente en el segundo tramo los viernes.
+  final bool terraceFridayLate;
+
+  /// Mínimos de personas por planta. Las plantas que falten usan
+  /// `FloorMinimums()` (una persona en cada tramo).
+  final Map<Floor, FloorMinimums> minimums;
+
+  const ShiftPlanConfig({
+    this.weekdays = const {DateTime.friday, DateTime.saturday},
+    this.openingStart = Schedule.openHour * 60,
+    this.openingEnd = Schedule.peakHour * 60,
+    this.closingEnd = Schedule.closeHour * 60,
+    this.allowFullShifts = true,
+    this.terraceFridayLate = true,
+    this.minimums = const {
+      Floor.plantaBaja: FloorMinimums(),
+      Floor.karaoke: FloorMinimums(),
+      Floor.terraza: FloorMinimums(open: 2, peak: 2),
+    },
+  });
+
+  FloorMinimums minimumsFor(Floor floor) =>
+      minimums[floor] ?? const FloorMinimums();
+
+  /// Días configurados en orden, con el nombre corto («Vie, Sáb»).
+  String get weekdaysLabel {
+    final sorted = weekdays.toList()..sort();
+    return sorted.map(weekdayShort).join(', ');
+  }
+
+  ShiftPlanConfig copyWith({
+    Set<int>? weekdays,
+    int? openingStart,
+    int? openingEnd,
+    int? closingEnd,
+    bool? allowFullShifts,
+    bool? terraceFridayLate,
+    Map<Floor, FloorMinimums>? minimums,
+  }) =>
+      ShiftPlanConfig(
+        weekdays: weekdays ?? this.weekdays,
+        openingStart: openingStart ?? this.openingStart,
+        openingEnd: openingEnd ?? this.openingEnd,
+        closingEnd: closingEnd ?? this.closingEnd,
+        allowFullShifts: allowFullShifts ?? this.allowFullShifts,
+        terraceFridayLate: terraceFridayLate ?? this.terraceFridayLate,
+        minimums: minimums ?? this.minimums,
+      );
+
+  /// Devuelve una copia con los mínimos de [floor] cambiados.
+  ShiftPlanConfig withMinimum(Floor floor, FloorMinimums value) =>
+      copyWith(minimums: {...minimums, floor: value});
+
+  /// Motivo por el que la configuración no permite generar, o `null` si es
+  /// válida.
+  String? get validationError {
+    if (weekdays.isEmpty) return 'Elige al menos un día de la semana.';
+    if (openingStart == openingEnd) {
+      return 'La apertura y el cambio de turno no pueden coincidir.';
+    }
+    if (openingStart > openingEnd) {
+      return 'La apertura debe empezar antes del cambio de turno.';
+    }
+    if (closingEnd == openingEnd) {
+      return 'El cierre no puede coincidir con el cambio de turno.';
+    }
+    return null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShiftPlanConfig &&
+      other.openingStart == openingStart &&
+      other.openingEnd == openingEnd &&
+      other.closingEnd == closingEnd &&
+      other.allowFullShifts == allowFullShifts &&
+      other.terraceFridayLate == terraceFridayLate &&
+      other.weekdays.length == weekdays.length &&
+      other.weekdays.containsAll(weekdays) &&
+      other.minimums.length == minimums.length &&
+      minimums.entries.every((e) => other.minimums[e.key] == e.value);
+
+  @override
+  int get hashCode => Object.hash(
+        Object.hashAll(weekdays.toList()..sort()),
+        openingStart,
+        openingEnd,
+        closingEnd,
+        allowFullShifts,
+        terraceFridayLate,
+        Object.hashAll([for (final floor in Floor.values) minimumsFor(floor)]),
+      );
+}
+
 /// Genera el horario de un mes a partir de los empleados activos.
 ///
-/// Solo se trabaja viernes y sábado. Cada empleado hace un turno por noche:
-/// apertura (16:00–21:00), segundo turno (21:00–04:00) o turno completo
-/// (16:00–04:00) cuando hace falta cubrir ambos tramos. Para equilibrar las
+/// Por defecto se trabaja viernes y sábado; [ShiftPlanConfig] permite cambiar
+/// los días, las horas de los tramos, los mínimos por planta y el resto de
+/// reglas. Cada empleado hace un turno por noche: apertura, segundo turno o
+/// turno completo cuando hace falta cubrir ambos tramos. Para equilibrar las
 /// horas, dentro de cada planta se asignan los turnos más largos a quienes
 /// llevan menos horas acumuladas en el mes.
 ///
 /// Cada persona se agrupa por su planta habitual ([AppUser.effectiveFloor]) y
 /// el turno conserva su puesto habitual ([AppUser.jobPosition]). Los empleados
 /// con puesto `manteni` se agrupan siempre en planta baja.
-///
-/// La terraza abre a las 21:00 los viernes y a las 16:00 los sábados; en ambos
-/// casos necesita al menos dos personas desde la hora de apertura. Si no hay
-/// suficientes empleados disponibles, se programa a todos y la terraza queda
-/// incompleta.
 ///
 /// Las excepciones de cierre (`SpecialDay.open == false`) se respetan; las
 /// aperturas extra no se generan automáticamente. Un usuario solo entra en un
@@ -394,7 +533,10 @@ class ShiftGenerator {
     required DateTime month,
     required List<AppUser> users,
     required Map<String, SpecialDay> specialDays,
+    ShiftPlanConfig config = const ShiftPlanConfig(),
   }) {
+    if (config.validationError != null) return const [];
+
     final active = [
       for (final e in users)
         if (e.active && e.id != null && e.jobPosition != null) e,
@@ -415,7 +557,7 @@ class ShiftGenerator {
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     for (var day = 1; day <= daysInMonth; day++) {
       final d = DateTime(month.year, month.month, day);
-      if (!Schedule.openWeekdays.contains(d.weekday)) continue;
+      if (!config.weekdays.contains(d.weekday)) continue;
       final key = Schedule.fmt(d);
       final special = specialDays[key];
       if (special != null && !special.open) continue;
@@ -441,25 +583,30 @@ class ShiftGenerator {
         ];
         if (openers.isEmpty) continue;
 
-        // Los viernes la terraza abre a las 21:00: no hay turno a las 16:00 y
-        // todo el mundo empieza en el segundo turno. Al haber un opener
-        // disponible, la terraza se puede abrir.
-        if (floor == Floor.terraza && d.weekday == DateTime.friday) {
+        // La terraza puede empezar directamente en el segundo tramo los
+        // viernes: no hay turno en el primero y todo el mundo entra más tarde.
+        if (config.terraceFridayLate &&
+            floor == Floor.terraza &&
+            d.weekday == DateTime.friday) {
           for (final e in available) {
-            out.add(_build(d, e, openingEnd, closingEnd));
+            out.add(_build(d, e, config.openingEnd, config.closingEnd));
             worked[e.id!] = worked[e.id!]! +
-                workedMinutesFor(startMin: openingEnd, endMin: closingEnd);
+                workedMinutesFor(
+                  startMin: config.openingEnd,
+                  endMin: config.closingEnd,
+                );
           }
           continue;
         }
 
-        // Mínimos de personas por tramo según la planta y el día.
-        final mins = _minimums(floor, d.weekday);
+        // Mínimos de personas por tramo según la planta.
+        final mins = config.minimumsFor(floor);
         final counts = _splitCounts(
           n: available.length,
           openers: openers.length,
           openMin: mins.open,
           peakMin: mins.peak,
+          allowFull: config.allowFullShifts,
         );
 
         // Los turnos completos (los más largos) van a los openers con menos
@@ -485,14 +632,14 @@ class ShiftGenerator {
           final int start;
           final int end;
           if (fullIds.contains(e.id)) {
-            start = openingStart;
-            end = closingEnd;
+            start = config.openingStart;
+            end = config.closingEnd;
           } else if (earlyIds.contains(e.id)) {
-            start = openingStart;
-            end = openingEnd;
+            start = config.openingStart;
+            end = config.openingEnd;
           } else {
-            start = openingEnd;
-            end = closingEnd;
+            start = config.openingEnd;
+            end = config.closingEnd;
           }
           out.add(_build(d, e, start, end));
           worked[e.id!] =
@@ -510,29 +657,26 @@ class ShiftGenerator {
     return out;
   }
 
-  /// Mínimos de personas por tramo (apertura 16:00–21:00 y segundo turno
-  /// 21:00–04:00) para una planta y un día. La terraza abre a las 16:00 los
-  /// sábados y necesita dos personas desde esa hora; el resto de plantas, una
-  /// persona en cada tramo. Los viernes la terraza se trata aparte porque abre
-  /// directamente a las 21:00.
-  static ({int open, int peak}) _minimums(Floor floor, int weekday) {
-    if (floor == Floor.terraza && weekday == DateTime.saturday) {
-      return (open: 2, peak: 2);
-    }
-    return (open: 1, peak: 1);
-  }
-
   /// Reparte [n] personas en apertura, segundo turno y turno completo para
   /// cubrir [openMin] y [peakMin]. El turno completo cuenta para ambos tramos.
-  /// Si no se pueden cumplir (p. ej. faltan openers), devuelve el reparto que
+  /// Si [allowFull] es `false` no se usan turnos completos. Si no se pueden
+  /// cumplir los mínimos (p. ej. faltan openers), devuelve el reparto que
   /// cubre lo máximo posible con las personas disponibles.
   static ({int early, int late, int full}) _splitCounts({
     required int n,
     required int openers,
     required int openMin,
     required int peakMin,
+    bool allowFull = true,
   }) {
-    if (n <= 1) return (early: 0, late: 0, full: n);
+    if (n <= 1) {
+      if (allowFull) return (early: 0, late: 0, full: n);
+      // Sin turnos completos, una sola persona no cubre ambos tramos: se le
+      // pone en la apertura si puede abrir y, si no, en el segundo turno.
+      return openers > 0
+          ? (early: n, late: 0, full: 0)
+          : (early: 0, late: n, full: 0);
+    }
 
     // Reparto de referencia: mitad en apertura y mitad en el segundo turno.
     final baseEarly = n ~/ 2;
@@ -541,7 +685,8 @@ class ShiftGenerator {
     int? bestDeficit;
     int? bestDistance;
 
-    for (var full = 0; full <= n; full++) {
+    final maxFull = allowFull ? n : 0;
+    for (var full = 0; full <= maxFull; full++) {
       for (var early = 0; early <= n - full; early++) {
         final late = n - full - early;
         if (early + full > openers) continue; // abrir exige opener

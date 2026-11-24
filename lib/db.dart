@@ -1123,8 +1123,12 @@ class Db {
   }
 
   /// Genera y guarda el horario de [month] a partir de los usuarios activos
-  /// con puesto. Devuelve cuántos turnos se han creado.
-  Future<int> generateMonthShifts(DateTime month) async {
+  /// con puesto, usando la estructura indicada en [config]. Devuelve cuántos
+  /// turnos se han creado.
+  Future<int> generateMonthShifts(
+    DateTime month, {
+    ShiftPlanConfig config = const ShiftPlanConfig(),
+  }) async {
     final users = (await this.users())
         .where((user) => user.jobPosition != null)
         .toList(growable: false);
@@ -1133,6 +1137,7 @@ class Db {
       month: month,
       users: users,
       specialDays: special,
+      config: config,
     );
     await replaceMonthShifts(month, generated);
     return generated.length;

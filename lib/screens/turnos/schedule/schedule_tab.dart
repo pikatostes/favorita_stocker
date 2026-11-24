@@ -8,6 +8,7 @@ import '../../../formats.dart';
 import '../../../shifts.dart';
 import '../../../widgets/app_ui.dart';
 import 'schedule_dates.dart';
+import 'plan_config_dialog.dart';
 import 'schedule_view.dart';
 import 'shift_dialog.dart';
 
@@ -96,21 +97,20 @@ class _ScheduleTabState extends State<ScheduleTab> {
       return;
     }
 
-    if (data.shifts.isNotEmpty) {
-      final ok = await showConfirmDialog(
-        context,
-        title: 'Regenerar el mes',
-        message: 'Se borrarán los ${data.shifts.length} turnos de este mes y '
-            'se crearán de nuevo a partir de los usuarios.',
-        confirmLabel: 'Generar',
-      );
-      if (!ok || !mounted) return;
-    }
+    final config = await showShiftPlanDialog(
+      context,
+      month: _month,
+      users: eligibleUsers,
+      specialDays: data.special,
+      existingShifts: data.shifts.length,
+    );
+    if (config == null || !mounted) return;
 
     final generated = ShiftGenerator.generateMonth(
       month: _month,
       users: eligibleUsers,
       specialDays: data.special,
+      config: config,
     );
     if (generated.isNotEmpty && mounted) {
       setState(() => _selected = DateTime.parse(generated.first.date));

@@ -8,6 +8,7 @@ import '../../db.dart';
 import '../../formats.dart';
 import '../../widgets/app_ui.dart';
 import '../plan.dart';
+import '../turnos/schedule/plan_config_dialog.dart';
 import 'home_content.dart';
 
 /// Panel de Inicio.
@@ -77,20 +78,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
       return;
     }
     final month = DateTime(data.now.year, data.now.month);
-    if (data.monthShifts.isNotEmpty) {
-      final ok = await showConfirmDialog(
-        context,
-        title: 'Regenerar ${formatMonthLabel(month)}',
-        message: 'Se borrarán los turnos actuales de este mes y se generarán '
-            'de nuevo. Los cambios manuales se perderán.',
-        confirmLabel: 'Regenerar',
-      );
-      if (!ok || !mounted) return;
-    }
+    final config = await showShiftPlanDialog(
+      context,
+      month: month,
+      users: data.users,
+      specialDays: data.special,
+      existingShifts: data.monthShifts.length,
+    );
+    if (config == null || !mounted) return;
 
     await _runPlanning(
       action: () async {
-        final count = await Db.i.generateMonthShifts(month);
+        final count = await Db.i.generateMonthShifts(month, config: config);
         return 'Generados $count turnos.';
       },
       failure: 'No se pudo generar el horario',

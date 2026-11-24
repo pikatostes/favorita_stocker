@@ -63,7 +63,7 @@ lib/
   theme.dart             Paleta de marca (AppColors), propuestas de tema (AppPalettes) y selector.
   models.dart            Dominio: formatMeasure, kGroupImages, CrateType, Product, SpecialDay, Forecast(Result).
   schedule.dart          Calendario/horario del bar (apertura, día de servicio, retención).
-  shifts.dart            Turnos: Floor, JobPosition, ShiftStatus, AppUser, Shift y ShiftGenerator.
+  shifts.dart            Turnos: Floor, JobPosition, ShiftStatus, AppUser, Shift, ShiftPlanConfig y ShiftGenerator.
   incidents.dart        Incidencias: IncidentCategory, IncidentStatus e Incident.
   db.dart                Acceso a Supabase: singleton Db.i, vistas, RPC, Realtime y Auth.
   seed.dart              Catálogo inicial (initialProducts) en código (referencia histórica).
@@ -99,6 +99,7 @@ lib/
     turnos/
       turnos_tabs.dart   TurnoTab y visibleTurnoTabs.
       schedule/schedule_tab.dart   Estado: mes/día, carga, generar, publicar y editar turnos.
+  schedule/plan_config_dialog.dart Card de configuración previa a generar el mes.
       schedule/schedule_view.dart  Calendario, leyenda y composición responsive del horario.
       schedule/schedule_dates.dart nextOpenDay, firstOpenDay e initialSelectedDay (inyectables).
       schedule/day_card.dart       Turnos del día por planta y acciones de admin.
@@ -179,8 +180,14 @@ test/                    Tests por módulo: models, planner, schedule, shifts, p
   `status` y `note`.
 - `shiftDurationMinutes`, `breakMinutesFor` y `workedMinutesFor` centralizan la
   duración, el descanso y las horas efectivas.
-- `ShiftGenerator.generateMonth(month, employees, specialDays)` reparte los
-  turnos (ver §7).
+- **`ShiftPlanConfig`** = estructura con la que se genera el mes: días
+  (`weekdays`), horas de los tramos (`openingStart`, `openingEnd`, `closingEnd`),
+  `allowFullShifts`, `terraceFridayLate` y mínimos por planta (`minimums` →
+  `FloorMinimums(open, peak)`). Los valores por defecto reproducen el
+  comportamiento histórico. `validationError` explica por qué no se puede
+  generar con esa combinación.
+- `ShiftGenerator.generateMonth(month, employees, specialDays, config)` reparte
+  los turnos (ver §7).
 
 ## 6. Base de datos (`db.dart` + `supabase/`)
 
@@ -350,23 +357,39 @@ montar cajas según ella.
   Reparto en viajes por **first-fit decreasing**.
 
 ### Turnos (`shifts.dart`, `ShiftGenerator.generateMonth`)
-- Solo se generan **viernes y sábado** (`Schedule.openWeekdays`). Se respetan
-  los cierres de `SpecialDay` (`open=false`); las aperturas extra no se generan.
-- Tres tipos de turno: apertura **16:00–21:00** (5 h), segundo **21:00–04:00**
-  (7 h) y completo **16:00–04:00** (12 h) cuando hace falta cubrir ambos
-  tramos. El generador crea un turno por empleado y noche (no crea turnos
-  partidos). La asignación manual desde Horario sí permite que una misma
-  persona tenga varios turnos en la noche si no se solapan.
+- La estructura del mes la define **`ShiftPlanConfig`**, que se edita en la card
+  previa a generar (`screens/turnos/schedule/plan_config_dialog.dart`, abierta
+  desde Inicio y Horario). La card tiene su propio botón «Generar horario»; la
+  configuración se recuerda en memoria durante la sesión
+  (`shiftPlanConfigNotifier`) y vuelve a los valores por defecto al reiniciar.
+- **Días**: `weekdays` (1 = lunes .. 7 = domingo). Por defecto **viernes y
+  sábado**. Se respetan los cierres de `SpecialDay` (`open=false`); las aperturas
+  extra no se generan. El calendario, `schedule_dates` y `prediction` siguen
+  usando `Schedule.openWeekdays`, así que generar otros días no cambia el día
+  inicial del calendario.
+- **Tramos**: `openingStart` (16:00), `openingEnd` (21:00) y `closingEnd`
+  (04:00). Si `closingEnd < openingEnd`, el segundo tramo termina al día
+  siguiente. Se generan tres tipos de turno: apertura (`openingStart`–`openingEnd`),
+  segundo (`openingEnd`–`closingEnd`) y completo (`openingStart`–`closingEnd`)
+  cuando hace falta cubrir ambos tramos. El generador crea un turno por empleado
+  y noche (no crea turnos partidos). La asignación manual desde Horario sí
+  permite que una misma persona tenga varios turnos en la noche si no se solapan.
 - **Descanso** solo si se entra antes de las 21:00: >8 h → 40 min; >6 h →
   25 min. Se guarda en `shift.break_min` y no se cuenta como trabajado.
-- **Terraza**: los **viernes abre a las 21:00**, así que todo su personal
-  entra al segundo turno (no se genera turno a las 16:00); los **sábados abre
-  a las 16:00** con el reparto normal. En ambos casos necesita **al menos dos
-  personas desde la hora de apertura**. Si faltan empleados, se programa a
-  todos los disponibles y la terraza puede quedar incompleta.
-- **Mínimos de cobertura**: cada planta necesita al menos una persona en la
-  apertura y otra en el segundo turno. El generador usa turnos completos
-  cuando no hay suficientes personas para cubrir ambos tramos por separado.
+- **Terraza**: `terraceFridayLate` (activo por defecto) hace que los **viernes**
+  la terraza empiece directamente en el segundo tramo (`openingEnd`), sin turno
+  en la apertura. Si se desactiva, la terraza se trata como cualquier planta.
+- **Mínimos de cobertura**: `minimums` guarda `FloorMinimums(open, peak)` por
+  planta. Por defecto 1/1 en planta baja y karaoke, y 2/2 en terraza. Un turno
+  completo cuenta para los dos tramos. Si faltan empleados, se programa a todos
+  los disponibles y la planta puede quedar incompleta.
+- **Turnos completos**: `allowFullShifts` (activo por defecto). Si se desactiva,
+  nunca se genera el turno completo; con una sola persona disponible en una
+  planta se le pone en la apertura si puede abrir y, si no, en el segundo turno.
+- **Validación**: `ShiftPlanConfig.validationError` impide generar (lista de
+  días vacía, apertura igual o posterior al cambio de turno, cierre igual al
+  cambio). El botón «Generar horario» queda deshabilitado y
+  `ShiftGenerator.generateMonth` devuelve una lista vacía.
 - **Planta y puesto**: el generador agrupa a cada empleado por su planta
   habitual (`AppUser.effectiveFloor`, que fuerza planta baja para `manteni`) y
   copia su puesto habitual a `shift.position`/`shift.position_name`. La nota del
@@ -375,22 +398,23 @@ montar cajas según ella.
 - **Equidad por planta**: dentro de cada `Floor` se ordenan los empleados por
   horas acumuladas del mes y los turnos más largos (completo > segundo >
   apertura) van a quien lleva menos. Si una planta tiene una sola persona, esa
-  persona cubre la noche completa (16:00–04:00, o 21:00–04:00 en la terraza de
-  los viernes) para no dejar la planta vacía. La equidad global no se fuerza
-  entre plantas con distinto número de personas.
+  persona cubre la noche completa (o el segundo tramo si es la terraza de un
+  viernes con `terraceFridayLate`) para no dejar la planta vacía. La equidad
+  global no se fuerza entre plantas con distinto número de personas.
 - **Disponibilidad**: un empleado solo entra en un día si `workingDays` está
   vacío o contiene el día de la semana de esa fecha.
-- **Apertura solo con `opener`**: los turnos que empiezan a las 16:00 (apertura
-  y completo) solo se asignan a empleados con `opener = true`. Los no-openers
-  van siempre al segundo turno. Si una planta no tiene ningún opener disponible
-  esa noche, **no se programa** (el hueco queda visible en el calendario); en la
-  terraza de los viernes, que abre a las 21:00, basta con que haya un opener
-  entre el personal programado.
+- **Apertura solo con `opener`**: los turnos que empiezan en `openingStart`
+  (apertura y completo) solo se asignan a empleados con `opener = true`. Los
+  no-openers van siempre al segundo turno. Si una planta no tiene ningún opener
+  disponible esa noche, **no se programa** (el hueco queda visible en el
+  calendario); en la terraza de los viernes, que abre en `openingEnd`, basta con
+  que haya un opener entre el personal programado.
 - `ShiftGenerator` usa el **día de servicio** (`Schedule.fmt`) y recorre el mes
   por componentes, no con `Duration(days: 1)`, para no perder el último día en
   los cambios de hora oficial.
 - Regenerar un mes **sustituye** todos sus turnos (incluidos cambios manuales);
-  la UI avisa. Publicar pasa los borradores a `publicado`; confirmar es por turno.
+  la card avisa antes de confirmar. Publicar pasa los borradores a `publicado`;
+  confirmar es por turno.
 
 ### Retención
 `purgeOld()` (llamado en `main`) borra consumo/noches/excepciones/turnos
@@ -593,7 +617,8 @@ Un archivo por módulo, tests de **comportamiento** (sin mocks de UI salvo widge
 | `inventario_test.dart` | Stock en cajas completas + unidades sueltas, agrupación de variantes y `SpecialDay` boolean/entero. |
 | `planner_test.dart` | Cajas dedicadas/mezcladas, tipos distintos, reparto en viajes y exclusión de botellas. |
 | `schedule_test.dart` | Formato, `serviceDay`, apertura y excepciones, `nextOpen`, retención. |
-| `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas y plantas. |
+| `shifts_test.dart` | Duración, descansos, reparto por planta, equidad, cierres, notas, plantas, `ShiftPlanConfig` y generación configurable. |
+| `plan_config_dialog_test.dart` | Card de configuración: valores por defecto, vista previa, días, mínimos, turnos completos y aviso de borrado. |
 | `product_entries_test.dart` | Agrupación, etiquetas, orden, imágenes. |
 | `category_tabs_test.dart` | Widget: añadir/quitar categorías y alternar pantalla sin excepciones. |
 | `admin_tabs_test.dart` | Pestañas internas de Admin (Calendario, Productos, Inventario e Incidencias). |
@@ -670,7 +695,11 @@ migraciones se validan con `pglast`/el SQL Editor y el script de importación.
   12 h cada noche. Para repartir mejor, añade más personal a esa planta.
 - **Mínimo de terraza**: con pocos openers no se pueden cubrir las dos personas
   desde la apertura; el generador programa a todos los disponibles y el hueco
-  queda visible, pero no inventa personal.
+  queda visible, pero no inventa personal. Los mínimos se ajustan en la card de
+  configuración (por defecto terraza 2/2).
+- **Configuración del horario**: `ShiftPlanConfig` no se guarda en Supabase; vive
+  en `shiftPlanConfigNotifier` y se pierde al reiniciar. Si debe persistir, añade
+  una tabla de una fila y cárgala al arrancar.
 - **Confirmación multidispositivo**: el estado `confirmado` ya se guarda en
   Supabase y se sincroniza por Realtime. Requiere que la publicación
   `supabase_realtime` incluya la tabla `shift` (lo hace la migración 0002).

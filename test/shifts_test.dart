@@ -92,6 +92,95 @@ void main() {
     });
   });
 
+  group('puesto editable', () {
+    test('copyWith cambia el puesto y recalcula la planta efectiva', () {
+      const user = AppUser(
+        id: 1,
+        name: 'Ana',
+        floor: Floor.terraza,
+        jobPosition: JobPosition.camarero,
+      );
+
+      // Camarero -> manteni: se conserva la planta guardada, pero el turno
+      // se asigna a planta baja.
+      final maintenance = user.copyWith(jobPosition: JobPosition.manteni);
+      expect(maintenance.jobPosition, JobPosition.manteni);
+      expect(maintenance.floor, Floor.terraza);
+      expect(maintenance.effectiveFloor, Floor.plantaBaja);
+
+      // Manteni -> camarero: vuelve a mandar la planta guardada.
+      final back = maintenance.copyWith(jobPosition: JobPosition.camarero);
+      expect(back.jobPosition, JobPosition.camarero);
+      expect(back.effectiveFloor, Floor.terraza);
+
+      // También se puede dejar sin puesto.
+      final cleared = user.copyWith(clearJobPosition: true);
+      expect(cleared.jobPosition, isNull);
+      expect(cleared.isMaintenance, isFalse);
+    });
+
+    test('solo reconoce los dos valores del catálogo', () {
+      expect(JobPosition.fromDb('camarero'), JobPosition.camarero);
+      expect(JobPosition.fromDb('manteni'), JobPosition.manteni);
+      expect(JobPosition.fromDb('mantenimiento'), isNull);
+      expect(JobPosition.fromDb(''), isNull);
+      expect(JobPosition.fromDb(null), isNull);
+    });
+
+    test('el cambio de puesto se refleja en el horario generado', () {
+      final month = DateTime(2026, 10);
+      final base = _user(1, 'Ana', Floor.plantaBaja, opener: true);
+
+      final asWaiter = ShiftGenerator.generateMonth(
+        month: month,
+        users: [base],
+        specialDays: const {},
+      );
+      final asMaintenance = ShiftGenerator.generateMonth(
+        month: month,
+        users: [base.copyWith(jobPosition: JobPosition.manteni)],
+        specialDays: const {},
+      );
+
+      expect(
+        asWaiter.every((s) => s.position == JobPosition.camarero),
+        isTrue,
+      );
+      expect(
+        asMaintenance.every((s) => s.position == JobPosition.manteni),
+        isTrue,
+      );
+      expect(
+        asMaintenance.every((s) => s.positionName == 'Manteni'),
+        isTrue,
+      );
+    });
+  });
+
+  group('planta editable', () {
+    test('copyWith cambia la planta sin tocar el puesto', () {
+      const user = AppUser(
+        id: 1,
+        name: 'Ana',
+        floor: Floor.plantaBaja,
+        jobPosition: JobPosition.camarero,
+      );
+
+      final karaoke = user.copyWith(floor: Floor.karaoke);
+      expect(karaoke.floor, Floor.karaoke);
+      expect(karaoke.jobPosition, JobPosition.camarero);
+      expect(karaoke.effectiveFloor, Floor.karaoke);
+
+      // Con manteni la planta guardada cambia, pero la efectiva sigue en baja.
+      final maintenance = user.copyWith(
+        jobPosition: JobPosition.manteni,
+        floor: Floor.terraza,
+      );
+      expect(maintenance.floor, Floor.terraza);
+      expect(maintenance.effectiveFloor, Floor.plantaBaja);
+    });
+  });
+
   group('foto de perfil', () {
     test('lee, normaliza y comparte la ruta del avatar', () {
       final user = AppUser.fromRow({
@@ -495,6 +584,181 @@ void main() {
         expect(_atOpening(day), 1, reason: date);
         expect(_atPeak(day), 1, reason: date);
       }
+    });
+  });
+
+  group('configuración del horario', () {
+    test('solo genera los días elegidos', () {
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        users: [_user(1, 'Ana', Floor.plantaBaja, opener: true)],
+        specialDays: const {},
+        config: const ShiftPlanConfig(weekdays: {DateTime.thursday}),
+      );
+
+      expect(shifts, isNotEmpty);
+      expect(
+        shifts.every(
+          (s) => DateTime.parse(s.date).weekday == DateTime.thursday,
+        ),
+        isTrue,
+      );
+      expect(shifts.map((s) => s.date).toSet(), hasLength(5));
+    });
+
+    test('respeta las horas configuradas', () {
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        users: [
+          _user(1, 'Ana', Floor.plantaBaja, opener: true),
+          _user(2, 'Luis', Floor.plantaBaja, opener: true),
+        ],
+        specialDays: const {},
+        config: const ShiftPlanConfig(
+          weekdays: {DateTime.friday},
+          openingStart: 17 * 60,
+          openingEnd: 22 * 60,
+          closingEnd: 3 * 60,
+        ),
+      );
+
+      expect(
+        shifts.map((s) => (s.startMin, s.endMin)).toSet(),
+        {(17 * 60, 22 * 60), (22 * 60, 3 * 60)},
+      );
+    });
+
+    test('sin turnos completos no aparecen turnos de 12 h', () {
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        users: [
+          _user(1, 'Ana', Floor.plantaBaja, opener: true),
+          _user(2, 'Luis', Floor.plantaBaja, opener: true),
+          _user(3, 'Marta', Floor.plantaBaja, opener: true),
+        ],
+        specialDays: const {},
+        config: const ShiftPlanConfig(
+          weekdays: {DateTime.saturday},
+          allowFullShifts: false,
+        ),
+      );
+
+      expect(shifts, isNotEmpty);
+      expect(
+        shifts.any(
+          (s) =>
+              s.startMin == ShiftGenerator.openingStart &&
+              s.endMin == ShiftGenerator.closingEnd,
+        ),
+        isFalse,
+      );
+    });
+
+    test('la regla de la terraza los viernes se puede desactivar', () {
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        users: [
+          _user(1, 'Ana', Floor.terraza, opener: true),
+          _user(2, 'Luis', Floor.terraza, opener: true),
+        ],
+        specialDays: const {},
+        config: const ShiftPlanConfig(
+          weekdays: {DateTime.friday},
+          terraceFridayLate: false,
+          minimums: {Floor.terraza: FloorMinimums()},
+        ),
+      );
+
+      final day = _day(shifts, shifts.first.date);
+      expect(
+        day.map((s) => s.startMin).toSet(),
+        {ShiftGenerator.openingStart, ShiftGenerator.openingEnd},
+      );
+    });
+
+    test('aplica los mínimos configurados por planta', () {
+      final shifts = ShiftGenerator.generateMonth(
+        month: DateTime(2026, 10),
+        users: [
+          _user(1, 'Ana', Floor.plantaBaja, opener: true),
+          _user(2, 'Luis', Floor.plantaBaja, opener: true),
+          _user(3, 'Marta', Floor.plantaBaja, opener: true),
+        ],
+        specialDays: const {},
+        config: const ShiftPlanConfig(
+          weekdays: {DateTime.saturday},
+          minimums: {Floor.plantaBaja: FloorMinimums(open: 2, peak: 2)},
+        ),
+      );
+
+      final day = _day(shifts, shifts.first.date);
+      expect(
+        day.where((s) => s.startMin == ShiftGenerator.openingStart).length,
+        2,
+      );
+      expect(
+        day.where((s) => s.endMin == ShiftGenerator.closingEnd).length,
+        2,
+      );
+    });
+
+    test('una configuración inválida no genera turnos', () {
+      final users = [_user(1, 'Ana', Floor.plantaBaja, opener: true)];
+
+      expect(
+        ShiftGenerator.generateMonth(
+          month: DateTime(2026, 10),
+          users: users,
+          specialDays: const {},
+          config: const ShiftPlanConfig(weekdays: {}),
+        ),
+        isEmpty,
+      );
+      expect(
+        ShiftGenerator.generateMonth(
+          month: DateTime(2026, 10),
+          users: users,
+          specialDays: const {},
+          config: const ShiftPlanConfig(
+            openingStart: 22 * 60,
+            openingEnd: 16 * 60,
+          ),
+        ),
+        isEmpty,
+      );
+    });
+
+    test('los valores por defecto son los históricos', () {
+      const config = ShiftPlanConfig();
+
+      expect(config.weekdays, {DateTime.friday, DateTime.saturday});
+      expect(config.openingStart, 16 * 60);
+      expect(config.openingEnd, 21 * 60);
+      expect(config.closingEnd, 4 * 60);
+      expect(config.allowFullShifts, isTrue);
+      expect(config.terraceFridayLate, isTrue);
+      expect(
+        config.minimumsFor(Floor.terraza),
+        const FloorMinimums(open: 2, peak: 2),
+      );
+      expect(config.minimumsFor(Floor.plantaBaja), const FloorMinimums());
+      expect(config.weekdaysLabel, 'Vie, Sáb');
+      expect(config.validationError, isNull);
+    });
+
+    test('la configuración se compara por valor', () {
+      expect(const ShiftPlanConfig(), const ShiftPlanConfig());
+      expect(
+        const ShiftPlanConfig(),
+        isNot(const ShiftPlanConfig(allowFullShifts: false)),
+      );
+      expect(
+        const ShiftPlanConfig().withMinimum(
+          Floor.karaoke,
+          const FloorMinimums(open: 2, peak: 1),
+        ).minimumsFor(Floor.karaoke),
+        const FloorMinimums(open: 2, peak: 1),
+      );
     });
   });
 }
